@@ -30,3 +30,12 @@ Powering off all lab guests without destroying anything.
 
 **Evidence deletion**:
 A separate, explicitly confirmed operation that removes ingested Elastic evidence; no reset or shutdown performs it.
+
+**Exercise ID**:
+The operator-set identifier (`lab.exercise_id`) for one manual attack run, written to Elastic with a marker event so evidence is searchable per run.
+
+**Rebuild generation**:
+A counter (`lab.rebuild_generation`) that increments on each target rebuild, distinguishing runs on a target with stable name, IP and logical ID.
+
+**Drain marker**:
+A marker event emitted on the target after its last exercise event; its arrival in Elasticsearch is the check that forwarding has drained before a target reset.
