@@ -21,3 +21,12 @@ The authenticated route from the operator's trusted workstation to lab administr
 
 **Ingestion endpoint**:
 The restricted Elastic-facing service to which lab systems forward telemetry; it is separate from the Elastic management interface.
+
+**Target reset**:
+Rebuilding a target VM from pinned inputs after confirming telemetry forwarding has drained; it never touches Elastic evidence.
+
+**Lab shutdown**:
+Powering off all lab guests without destroying anything.
+
+**Evidence deletion**:
+A separate, explicitly confirmed operation that removes ingested Elastic evidence; no reset or shutdown performs it.
