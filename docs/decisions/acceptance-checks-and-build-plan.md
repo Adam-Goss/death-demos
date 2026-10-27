@@ -1,6 +1,6 @@
 # Acceptance checks and implementation handoff
 
-Supports [Define acceptance checks and the implementation handoff](https://github.com/Adam-Goss/death-demos/issues/10). **Status: draft proposal.** Consolidates, and links rather than duplicates, ADR 0001, [#6 flow contract](https://github.com/Adam-Goss/death-demos/issues/6), `first-targets-and-hunt-outcomes.md` (#7), `deployment-and-reset-lifecycle.md` (#8), `telemetry-contracts-and-budgets.md` (#9). Items marked **[confirm]** are proposals awaiting Adam's decision. This plans validation; it deploys nothing.
+Supports [Define acceptance checks and the implementation handoff](https://github.com/Adam-Goss/death-demos/issues/10). **Status: confirmed by Adam, 2026-10-27.** Consolidates, and links rather than duplicates, ADR 0001, [#6 flow contract](https://github.com/Adam-Goss/death-demos/issues/6), `first-targets-and-hunt-outcomes.md` (#7), `deployment-and-reset-lifecycle.md` (#8), `telemetry-contracts-and-budgets.md` (#9). This plans validation; it deploys nothing.
 
 ## Build milestones (dependency order)
 
@@ -43,14 +43,14 @@ Resolve at the named milestone, not now, unless Adam prefers otherwise.
 | VPN technology; bridge/VLAN IDs, IP ranges | M0/M2 | Depends on inventory. |
 | Image approach (cloud image + first boot vs Packer) and pin/checksum record | M0 | From #8. |
 | Maintenance-mode update sources and initiators | M2 | From #6/#8. |
-| Basic-license ability for ingest-lag alert and exercise block | M3 | Fallback: scheduled script/manual check **[confirm]**. |
+| Basic-license ability for ingest-lag alert and exercise block | M3 | Fallback: scheduled script/manual check. |
 | Exact Proxmox role ACLs | M1 | After resource model. |
 | Drain-check implementation (marker command + query) | M5 | Contract fixed in #9. |
 | Exercise 2 (file upload) validation | After M6 | Research pass needed (#7). |
 | Backup storage availability | M0 | If none, risk accepted explicitly (#9). |
 | Elastic config/secrets backup mechanism | M3 | Offline key from #8. |
 
-## Proposals needing Adam **[confirm]**
+## Handoff rules (confirmed)
 
 1. **Gating:** a milestone is not started until the prior one's checks pass with recorded evidence.
 2. **A2 is a hard gate** before any vulnerable target is powered on.
