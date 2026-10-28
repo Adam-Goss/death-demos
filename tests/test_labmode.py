@@ -86,6 +86,12 @@ class LabMode(unittest.TestCase):
         self.assertEqual(self.fw.mutations(), [])
         self.assertNotIn("apply", self.fw.names())
 
+    def test_the_run_says_whether_it_changed_the_firewall(self):
+        first = self.run_cli("exercise", "t1")
+        second = self.run_cli("exercise", "t1")
+        self.assertIn("applied", first.stdout)
+        self.assertIn("no changes", second.stdout)
+
     def test_update_sources_alias_is_created_from_the_plan(self):
         self.run_cli("exercise", "t1")
         alias = next(iter(self.fw.aliases.values()))

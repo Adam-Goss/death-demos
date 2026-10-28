@@ -96,7 +96,8 @@ class Lab:
                                     selected=self.st["selected"], **detail)) + "\n")
 
     def set_mode(self, event, mode, selected, **detail):
-        sync(self.client(), self.plan, mode, selected)
+        changed = sync(self.client(), self.plan, mode, selected)
+        print("%s (selected: %s): %s" % (mode, selected or "none", "applied" if changed else "no changes"))
         self.st.update(mode=mode, selected=selected, expires=detail.pop("expires", None))
         self.commit(event, **detail)
 
@@ -134,6 +135,7 @@ class Lab:
     def tick(self):
         if self.st["mode"] == "maintenance" and self.st["expires"] is not None and now() >= self.st["expires"]:
             sync(self.client(), self.plan, "exercise", None)
+            print("maintenance expired: back to exercise mode")
             self.st.update(mode="exercise", selected=None, expires=None, reverify_required=True)
             self.commit("maintenance-expired")
 
