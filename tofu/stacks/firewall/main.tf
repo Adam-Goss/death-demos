@@ -20,6 +20,12 @@ variable "installer_iso_file_id" {
   type        = string
 }
 
+variable "attach_installer" {
+  description = "Attach the installer ISO. Set false (TF_VAR_attach_installer=false) once OPNsense is installed."
+  type        = bool
+  default     = true
+}
+
 variable "probe_vms" {
   description = "Create throwaway A2 probe guests in the attacker, elastic and target zones. Destroy after A2."
   type        = bool
@@ -93,6 +99,7 @@ resource "proxmox_virtual_environment_vm" "firewall" {
   }
 
   cdrom {
+    enabled   = var.attach_installer
     file_id   = var.installer_iso_file_id
     interface = "ide2"
   }
@@ -104,10 +111,6 @@ resource "proxmox_virtual_environment_vm" "firewall" {
       model    = "virtio"
       firewall = false # the routed firewall VM is the enforcement point; no Proxmox rules on its ports
     }
-  }
-
-  lifecycle {
-    ignore_changes = [cdrom] # installer ISO is detached after install
   }
 }
 

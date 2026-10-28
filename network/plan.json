@@ -3,8 +3,8 @@
   "ipv6": "disabled",
   "firewall": {
     "product": "opnsense-ce",
-    "version": "26.1.11",
-    "image": { "file": "OPNsense-26.1-dvd-amd64.iso", "sha256": null },
+    "version": "26.7",
+    "image": { "file": "OPNsense-26.7-dvd-amd64.iso", "sha256": "1efd5dc9fa12a1f93571183fe5e3823e22e332872de8417fafb5e4e4d48d5dcd"},
     "vm_id": 2000,
     "wan_ip": "192.168.0.162"
   },
@@ -23,7 +23,7 @@
     "elastic":     { "zone": "elastic",  "ip": "10.77.3.10" },
     "t1":          { "zone": "t1",       "ip": "10.77.11.10" },
     "t2":          { "zone": "t2",       "ip": "10.77.12.10" },
-    "workstation": { "zone": "home",     "ip": "192.168.0.100" },
+    "workstation": { "zone": "home",     "ip": "192.168.0.162" },
     "home_other":  { "zone": "home",     "ip": "192.168.0.50" },
     "home_router": { "zone": "home",     "ip": "192.168.0.1" },
     "proxmox":     { "zone": "home",     "ip": "192.168.0.161" },
