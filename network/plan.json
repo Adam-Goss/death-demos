@@ -6,7 +6,7 @@
     "version": "26.7",
     "image": { "file": "OPNsense-26.7-dvd-amd64.iso", "sha256": "1efd5dc9fa12a1f93571183fe5e3823e22e332872de8417fafb5e4e4d48d5dcd"},
     "vm_id": 2000,
-    "wan_ip": "192.168.0.162"
+    "wan_ip": "192.168.0.82"
   },
   "nic_order": ["home", "attacker", "elastic", "t1", "t2"],
   "zones": {
