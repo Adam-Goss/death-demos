@@ -49,6 +49,22 @@
       ]
     }
   },
+  "attacker": {
+    "vm_id": 2001,
+    "template_vm_id": 2302,
+    "pool": "lab-attacker",
+    "vcpu": 2,
+    "memory_mb": 4096,
+    "os_disk_gb": 30,
+    "ssh_user": "opaleye"
+  },
+  "ops": {
+    "ssh_user": "opaleye",
+    "marker_stream": "logs-lab_marker.events-default",
+    "high_watermark_pct": 90,
+    "callback_port": 4444,
+    "drain": { "log": "/var/log/dvwa/apache2/drain.log", "timeout_s": 180, "poll_s": 5 }
+  },
   "nic_order": ["home", "attacker", "elastic", "t1", "t2"],
   "zones": {
     "home":     { "iface": "wan",  "bridge": "vmbr0",    "cidr": "192.168.0.0/24" },

@@ -5,6 +5,15 @@
     mode: "0755"
   loop: ["{{ dvwa_dir }}", "{{ apache_log_dir }}", /var/lib/opaleye]
 
+# Drain marker log (scripts/labops.py drain appends to it over SSH with sudo); shipped by the Apache access stream.
+- name: Drain marker log
+  ansible.builtin.file:
+    path: "{{ plan.ops.drain.log }}"
+    state: touch
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+
 - name: Compose file
   ansible.builtin.template:
     src: compose.yml.j2

@@ -170,7 +170,7 @@ def package_policy(target, pkg, plan, version=None):
     elif pkg == "apache":
         base["inputs"] = {
             "apache-filestream": {"enabled": True, "streams": {
-                "apache.access": {"enabled": True, "vars": {"paths": [plan["target_stack"]["apache_log_dir"] + "/access.log*"], "custom": FINGERPRINT}},
+                "apache.access": {"enabled": True, "vars": {"paths": [plan["target_stack"]["apache_log_dir"] + "/access.log*", plan["ops"]["drain"]["log"]], "custom": FINGERPRINT}},
                 "apache.error": {"enabled": True, "vars": {"paths": [plan["target_stack"]["apache_log_dir"] + "/error.log*"], "custom": FINGERPRINT}}}},
             "apache-apache/metrics": {"enabled": False},
         }

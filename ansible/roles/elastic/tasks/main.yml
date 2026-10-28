@@ -8,6 +8,8 @@
   ansible.builtin.import_tasks: elasticsearch.yml
 - name: Lifecycle, replicas, snapshots
   ansible.builtin.import_tasks: lifecycle.yml
+- name: Exercise marker data stream
+  ansible.builtin.import_tasks: markers.yml
 - name: Kibana
   ansible.builtin.import_tasks: kibana.yml
 - name: Fleet Server

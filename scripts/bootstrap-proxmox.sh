@@ -27,7 +27,7 @@ role_exists() { pveum role list --output-format json | tr -d ' ' | grep -q "\"ro
 role_exists "$ROLE" || pveum role add "$ROLE" --privs "$(echo $PRIVS | tr ' ' ',')"
 role_exists "$NET_ROLE" || pveum role add "$NET_ROLE" --privs SDN.Use
 
-for stack in firewall elastic targets; do
+for stack in firewall elastic targets attacker; do
   pool=lab-$stack
   user=opaleye-$stack@pve
   pvesh get /pools/$pool >/dev/null 2>&1 || pvesh create /pools --poolid "$pool" --comment "Opaleye $stack stack"
