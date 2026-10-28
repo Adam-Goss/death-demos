@@ -24,10 +24,70 @@ OpenTofu native AES-GCM encryption, PBKDF2 key from `OPALEYE_STATE_PASSPHRASE`, 
 
 ## A1 evidence
 
-Not yet recorded: needs the live node. Paste `a1-verify.sh` output here, plus the `tofu plan` no-op result, then tick:
+Collected 2026-10-28 on node `ludus` with `scripts/a1-verify.sh`. Token secrets are not recorded.
 
-- [ ] Fresh checkout + state key deploys stacks in order
-- [ ] Re-apply is a no-op
-- [ ] Token cannot reach outside lab pools
-- [ ] No node SSH used
-- [ ] No secrets in repo/images
+| source | destination | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| firewall token | GET /pools/lab-firewall | n/a | 200 | 200 | PVE pool ACL |
+| firewall token | GET /pools/lab-elastic | n/a | 403 | 403 | PVE pool ACL |
+| firewall token | GET /pools/lab-targets | n/a | 403 | 403 | PVE pool ACL |
+| firewall token | GET /storage/local | n/a | 403 | 403 | PVE storage ACL |
+| firewall token | POST /access/users | n/a | 403 | 403 | no User.Modify |
+| elastic token | GET /pools/lab-elastic | n/a | 200 | 200 | PVE pool ACL |
+| elastic token | GET /pools/lab-firewall | n/a | 403 | 403 | PVE pool ACL |
+| elastic token | GET /pools/lab-targets | n/a | 403 | 403 | PVE pool ACL |
+| elastic token | GET /storage/local | n/a | 403 | 403 | PVE storage ACL |
+| elastic token | POST /access/users | n/a | 403 | 403 | no User.Modify |
+| targets token | GET /pools/lab-targets | n/a | 200 | 200 | PVE pool ACL |
+| targets token | GET /pools/lab-firewall | n/a | 403 | 403 | PVE pool ACL |
+| targets token | GET /pools/lab-elastic | n/a | 403 | 403 | PVE pool ACL |
+| targets token | GET /storage/local | n/a | 403 | 403 | PVE storage ACL |
+| targets token | POST /access/users | n/a | 403 | 403 | no User.Modify |
+
+Offline checks:
+ok   firewall: has versions.tf, main.tf, outputs.tf
+ok   firewall: state encryption enforced
+ok   firewall: own local state path
+ok   firewall: provider pinned
+ok   firewall: no SSH block (API token only)
+ok   firewall: no hardcoded token
+ok   elastic: has versions.tf, main.tf, outputs.tf
+ok   elastic: state encryption enforced
+ok   elastic: own local state path
+ok   elastic: provider pinned
+ok   elastic: no SSH block (API token only)
+ok   elastic: no hardcoded token
+ok   targets: has versions.tf, main.tf, outputs.tf
+ok   targets: state encryption enforced
+ok   targets: own local state path
+ok   targets: provider pinned
+ok   targets: no SSH block (API token only)
+ok   targets: no hardcoded token
+ok   bootstrap script exists
+ok   ordered runner exists
+ok   A1 verifier exists
+ok   ansible.cfg exists
+ok   gitignore covers state, tfvars, keys
+ok   role has no Sys./Permissions.Modify privileges
+ok   ACLs never granted on '/' root path
+ok   token privilege separation on
+ok   one token per stack
+ok   no PVE token secrets (uuid) in repo
+ok   no private keys in repo
+ok   no tfstate/tfvars tracked
+
+Ordered deploy then no-op re-apply (fresh state each time is the operator's call):
+no-op firewall: yes
+no-op elastic: yes
+no-op targets: yes
+node SSH used: no (provider has no ssh block; scripts never call ssh)
+
+Result:
+
+- [x] Fresh checkout + state key deploys stacks in order (`lab.sh init all` + `apply all`)
+- [x] Re-apply is a no-op (`No changes` for all three stacks)
+- [x] Token cannot reach outside lab pools (cross-pool 403, `/storage/local` 403, user create 403)
+- [x] No node SSH used (provider has no `ssh` block; bootstrap ran once in the node's own shell)
+- [x] No secrets in repo/images (static scan; no images exist yet)
+
+Limits: negative probes cover pool, storage and user-create paths only; cross-pool VM create/delete is untested until M2 has VMs. Lock files committed after the first `tofu init`.
