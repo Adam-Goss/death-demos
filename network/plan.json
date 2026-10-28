@@ -8,6 +8,63 @@
     "vm_id": 2000,
     "wan_ip": "192.168.0.82"
   },
+  "elastic": {
+    "vm_id": 2003,
+    "template_vm_id": 2300,
+    "vcpu": 4,
+    "memory_mb": 8192,
+    "heap_gb": 4,
+    "os_disk_gb": 20,
+    "data_disk_gb": 100,
+    "snapshot_disk_gb": 100,
+    "version": "9.5.5",
+    "packages": {
+      "elasticsearch": { "file": "elasticsearch-9.5.5-amd64.deb", "url": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-9.5.5-amd64.deb", "sha512": "e7b843933fbd6e08e0ac7d6a0c5bf90a27cdbc754187852315a062c6c1a7bf60166786e01c3e74b8f55cdc0170e20f4765448861668da24982aef64ee261a6df" },
+      "kibana": { "file": "kibana-9.5.5-amd64.deb", "url": "https://artifacts.elastic.co/downloads/kibana/kibana-9.5.5-amd64.deb", "sha512": "c1ddacf6dead0e062b5e1bb58e707f18558cdd163684b827bc4b81212750a051cf3f29fc4fd5480c682dc99852fcd5bcfd89a7197412b010435382e9bc4af0ab" },
+      "elastic-agent": { "file": "elastic-agent-9.5.5-linux-x86_64.tar.gz", "url": "https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-9.5.5-linux-x86_64.tar.gz", "sha512": "b5a4d0c612fc21df120fb28507b90b898a8e8e025df1019ac3da2670419977ff52ae2850a7a8ac258957ef6dbfb0736821d61325897c734079570faca934a6d1" }
+    },
+    "retention": {
+      "evidence": { "policy": "lab-evidence-90d", "days": 90 },
+      "metrics": { "policy": "lab-metrics-14d", "days": 14 }
+    },
+    "snapshots": { "repository": "lab-snapshots", "policy": "lab-daily", "schedule": "0 30 2 * * ?", "retain_days": 14 },
+    "datasets": {
+      "evidence": [
+        "logs-endpoint.events.process", "logs-endpoint.events.network", "logs-endpoint.events.file",
+        "logs-endpoint.events.security", "logs-endpoint.events.library", "logs-endpoint.events.registry",
+        "logs-endpoint.alerts", "logs-auditd_manager.auditd", "logs-docker.container_logs",
+        "logs-apache.access", "logs-apache.error", "logs-lab_firewall.flow"
+      ],
+      "metrics": [
+        "metrics-system.cpu", "metrics-system.memory", "metrics-system.load", "metrics-system.network",
+        "metrics-system.diskio", "metrics-system.filesystem", "metrics-system.fsstat", "metrics-system.process",
+        "metrics-system.process_summary", "metrics-system.socket_summary", "metrics-system.uptime",
+        "metrics-endpoint.metrics", "metrics-endpoint.policy", "metrics-endpoint.metadata",
+        "metrics-elastic_agent.elastic_agent", "metrics-elastic_agent.filebeat", "metrics-elastic_agent.metricbeat",
+        "metrics-elastic_agent.fleet_server", "metrics-elastic_agent.endpoint_security",
+        "metrics-fleet_server.agent_status", "metrics-fleet_server.agent_versions",
+        "logs-elastic_agent", "logs-elastic_agent.filebeat", "logs-elastic_agent.metricbeat",
+        "logs-elastic_agent.fleet_server", "logs-elastic_agent.endpoint_security",
+        "logs-fleet_server.output_health", "logs-system.syslog", "logs-system.auth"
+      ]
+    }
+  },
+  "attacker": {
+    "vm_id": 2001,
+    "template_vm_id": 2302,
+    "pool": "lab-attacker",
+    "vcpu": 2,
+    "memory_mb": 4096,
+    "os_disk_gb": 30,
+    "ssh_user": "opaleye"
+  },
+  "ops": {
+    "ssh_user": "opaleye",
+    "marker_stream": "logs-lab_marker.events-default",
+    "high_watermark_pct": 90,
+    "callback_port": 4444,
+    "drain": { "log": "/var/log/dvwa/apache2/drain.log", "timeout_s": 180, "poll_s": 5 }
+  },
   "nic_order": ["home", "attacker", "elastic", "t1", "t2"],
   "zones": {
     "home":     { "iface": "wan",  "bridge": "vmbr0",    "cidr": "192.168.0.0/24" },
@@ -40,12 +97,34 @@
     "ingest":    { "proto": "tcp", "ports": [9200, 8220] }
   },
   "targets": {
-    "t1": { "exercise_ports": [80] },
+    "t1": { "exercise_ports": [80], "vm_id": 2011, "template_vm_id": 2301, "catalogue": "dvwa", "vcpu": 2, "memory_mb": 4096, "disk_gb": 30 },
     "t2": { "exercise_ports": [80] }
+  },
+  "target_stack": {
+    "agent_policy_prefix": "lab-target-",
+    "stamp_pipeline": "lab-stamp",
+    "dvwa_dir": "/opt/dvwa",
+    "apache_log_dir": "/var/log/dvwa/apache2",
+    "ingest_lag_seconds": 120,
+    "dvwa": {
+      "security_level": "low",
+      "source": "https://github.com/digininja/DVWA/blob/a1978a2fed195acd093010af6395f86a281537ca/compose.yml",
+      "images": {
+        "app": { "ref": "ghcr.io/digininja/dvwa", "digest": "sha256:8029450682bd70e2e8cd1ffe8e46dd1885ff2a913296091cebfa8ba0a7d36498", "resolved": "2026-10-28" },
+        "db": { "ref": "docker.io/library/mariadb", "digest": "sha256:d769e37960821dfdcf096954f6e7ac89f747e116c1bba98e48edd265dfc7deae", "resolved": "2026-10-28" }
+      }
+    },
+    "integrations": {
+      "auditd_manager": { "version": "1.21.0", "file": "auditd_manager-1.21.0.zip", "url": "https://epr.elastic.co/epr/auditd_manager/auditd_manager-1.21.0.zip", "sha256": "3044c6b8e55c0004f1ec56a47f1c0cc680cecbadd3105e6b2c7a6a3526ce245d" },
+      "docker": { "version": "2.16.0", "file": "docker-2.16.0.zip", "url": "https://epr.elastic.co/epr/docker/docker-2.16.0.zip", "sha256": "c68099c709914bd8dd0c6be0e539a2a4cda186068fa47da9c2e7ce972342715c" },
+      "apache": { "version": "3.0.2", "file": "apache-3.0.2.zip", "url": "https://epr.elastic.co/epr/apache/apache-3.0.2.zip", "sha256": "4e678b62c3691c21dd5271dc9b765acbc9bc2bb906cc70609bbcfcce3782cba8" }
+    },
+    "bundled_integrations": ["endpoint", "system"]
   },
   "update_sources": [
     "deb.debian.org", "security.debian.org", "archive.ubuntu.com", "security.ubuntu.com",
-    "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com"
+    "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com",
+    "ghcr.io", "pkg-containers.githubusercontent.com"
   ],
   "maintenance": { "max_minutes": 120, "initiators": ["attacker", "t1", "t2"] },
   "probes": [
@@ -95,6 +174,11 @@
     { "id": "p45", "src": "operator", "dst": "elastic", "proto": "tcp", "port": 22, "modes": { "exercise": "allow", "maintenance": "allow" } },
     { "id": "p44", "src": "public", "dst": "t1", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p46", "src": "attacker", "dst": "fw", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
-    { "id": "p47", "src": "attacker", "dst": "fw", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } }
+    { "id": "p47", "src": "attacker", "dst": "fw", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p48", "src": "operator", "dst": "elastic", "proto": "tcp", "port": 9200, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p49", "src": "operator", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p50", "src": "t2", "dst": "elastic", "proto": "tcp", "port": 9200, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p51", "src": "attacker", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p52", "src": "t2", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "allow", "maintenance": "allow" } }
   ]
 }

@@ -1,0 +1,123 @@
+# Every API call runs from the controller over TLS verified with the lab CA.
+- name: ILM policies (90 days evidence, 14 days metrics; a minimum, the disk watermark is the real limit)
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_ilm/policy/{{ el.retention[item].policy }}"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body:
+      policy:
+        phases:
+          hot:
+            actions:
+              rollover: { max_age: 30d, max_primary_shard_size: 50gb }
+          delete:
+            min_age: "{{ el.retention[item].days }}d"
+            actions: { delete: {} }
+  loop: [evidence, metrics]
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+# M4 (issue #23): the final pipeline that stamps lab.target_id / lab.rebuild_generation must exist before any
+# stream names it, or indexing into that stream fails. Created only when absent: its agent registry is appended
+# to by scripts/fleetctl.py register-agent and a re-run of this play must never wipe it.
+- name: Lab stamp pipeline present?
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_ingest/pipeline/{{ plan.target_stack.stamp_pipeline }}"
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    status_code: [200, 404]
+  register: stamp
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Lab stamp pipeline (create only)
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_ingest/pipeline/{{ plan.target_stack.stamp_pipeline }}"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body: "{{ lookup('ansible.builtin.file', 'lab-stamp-pipeline.json') | from_json }}"
+  when: stamp.status == 404
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+# Fleet integration templates include <data stream>@custom, so this sets the policy per data stream.
+# No replicas: single node. Datasets confirmed against real data at A4; extend plan.json then.
+- name: Per-data-stream lifecycle (@custom component templates)
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_component_template/{{ item.name }}@custom"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body:
+      template:
+        settings:
+          index.lifecycle.name: "{{ el.retention[item.class].policy }}"
+          index.number_of_replicas: 0
+          index.final_pipeline: "{{ plan.target_stack.stamp_pipeline }}"
+        mappings:
+          properties:
+            lab:
+              properties:
+                target_id: { type: keyword }
+                rebuild_generation: { type: long }
+                exercise_id: { type: keyword }
+      _meta: { managed_by: opaleye, retention_class: "{{ item.class }}" }
+  loop: >-
+    {{ (el.datasets.evidence | map('community.general.dict_kv', 'name') | map('combine', {'class': 'evidence'}) | list)
+       + (el.datasets.metrics | map('community.general.dict_kv', 'name') | map('combine', {'class': 'metrics'}) | list) }}
+  loop_control: { label: "{{ item.name }}" }
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Snapshot repository
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_snapshot/{{ el.snapshots.repository }}"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body: { type: fs, settings: { location: /srv/es-snapshots/lab } }
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Daily snapshot policy (14 days retained)
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_slm/policy/{{ el.snapshots.policy }}"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body:
+      schedule: "{{ el.snapshots.schedule }}"
+      name: "<lab-daily-{now/d}>"
+      repository: "{{ el.snapshots.repository }}"
+      config: { indices: ["*"], include_global_state: true, expand_wildcards: all }
+      retention:
+        expire_after: "{{ el.snapshots.retain_days }}d"
+        min_count: 3
+        max_count: 30
+  delegate_to: localhost
+  become: false
+  no_log: true

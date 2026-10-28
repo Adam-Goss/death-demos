@@ -1,0 +1,16 @@
+- name: Lab CA and server certificate (controller)
+  ansible.builtin.import_tasks: ca.yml
+- name: Base OS, disks, time
+  ansible.builtin.import_tasks: base.yml
+- name: Pinned packages
+  ansible.builtin.import_tasks: packages.yml
+- name: Elasticsearch
+  ansible.builtin.import_tasks: elasticsearch.yml
+- name: Lifecycle, replicas, snapshots
+  ansible.builtin.import_tasks: lifecycle.yml
+- name: Exercise marker data stream
+  ansible.builtin.import_tasks: markers.yml
+- name: Kibana
+  ansible.builtin.import_tasks: kibana.yml
+- name: Fleet Server
+  ansible.builtin.import_tasks: fleet.yml

@@ -1,0 +1,5 @@
+plan: "{{ lookup('ansible.builtin.file', playbook_dir + '/../../network/plan.json') | from_json }}"
+attacker_user: "{{ plan.attacker.ssh_user }}"
+exercise_dir: /srv/exercise
+# Manual-attack tooling only; Exercise 1 needs nothing beyond python3 and bash.
+attacker_packages: [python3, curl, jq, netcat-openbsd, nmap, dnsutils]

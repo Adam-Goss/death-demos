@@ -1,0 +1,24 @@
+{
+  "description": "Opaleye: stamps lab.target_id and lab.rebuild_generation from the agent registry, and guarantees event.ingested. Final pipeline of every evidence data stream (set by the @custom component templates). The agents map is appended to by scripts/fleetctl.py register-agent and never pruned, so late events of an old generation keep their generation.",
+  "processors": [
+    {
+      "script": {
+        "description": "agent.id -> lab fields",
+        "lang": "painless",
+        "source": "def a = ctx.agent; if (a == null || a.id == null) { return; } def m = params.agents.get(a.id); if (m == null) { return; } if (ctx.lab == null) { ctx.lab = new HashMap(); } ctx.lab.target_id = m.target_id; ctx.lab.rebuild_generation = m.rebuild_generation;",
+        "params": { "agents": {} },
+        "on_failure": [
+          { "append": { "field": "tags", "value": "lab_stamp_failed" } }
+        ]
+      }
+    },
+    {
+      "set": {
+        "description": "Integration pipelines normally set this; never replaces an existing value and never touches @timestamp.",
+        "field": "event.ingested",
+        "value": "{{{_ingest.timestamp}}}",
+        "override": false
+      }
+    }
+  ]
+}

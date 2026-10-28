@@ -1,0 +1,6 @@
+# M5 (issue #24): the attacker VM. Re-runnable. Package installs need the firewall in maintenance mode
+# (the attacker has no Internet in exercise mode): scripts/labmode.py maintenance --minutes 30 --reason "attacker packages".
+- name: Attacker VM
+  hosts: attacker
+  roles:
+    - attacker

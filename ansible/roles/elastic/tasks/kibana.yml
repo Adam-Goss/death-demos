@@ -1,0 +1,59 @@
+- name: kibana.yml
+  ansible.builtin.template:
+    src: kibana.yml.j2
+    dest: /etc/kibana/kibana.yml
+    owner: root
+    group: kibana
+    mode: "0660"
+  notify: Restart kibana
+
+- name: Key readable by kibana
+  ansible.builtin.user:
+    name: kibana
+    groups: elasticsearch
+    append: true
+  notify: Restart kibana
+
+- name: Kibana keystore (password and encryption keys)
+  ansible.builtin.shell: |
+    set -e
+    ks=/usr/share/kibana/bin/kibana-keystore
+    [ -f /etc/kibana/kibana.keystore ] || sudo -u kibana $ks create
+    $ks list | grep -qx "$KEY" || { printf '%s' "$VAL" | sudo -u kibana $ks add "$KEY" --stdin; echo changed; }
+  environment:
+    KEY: "{{ item.key }}"
+    VAL: "{{ item.val }}"
+  loop:
+    - { key: elasticsearch.password, val: "{{ kibana_system_password }}" }
+    - { key: xpack.encryptedSavedObjects.encryptionKey, val: "{{ kibana_key_saved }}" }
+    - { key: xpack.reporting.encryptionKey, val: "{{ kibana_key_reporting }}" }
+    - { key: xpack.security.encryptionKey, val: "{{ kibana_key_security }}" }
+  loop_control: { label: "{{ item.key }}" }
+  register: kks
+  changed_when: "'changed' in kks.stdout"
+  no_log: true
+  notify: Restart kibana
+
+- name: Start kibana
+  ansible.builtin.systemd:
+    name: kibana
+    enabled: true
+    state: started
+
+- name: Apply pending restart now
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Kibana over TLS
+  ansible.builtin.uri:
+    url: "https://{{ el_ip }}:5601/api/status"
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+  delegate_to: localhost
+  become: false
+  register: kb
+  until: kb.status == 200 and kb.json.status.overall.level == 'available'
+  retries: 30
+  delay: 10
+  no_log: true

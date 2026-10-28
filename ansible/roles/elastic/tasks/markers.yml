@@ -1,0 +1,37 @@
+# Exercise start/end marker events (issue #24, scripts/labops.py). A data stream of its own, kept as long as other
+# evidence (lab-evidence-90d), so every exercise window stays searchable by lab.exercise_id.
+- name: Marker data stream template (evidence retention, no replicas)
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_index_template/lab-markers"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body:
+      index_patterns: ["{{ plan.ops.marker_stream | regex_replace('-default$', '-*') }}"]
+      data_stream: {}
+      priority: 300
+      _meta: { managed_by: opaleye, retention_class: evidence }
+      template:
+        settings:
+          index.lifecycle.name: "{{ el.retention.evidence.policy }}"
+          index.number_of_replicas: 0
+        mappings:
+          properties:
+            "@timestamp": { type: date }
+            message: { type: text }
+            event:
+              properties:
+                action: { type: keyword }
+                dataset: { type: keyword }
+                kind: { type: keyword }
+            lab:
+              properties:
+                exercise_id: { type: keyword }
+                target_id: { type: keyword }
+                rebuild_generation: { type: long }
+  delegate_to: localhost
+  become: false
+  no_log: true

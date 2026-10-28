@@ -26,6 +26,12 @@ variable "attach_installer" {
   default     = true
 }
 
+variable "seed_iso_file_id" {
+  description = "Config seed ISO already in the ISO store (scripts/opnsense_seed.py iso, uploaded out of band), e.g. iso-files:iso/opaleye-fw-seed.iso. Attached in the cdrom slot once the installer is detached; the OPNsense config importer reads conf/config.xml from it. Ignored when seeded. The id is not a secret; the ISO content is, so keep the store private."
+  type        = string
+  default     = ""
+}
+
 variable "seeded" {
   description = "Rebuild from the pre-installed nano image plus the config seed (scripts/seed-build.sh): no installer, no console. false = installer ISO path."
   type        = bool
@@ -45,7 +51,7 @@ variable "nano_image_sha256" {
 }
 
 variable "seed_iso_path" {
-  description = "Seed ISO built by scripts/seed-build.sh (holds the injected secrets; lives in encrypted state only)."
+  description = "Seed ISO built by scripts/seed-build.sh (holds the injected secrets; lives in encrypted state only). Used when seeded."
   type        = string
   default     = "../../../.state/opnsense-seed.iso"
 }
@@ -54,6 +60,12 @@ variable "probe_vms" {
   description = "Create throwaway A2 probe guests in the attacker, elastic and target zones. Destroy after A2."
   type        = bool
   default     = false
+}
+
+variable "probe_zones" {
+  description = "Zones that get a probe guest. Drop \"elastic\" (TF_VAR_probe_zones='[\"attacker\",\"t1\",\"t2\"]') once the real Elastic VM owns that address (A3)."
+  type        = list(string)
+  default     = ["attacker", "elastic", "t1", "t2"]
 }
 
 variable "probe_template_vm_id" {
@@ -72,8 +84,8 @@ variable "probe_ssh_public_key" {
 locals {
   plan         = jsondecode(file("${path.module}/../../../network/plan.json"))
   zones        = local.plan.zones
-  probe_zones  = ["attacker", "elastic", "t1", "t2"]
-  probe_prefix = { for z in local.probe_zones : z => split("/", local.zones[z].cidr)[1] }
+  probe_zones  = var.probe_zones
+  probe_prefix = { for z in ["attacker", "elastic", "t1", "t2"] : z => split("/", local.zones[z].cidr)[1] }
 }
 
 # Proves the stack token can read its own pool, and nothing else.
@@ -148,8 +160,10 @@ resource "proxmox_virtual_environment_vm" "firewall" {
 
   # Seeded: the config seed. Otherwise the installer ISO (empty drive once installed).
   cdrom {
+    # seeded: the uploaded seed. Otherwise installer first; after install the out-of-band seed (if any); "none" = empty drive
     file_id = (var.seeded ? proxmox_virtual_environment_file.seed[0].id
-    : var.attach_installer ? var.installer_iso_file_id : "none")
+    : var.attach_installer ? var.installer_iso_file_id
+    : var.seed_iso_file_id != "" ? var.seed_iso_file_id : "none")
     interface = "ide2"
   }
 

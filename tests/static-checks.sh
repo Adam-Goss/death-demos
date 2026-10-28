@@ -8,7 +8,7 @@ ok()  { echo "ok   $*"; }
 bad() { echo "FAIL $*"; fail=1; }
 check() { local desc=$1; shift; if "$@" >/dev/null 2>&1; then ok "$desc"; else bad "$desc"; fi; }
 
-stacks=(firewall elastic targets)
+stacks=(firewall elastic targets attacker)
 
 for s in "${stacks[@]}"; do
   d=tofu/stacks/$s
@@ -45,15 +45,36 @@ check "exercise rules match the A2 probe matrix" python3 scripts/netpolicy.py li
 check "maintenance rules match the A2 probe matrix" python3 scripts/netpolicy.py lint maintenance
 check "netpolicy and labmode unit tests pass" python3 -m unittest discover -s tests -p 'test_*.py'
 check "firewall stack builds NICs from the plan (no literal bridge names)"   bash -c "grep -q 'nic_order' tofu/stacks/firewall/main.tf && ! grep -Eq 'vmbr[0-9]+' tofu/stacks/*/*.tf"
-check "only the firewall stack can reach the home bridge"   bash -c "! grep -Eq 'zones\.home|zones\[\"home\"\]|\.home\b' tofu/stacks/elastic/*.tf tofu/stacks/targets/*.tf"
+check "only the firewall stack can reach the home bridge"   bash -c "! grep -Eq 'zones\.home|zones\[\"home\"\]|\.home\b' tofu/stacks/elastic/*.tf tofu/stacks/targets/*.tf tofu/stacks/attacker/*.tf"
 check "bridge bootstrap writes outside Ludus blocks (interfaces.d)" grep -q 'interfaces.d' scripts/bootstrap-bridges.sh
 check "A2 verifier exists" test -f scripts/a2-verify.sh
 check "firewall ISO is pinned by a 64-hex sha256 in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['firewall']['image'];sys.exit(0 if re.fullmatch('[0-9a-f]{64}',i['sha256']) else 1)"
 
-# M2 follow-up (issue #31): firewall config seed.
-check "seed tooling exists" test -x scripts/seed-build.sh -a -f scripts/seed-sanitize.py
-check "seed template (if present) holds no secrets or filter rules" bash -c "[ ! -f seed/opnsense/config.xml.tmpl ] || python3 -c 'import importlib.util as u,sys;sp=u.spec_from_file_location(\"s\",\"scripts/seed-sanitize.py\");m=u.module_from_spec(sp);sp.loader.exec_module(m);sys.exit(1 if m.leaks(open(\"seed/opnsense/config.xml.tmpl\").read()) else 0)'"
-check "no raw config.xml tracked" bash -c "! git ls-files -co --exclude-standard | grep -E '(^|/)config\.xml$'"
+# M3 (issue #22): Elastic stack guards.
+check "elastic VM has a destroy guard" grep -Eq 'prevent_destroy *= *true' tofu/stacks/elastic/main.tf
+check "elastic packages pinned by sha512" python3 -c "import json,re,sys;e=json.load(open('network/plan.json'))['elastic'];sys.exit(0 if all(re.fullmatch('[0-9a-f]{128}',p['sha512']) for p in e['packages'].values()) else 1)"
+check "no Elastic secrets in ansible/tofu (generated under secrets/)" bash -c "! grep -REn 'password: *[\"'\''][A-Za-z0-9]{8,}' ansible tofu/stacks/elastic"
+check "elastic playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/elastic.yml --syntax-check)"
+
+# M5 (issue #24): attacker stack and operator-command guards.
+check "operator commands never reference evidence deletion" bash -c "! grep -Eq 'evidence-delete|evidence_delete|_delete_by_query' scripts/labops.py scripts/labpower.py scripts/pve.py scripts/lab.sh scripts/target.sh"
+check "attacker playbook passes syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/attacker.yml --syntax-check)"
+
+# M4 (issue #23): target VM guards.
+check "target images pinned by digest in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['target_stack']['dvwa']['images'];sys.exit(0 if all(re.fullmatch('sha256:[0-9a-f]{64}',v['digest']) for v in i.values()) else 1)"
+check "integration zips pinned by sha256 in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['target_stack']['integrations'];sys.exit(0 if all(re.fullmatch('[0-9a-f]{64}',v['sha256']) for v in i.values()) else 1)"
+check "no enrolment token in the target role or template script" bash -c "! grep -RIniE 'enrol+ment[-_ ]?(token|key)|api_key' ansible/roles/target/templates ansible/roles/target/defaults scripts/make-target-template.sh"
+check "target stack has no prevent_destroy (rebuilt, never kept)" bash -c "! grep -q prevent_destroy tofu/stacks/targets/main.tf"
+check "target playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/target.yml --syntax-check -e target=t1 -e rebuild_generation=1 && ansible-playbook playbooks/elastic-evidence.yml --syntax-check)"
+check "fleetctl and target tests pass" python3 -m unittest tests.test_fleetctl tests.test_target_plan
+
+# M2 follow-up (issue #31): firewall config as code.
+check "firewall seed is current, secret-free, rule-free and passes invariants" python3 scripts/opnsense_seed.py check
+check "seed generator tests pass" python3 -m unittest tests.test_opnsense_seed
+check "no real secrets in any non-ignored XML (config.xml seeds)" bash -c "echo \"$files\" | grep -E '\.xml$' | xargs python3 scripts/opnsense_seed.py scan"
+check "no rendered seed or ISO outside gitignored paths" bash -c "! git ls-files | grep -Eq '(^|/)(opnsense-seed\.iso|config\.xml)$'"
+check "firewall stack takes the seed by file id only (no secret variables)" bash -c "grep -q seed_iso_file_id tofu/stacks/firewall/main.tf && ! grep -Eiq 'variable \"[a-z_]*(password|secret|private_key|api_key)' tofu/stacks/firewall/*.tf"
+check "seed ISO builder exists" test -x scripts/seed-build.sh
 check "seed ISO stays out of git" bash -c "git check-ignore -q .state/opnsense-seed.iso"
 
 exit $fail

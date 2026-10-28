@@ -15,6 +15,7 @@
 #         segment: it is routed to the firewall WAN by the host routes above).
 # Env: PROBE_SSH (default: ssh -o BatchMode=yes -o ConnectTimeout=5, user opaleye), REVERIFY=1 (after a clean exercise/lab pass, clear labmode's re-verify flag),
 #      and for `failclosed` and the `home` phase (firewall WAN MAC): PROXMOX_VE_ENDPOINT, PROXMOX_VE_API_TOKEN_FIREWALL, PVE_NODE, PROXMOX_VE_INSECURE.
+#      ONLY_DST=<host> keeps only the rows whose destination is that host (A3 reruns the elastic rows against the real VM).
 # Exit non-zero if any row differs from expected. Rows that cannot be sourced from here are listed as SKIP.
 set -u
 cd "$(dirname "$0")/.."
@@ -133,6 +134,7 @@ echo "| --- | --- | --- | --- | --- | --- |"
 fail=0; skipped=0; n=0
 while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip dip; do
   [ "$(phase_of "$src")" = "$want" ] || continue
+  [ -z "${ONLY_DST:-}" ] || [ "$dst" = "$ONLY_DST" ] || continue
   if [ "$dip" = UPDATE_SOURCE ]; then  # the firewall alias resolves via its own DNS; resolve the same way a real update would
     dip=$(run "$src" "$sip" "getent ahostsv4 $ufqdn | awk 'NR==1{print \$1}'" 2>/dev/null)
   fi

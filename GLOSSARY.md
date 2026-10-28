@@ -28,6 +28,12 @@ Rebuilding a target VM from pinned inputs after confirming telemetry forwarding 
 **Lab shutdown**:
 Powering off all lab guests without destroying anything.
 
+**Lab startup**:
+Powering the lab guests back on after a lab shutdown, firewall first; it never rebuilds anything.
+
+**Attacker-side state**:
+The exercise working files on the Attacker VM (`/srv/exercise`); cleared by its own command, never by a target reset.
+
 **Evidence deletion**:
 A separate, explicitly confirmed operation that removes ingested Elastic evidence; no reset or shutdown performs it.
 

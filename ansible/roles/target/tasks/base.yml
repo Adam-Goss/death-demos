@@ -1,0 +1,50 @@
+- name: Hostname
+  ansible.builtin.hostname:
+    name: "{{ target_hostname }}"
+
+# Package installs and image pulls need maintenance mode (labmode.py maintenance). Fail with a reason, not a hang.
+- name: Update sources reachable (needs maintenance mode)
+  ansible.builtin.wait_for:
+    host: deb.debian.org
+    port: 443
+    timeout: 15
+
+- name: Docker and tools
+  ansible.builtin.apt:
+    name: [docker.io, docker-compose, curl, ca-certificates]
+    state: present
+    update_cache: true
+    cache_valid_time: 300
+
+- name: Docker enabled
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+# Lab NTP is on the firewall VM (.1 of this zone).
+- name: Lab NTP
+  ansible.builtin.copy:
+    dest: /etc/systemd/timesyncd.conf.d/lab.conf
+    content: "[Time]\nNTP={{ target_gw }}\n"
+    mode: "0644"
+  register: ntp
+
+- name: Restart timesyncd
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    state: restarted
+  when: ntp.changed
+
+- name: Lab CA directory
+  ansible.builtin.file:
+    path: /etc/lab-ca
+    state: directory
+    mode: "0755"
+
+# Public certificate only. The CA key never leaves the controller.
+- name: Lab CA certificate
+  ansible.builtin.copy:
+    src: "{{ secrets_dir }}/ca/ca.crt"
+    dest: /etc/lab-ca/ca.crt
+    mode: "0644"

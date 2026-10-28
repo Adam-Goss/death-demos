@@ -1,0 +1,8 @@
+# M4 (issue #23): one target VM. Run by scripts/target.sh, which passes the target and its rebuild generation.
+# The Elastic side (packages, policies, pipeline, lag rule) must exist first: playbooks/elastic-evidence.yml.
+# Re-runnable. A failed or compromised target is rebuilt, never hand-repaired.
+- name: Target VM
+  hosts: "{{ target | default('t1') }}"
+  become: true
+  roles:
+    - target

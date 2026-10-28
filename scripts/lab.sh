@@ -7,7 +7,7 @@
 #   PROXMOX_VE_INSECURE        optional, true for the default self-signed cert
 set -eu
 cd "$(dirname "$0")/.."
-ORDER="firewall elastic targets"
+ORDER="firewall elastic targets attacker"
 cmd=${1:?usage: lab.sh <init|plan|apply|destroy> <stack|all>}
 target=${2:?usage: lab.sh <init|plan|apply|destroy> <stack|all>}
 
