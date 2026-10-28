@@ -12,29 +12,31 @@ import unittest
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, HERE)
-from fake_elastic import FakeEs  # noqa: E402
+from fake_es_ops import FakeEs  # noqa: E402
 from fake_pve import FakePve  # noqa: E402
 
 PLAN = json.load(open(os.path.join(ROOT, "network/plan.json")))
 FW, EL, AT = PLAN["firewall"]["vm_id"], PLAN["elastic"]["vm_id"], PLAN["attacker"]["vm_id"]
-T1, T2 = PLAN["targets"]["t1"]["vm_id"], PLAN["targets"]["t2"]["vm_id"]
+T1 = PLAN["targets"]["t1"]["vm_id"]
 
 
 class OpsCase(unittest.TestCase):
     def setUp(self):
         self.es = FakeEs()
-        self.pve = FakePve({FW: "running", EL: "running", AT: "running", T1: "running", T2: "running"})
+        self.pve = FakePve({FW: "running", EL: "running", AT: "running", T1: "running"})
         self.dir = tempfile.mkdtemp()
         self.state = os.path.join(self.dir, "state")
         os.makedirs(self.state)
         self.log = os.path.join(self.dir, "stub.log")
+        self.gen = os.path.join(self.dir, "gen")
+        os.makedirs(self.gen)
         open(self.log, "w").close()
         pw = os.path.join(self.dir, "pw")
         with open(pw, "w") as f:
             f.write("pw\n")
         self.env = dict(
             os.environ, LABMODE_STATE_DIR=self.state, LABOPS_SSH=os.path.join(HERE, "stub_ssh.py"),
-            LABOPS_LAB_SH=os.path.join(HERE, "stub_cmd.sh"), LABOPS_ANSIBLE=os.path.join(HERE, "stub_cmd.sh"),
+            LABOPS_TARGET_SH=os.path.join(HERE, "stub_target.sh"), STUB_GEN_DIR=self.gen,
             LABOPS_POLL="0.05", LABOPS_DRAIN_TIMEOUT="1", STUB_LOG=self.log, FAKE_ES_URL=self.es.url,
             ELASTIC_ES_URL=self.es.url, ELASTIC_KB_URL=self.es.url, ELASTIC_PASSWORD_FILE=pw,
             PROXMOX_VE_ENDPOINT=self.pve.url, PVE_NODE="n1",
@@ -131,8 +133,9 @@ class ExerciseMarkers(OpsCase):
         self.assertIn("end", r.stdout)
         self.assertNotEqual(self.ops("exercise", "show", "nope").returncode, 0)
 
-    def test_generation_can_be_aligned_with_the_target(self):
-        self.assertEqual(self.ops("generation", "t1", "4").returncode, 0)
+    def test_the_marker_carries_the_generation_target_sh_reports(self):
+        with open(os.path.join(self.gen, "t1"), "w") as f:
+            f.write("4\n")
         self.start()
         self.assertEqual(self.markers()[0]["lab"]["rebuild_generation"], 4)
 
@@ -159,15 +162,31 @@ class Drain(OpsCase):
 
 
 class Reset(OpsCase):
-    def test_reset_refuses_anything_but_a_target(self):
-        for name in ("elastic", "firewall", "attacker", "all", "t9"):
+    def setUp(self):
+        super().setUp()
+        self.labmode("maintenance", None)  # provisioning needs maintenance mode
+
+    def target_calls(self):
+        return [c for c in self.stub_calls() if not c.startswith("[")]
+
+    def test_reset_refuses_anything_but_a_target_with_a_vm(self):
+        for name in ("elastic", "firewall", "attacker", "all", "t9", "t2"):
             r = self.ops("reset", name)
             self.assertNotEqual(r.returncode, 0, name)
         self.assertEqual(self.stub_calls(), [])
         self.assertEqual(self.es.deletes(), [])
 
+    def test_reset_refuses_outside_maintenance_mode_before_changing_anything(self):
+        self.labmode("exercise", "t1")
+        r = self.ops("reset", "t1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("maintenance", r.stderr)
+        self.assertEqual(self.stub_calls(), [])
+
     def test_reset_refuses_during_an_active_exercise_on_that_target(self):
+        self.labmode("exercise", "t1")
         self.start()
+        self.labmode("maintenance", None)
         r = self.ops("reset", "t1")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("exercise", r.stderr)
@@ -182,8 +201,8 @@ class Reset(OpsCase):
     def test_failed_drain_refuses_the_rebuild(self):
         r = self.ops("reset", "t1", STUB_DROP="1")
         self.assertNotEqual(r.returncode, 0)
-        self.assertEqual(len(self.stub_calls()), 1)  # only the drain ssh; nothing rebuilt
-        self.assertNotIn("replace", self.stub_calls()[0])
+        self.assertEqual(self.target_calls(), [])
+        self.assertEqual(len(self.stub_calls()), 1)  # only the drain ssh
 
     def test_acknowledged_loss_overrides_a_failed_drain_and_is_audited(self):
         r = self.ops("reset", "t1", "--acknowledge-loss", "agent wedged", STUB_DROP="1")
@@ -191,47 +210,34 @@ class Reset(OpsCase):
         last = self.audit()[-1]
         self.assertEqual((last["event"], last["acknowledged_loss"]), ("reset", "agent wedged"))
 
-    def test_reset_rebuilds_only_the_target_stack_and_bumps_the_generation(self):
-        r = self.ops("reset", "t1")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        calls = self.stub_calls()
-        replace = [c for c in calls if c.startswith("replace|")]
-        self.assertEqual(replace, ['replace|targets|proxmox_virtual_environment_vm.target["t1"]|TF={"t1": 2, "t2": 1}'])
-        self.assertTrue(any(c.startswith("playbooks/targets.yml|--limit|t1|") and "rebuild_generation=2" in c for c in calls))
-        self.assertTrue(all("elastic" not in c.lower() for c in calls if not c.startswith("[")))
-        self.assertEqual(self.es.deletes(), [])
-        gen = self.ops("generation", "t1")
-        self.assertEqual(gen.stdout.strip(), "2")
-        self.assertEqual(self.pve.calls, [])  # no Proxmox call from the ops process
-
-    def test_reset_retires_only_that_targets_agent(self):
-        self.ops("reset", "t1")
-        (body,) = [b for m, p, b in self.es.calls if p == "/api/fleet/agents/bulk_unenroll"]
-        self.assertIn("opaleye-t1", body["agents"])
-        self.assertNotIn("t2", body["agents"])
-        self.assertTrue(body["revoke"])
-
-    def test_a_failed_agent_retirement_refuses_the_rebuild(self):
-        self.es.fail_unenroll = True
-        r = self.ops("reset", "t1")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("not retired", r.stderr)
-        self.assertEqual([c for c in self.stub_calls() if c.startswith("replace|")], [])
-        self.assertEqual(self.ops("generation", "t1").stdout.strip(), "1")
-
     def test_an_acknowledged_loss_needs_a_real_reason(self):
         for reason in ("", "  ", "ok"):
             self.assertNotEqual(self.ops("reset", "t1", "--acknowledge-loss", reason, STUB_DROP="1").returncode, 0)
         self.assertEqual(self.stub_calls(), [])
 
-    def test_a_failed_rebuild_keeps_the_generation(self):
-        r = self.ops("reset", "t1", STUB_CMD_RC="1")
+    def test_reset_bumps_then_provisions_only_that_target_through_target_sh(self):
+        r = self.ops("reset", "t1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.target_calls(), ["bump|bump t1 --acknowledge-no-drain-check", "provision|provision t1"])
+        self.assertEqual(self.ops("generation", "t1").stdout.strip(), "2")
+        self.assertEqual(self.es.deletes(), [])
+        self.assertEqual(self.pve.calls, [])
+
+    def test_a_failed_bump_provisions_nothing(self):
+        r = self.ops("reset", "t1", STUB_FAIL="bump")
         self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.target_calls(), ["bump|bump t1 --acknowledge-no-drain-check"])
         self.assertEqual(self.ops("generation", "t1").stdout.strip(), "1")
+
+    def test_a_failed_provision_says_to_rerun_provision_not_to_repair(self):
+        r = self.ops("reset", "t1", STUB_FAIL="provision")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("target.sh provision t1", r.stderr)
+        self.assertEqual(self.ops("generation", "t1").stdout.strip(), "2")  # already bumped: provision converges to it
 
     def test_reset_never_issues_an_elastic_delete(self):
         self.ops("reset", "t1")
-        self.ops("reset", "t1", "--acknowledge-loss", "x", STUB_DROP="1")
+        self.ops("reset", "t1", "--acknowledge-loss", "reason given", STUB_DROP="1")
         self.assertEqual(self.es.deletes(), [])
 
 
@@ -242,7 +248,7 @@ class Shutdown(OpsCase):
     def test_shutdown_powers_off_the_guests_but_not_elastic_by_default(self):
         r = self.ops("shutdown")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, T2, FW])
+        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, FW])
         self.assertEqual(self.pve.vms[EL], "running")
         self.assertIn("Elastic left running", r.stdout)
         self.assertEqual(self.es.deletes(), [])
@@ -252,7 +258,7 @@ class Shutdown(OpsCase):
     def test_include_elastic_is_a_graceful_shutdown_only_and_never_a_delete(self):
         r = self.ops("shutdown", "--include-elastic")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, T2, EL, FW])
+        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, EL, FW])
         self.assertTrue(all(m in ("GET", "POST") for m, _ in self.pve.paths()))
         self.assertTrue(all(p.endswith(("/status/current", "/status/shutdown")) for _, p in self.pve.paths()))
         self.assertEqual(self.es.deletes(), [])
@@ -260,7 +266,7 @@ class Shutdown(OpsCase):
     def test_shutdown_drains_running_targets_first(self):
         self.ops("shutdown")
         drained = [json.loads(c)[-2] for c in self.stub_calls()]
-        self.assertEqual(sorted(drained), ["opaleye@10.77.11.10", "opaleye@10.77.12.10"])
+        self.assertEqual(drained, ["opaleye@10.77.11.10"])
 
     def test_a_failed_drain_stops_the_shutdown_before_anything_is_powered_off(self):
         r = self.ops("shutdown", STUB_DROP="1")
@@ -273,18 +279,18 @@ class Shutdown(OpsCase):
         self.assertEqual(self.vm_ops("shutdown"), [])
         r = self.ops("shutdown", "--acknowledge-loss", "elastic is down", STUB_DROP="1")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, T2, FW])
+        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, FW])
 
     def test_shutdown_is_refused_during_an_active_exercise(self):
         self.start()
         self.assertNotEqual(self.ops("shutdown").returncode, 0)
         self.assertEqual(self.pve.calls, [])
 
-    def test_stopped_guests_are_skipped_and_not_drained(self):
-        self.pve.vms[T2] = "stopped"
+    def test_a_stopped_target_is_skipped_and_not_drained(self):
+        self.pve.vms[T1] = "stopped"
         self.ops("shutdown")
-        self.assertNotIn(T2, self.vm_ops("shutdown"))
-        self.assertEqual(len(self.stub_calls()), 1)
+        self.assertNotIn(T1, self.vm_ops("shutdown"))
+        self.assertEqual(self.stub_calls(), [])
 
     def test_a_guest_that_will_not_stop_fails_the_run_and_is_never_forced(self):
         self.pve.stuck.add(T1)
@@ -298,7 +304,7 @@ class Shutdown(OpsCase):
             self.pve.vms[v] = "stopped"
         r = self.ops("startup", "--include-elastic")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.vm_ops("start"), [FW, EL, T2, T1, AT])
+        self.assertEqual(self.vm_ops("start"), [FW, EL, T1, AT])
 
 
 class AttackerClean(OpsCase):

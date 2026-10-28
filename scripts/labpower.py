@@ -13,7 +13,7 @@ WANT = {"shutdown": "stopped", "startup": "running"}
 def guests(plan, include_elastic):
     """Shutdown order: attacker, targets, [elastic], firewall."""
     g = [Guest("attacker", "attacker", plan["attacker"]["vm_id"])]
-    g += [Guest(t, "targets", v["vm_id"]) for t, v in plan["targets"].items()]
+    g += [Guest(t, "targets", v["vm_id"]) for t, v in plan["targets"].items() if "vm_id" in v]
     if include_elastic:
         g.append(Guest("elastic", "elastic", plan["elastic"]["vm_id"]))
     g.append(Guest("firewall", "firewall", plan["firewall"]["vm_id"]))

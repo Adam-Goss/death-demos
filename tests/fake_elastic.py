@@ -1,46 +1,30 @@
-"""In-memory stand-in for the Elasticsearch/Kibana calls scripts/elastic_api.py users make (plain http, no TLS)."""
+"""In-memory stand-in for the Kibana Fleet/alerting and Elasticsearch ingest/search calls scripts/fleetctl.py makes."""
+import io
 import json
 import threading
+import uuid
+import zipfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse
 
 
-def dig(doc, dotted):
-    cur = doc
-    for k in dotted.split("."):
-        if not isinstance(cur, dict) or k not in cur:
-            return doc.get(dotted) if isinstance(doc, dict) else None
-        cur = cur[k]
-    return cur
+def package_zip(name, version):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("%s-%s/manifest.yml" % (name, version), "name: %s\nversion: %s\n" % (name, version))
+    return buf.getvalue()
 
 
-def matches(doc, q):
-    if not q or "match_all" in q:
-        return True
-    if "bool" in q:
-        b = q["bool"]
-        return all(matches(doc, c) for c in b.get("filter", []) + b.get("must", []))
-    if "term" in q:
-        (f, v), = q["term"].items()
-        v = v.get("value") if isinstance(v, dict) else v
-        return str(dig(doc, f)) == str(v)
-    if "match_phrase" in q:
-        (f, v), = q["match_phrase"].items()
-        return str(v) in str(dig(doc, f) or "")
-    if "range" in q:
-        (f, c), = q["range"].items()
-        got = dig(doc, f)
-        return got is not None and all((got >= c[k] if k == "gte" else got <= c[k]) for k in c)
-    raise AssertionError("fake_elastic: unsupported query %r" % q)
-
-
-class FakeEs:
-    def __init__(self, password="pw"):
-        self.docs = {}        # data stream -> [doc]
-        self.calls = []       # (method, path, body)
-        self.disk_percent = 40
-        self.down = False     # simulate an outage: every request is a 503
-        self.drop_drain = False  # a drain marker that never arrives
-        self.fail_unenroll = False
+class Fake:
+    def __init__(self):
+        self.installed = {"endpoint": "9.5.0", "system": "2.0.0"}
+        self.policies, self.package_policies, self.keys, self.agents = {}, [], {}, {}
+        self.pipelines, self.rules, self.calls = {}, {}, []
+        self.lag_hits = 0
+        self.counts = {}  # index pattern -> document count for _count (default 5)
+        self.sample = {"@timestamp": "2026-10-28T10:00:00Z", "event": {"created": "2026-10-28T10:00:01Z", "ingested": "2026-10-28T10:00:02Z"},
+                       "data_stream": {"dataset": "docker.container_logs"}, "lab": {"target_id": "t1"}}
+        self.last_search = None
         self.srv = HTTPServer(("127.0.0.1", 0), self._handler())
         self.url = "http://127.0.0.1:%d" % self.srv.server_port
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
@@ -49,52 +33,89 @@ class FakeEs:
         self.srv.shutdown()
         self.srv.server_close()
 
-    def add(self, stream, doc):
-        self.docs.setdefault(stream, []).append(doc)
+    def enrol(self, policy_id, host, agent_id=None):
+        agent_id = agent_id or str(uuid.uuid4())
+        self.agents[agent_id] = {"id": agent_id, "policy_id": policy_id, "status": "online",
+                                 "local_metadata": {"host": {"name": host}}}
+        return agent_id
 
-    def select(self, pattern):
-        prefix = pattern.rstrip("*")
-        return [d for s, ds in self.docs.items() if s.startswith(prefix) for d in ds]
+    def names(self):
+        return [c[0] for c in self.calls]
 
-    def deletes(self):
-        return [c for c in self.calls if c[0] == "DELETE" or "_delete_by_query" in c[1]]
+    def _route(self, method, path, query, raw, ctype):
+        body = json.loads(raw) if raw and "json" in (ctype or "") else None
+        seg = path.strip("/").split("/")
+        self.calls.append((method + " " + path, body))
+        if path == "/api/fleet/epm/packages" and method == "POST":
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                top = z.namelist()[0].split("/")[0]
+            name, _, version = top.rpartition("-")
+            self.installed[name] = version
+            return 200, {"items": []}
+        if seg[:4] == ["api", "fleet", "epm", "packages"] and len(seg) == 5 and method == "GET":
+            have = self.installed.get(seg[4])
+            if have:
+                return 200, {"item": {"name": seg[4], "version": have, "status": "installed"}}
+            return 404, {"message": "not found"}
+        if seg[:4] == ["api", "fleet", "epm", "packages"] and len(seg) == 6 and method == "GET":
+            have = self.installed.get(seg[4])
+            if have == seg[5]:
+                return 200, {"item": {"name": seg[4], "version": have, "status": "installed"}}
+            return 404, {"message": "not found"}
+        if seg[:3] == ["api", "fleet", "agent_policies"]:
+            if method == "GET" and len(seg) == 4:
+                return (200, {"item": self.policies[seg[3]]}) if seg[3] in self.policies else (404, {})
+            if method == "POST":
+                self.policies[body["id"]] = dict(body)
+                return 200, {"item": body}
+        if path == "/api/fleet/package_policies":
+            if method == "GET":
+                return 200, {"items": self.package_policies}
+            if method == "POST":
+                if body["package"]["name"] not in self.installed:
+                    return 400, {"message": "package not installed"}
+                self.package_policies.append(dict(body, id=str(uuid.uuid4())))
+                return 200, {"item": body}
+        if path == "/api/fleet/enrollment_api_keys":
+            if method == "GET":
+                return 200, {"items": list(self.keys.values())}
+            if method == "POST":
+                k = {"id": str(uuid.uuid4()), "name": body["name"], "policy_id": body["policy_id"],
+                     "api_key": "SECRET-" + uuid.uuid4().hex, "active": True}
+                self.keys[k["id"]] = k
+                return 200, {"item": k}
+        if seg[:3] == ["api", "fleet", "enrollment_api_keys"] and method == "DELETE":
+            self.keys.pop(seg[3], None)
+            return 200, {"action": "deleted"}
+        if path == "/api/fleet/agents" and method == "GET":
+            return 200, {"items": list(self.agents.values())}
+        if seg[:3] == ["api", "fleet", "agents"] and seg[-1] == "unenroll" and method == "POST":
+            self.agents.pop(seg[3], None)
+            return 200, {}
+        if seg[:3] == ["api", "alerting", "rule"]:
+            rid = seg[3]
+            if method == "GET":
+                return (200, self.rules[rid]) if rid in self.rules else (404, {})
+            if method in ("POST", "PUT"):
+                if method == "POST" and rid in self.rules:
+                    return 409, {}
+                self.rules[rid] = body
+                return 200, body
+        if seg[:2] == ["_ingest", "pipeline"]:
+            if method == "GET":
+                return (200, {seg[2]: self.pipelines[seg[2]]}) if seg[2] in self.pipelines else (404, {})
+            if method == "PUT":
+                self.pipelines[seg[2]] = body
+                return 200, {"acknowledged": True}
+        if path.endswith("/_search") and method == "POST":
+            self.last_search = (path, body)
+            n = self.lag_hits if body and "script" in json.dumps(body) else 1
+            return 200, {"hits": {"total": {"value": n}, "hits": [{"_source": self.sample}] * min(n, 3)}}
+        if path.endswith("/_count") and method == "POST":
+            self.last_count = (path, body)
+            return 200, {"count": self.counts.get(seg[0], 5)}
 
-    def _route(self, method, path, body):
-        path, _, _q = path.partition("?")
-        if path == "/":
-            return 200, {"version": {"number": "9.5.5"}}
-        if path == "/_cluster/health":
-            return 200, {"status": "green", "number_of_nodes": 1}
-        if path == "/_cat/allocation":
-            return 200, [{"node": "n1", "disk.percent": str(self.disk_percent)}]
-        if path == "/api/fleet/agents/bulk_unenroll":
-            return (500, {}) if self.fail_unenroll else (200, {"actionId": "a1"})
-        if path.endswith("/_doc") and method == "POST":
-            stream = path.split("/")[1]
-            if not (self.drop_drain and "drain" in json.dumps(body)):
-                self.add(stream, body)
-            return 201, {"result": "created"}
-        if path.endswith("/_search"):
-            hits = [d for d in self.select(path.split("/")[1]) if matches(d, body.get("query"))]
-            hits.sort(key=lambda d: d.get("@timestamp", ""))
-            return 200, {"hits": {"total": {"value": len(hits)}, "hits": [{"_source": d} for d in hits[: body.get("size", 10)]]}}
-        if path.endswith("/_count"):
-            return 200, {"count": len([d for d in self.select(path.split("/")[1]) if matches(d, (body or {}).get("query"))])}
-        if path.endswith("/_delete_by_query"):
-            name = path.split("/")[1]
-            n = 0
-            for s in list(self.docs):
-                if s.startswith(name.rstrip("*")):
-                    keep = [d for d in self.docs[s] if not matches(d, body.get("query"))]
-                    n += len(self.docs[s]) - len(keep)
-                    self.docs[s] = keep
-            return 200, {"deleted": n}
-        if path.startswith("/_data_stream/") and method == "DELETE":
-            name = path.split("/")[-1]
-            for s in [s for s in self.docs if s.startswith(name.rstrip("*"))]:
-                del self.docs[s]
-            return 200, {"acknowledged": True}
-        return 404, {}
+        return 404, {"error": "unhandled " + method + " " + path}
 
     def _handler(self):
         fake = self
@@ -105,11 +126,12 @@ class FakeEs:
 
             def _do(self):
                 n = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(n) or b"{}")
-                fake.calls.append((self.command, self.path, body))
-                code, out = (503, {}) if fake.down else fake._route(self.command, self.path, body)
+                raw = self.rfile.read(n) if n else b""
+                u = urlparse(self.path)
+                code, out = fake._route(self.command, u.path, u.query, raw, self.headers.get("Content-Type"))
                 data = json.dumps(out).encode()
                 self.send_response(code)
+                self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)

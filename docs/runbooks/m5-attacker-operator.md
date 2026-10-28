@@ -2,13 +2,13 @@
 
 Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Design: [operator commands and target interface](../decisions/operator-commands-and-target-interface.md).
 
-**Status: code and offline tests only. A6 evidence is NOT collected.** Nothing here has run against the live firewall, Proxmox or Elastic: the VPN was unavailable, and neither A3 (M3, PR #35) nor M4 (#23) has been run live or merged. M6 must not start, and #24 must not close, until the A6 tables below are filled in from a live run. Every Ansible/Tofu/Fleet/Proxmox call here is unverified against the real systems.
+**Status: code and offline tests only. A6 evidence is NOT collected.** Nothing here has run against the live firewall, Proxmox or Elastic: the VPN was unavailable, and neither A3 (M3) nor A4/A5 (M4, merged as code only) has been run live. M6 must not start, and #24 must not close, until the A6 tables below are filled in from a live run. Every Ansible/Tofu/Fleet/Proxmox call here is unverified against the real systems.
 
 ## What exists
 
 | Piece | Where |
 | --- | --- |
-| Attacker VM (VMID 2001, `10.77.1.10`, pool `lab-attacker`, 2 vCPU / 4 GB) | `tofu/stacks/attacker`, template `scripts/make-attacker-template.sh` (VMID 2301) |
+| Attacker VM (VMID 2001, `10.77.1.10`, pool `lab-attacker`, 2 vCPU / 4 GB) | `tofu/stacks/attacker`, template `scripts/make-attacker-template.sh` (VMID 2302) |
 | Attacker config, Exercise 1 script | `ansible/playbooks/attacker.yml`, `ansible/roles/attacker` (`exercise1` on the VM) |
 | Marker data stream template | `ansible/roles/elastic/tasks/markers.yml` (re-run the elastic playbook) |
 | Exercise ID, drain, reset, shutdown/startup, attacker-clean | `scripts/labops.py` |
@@ -26,38 +26,28 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
    - on the attacker (`ssh opaleye@10.77.1.10`): `exercise1 --exercise-id ex-001 --target t1`
    - `scripts/labops.py exercise end`
    - hunt in Kibana: both directions (process to request, request to process) inside the window from `labops.py exercise show ex-001`
-   - `scripts/labops.py drain t1`, then `reset t1` (A7), `attacker-clean`.
+   - `scripts/labops.py drain t1`, then `labmode.py maintenance --minutes 60 --reason "target reset"` and `reset t1` (A7), then back to exercise mode with denies re-verified, and `attacker-clean`.
 6. Lab off/on: `labops.py shutdown [--include-elastic] [--acknowledge-loss REASON]` / `startup [--include-elastic]` (A9). Needs `PROXMOX_VE_ENDPOINT`, `PVE_NODE`, `PROXMOX_VE_API_TOKEN_{ATTACKER,TARGETS,FIREWALL}` (+ `_ELASTIC`).
 7. Evidence deletion: `scripts/evidence_delete.py all` (dry run), then re-run with the printed `--confirm` phrase (it includes the document count).
 
 ## Guards
 
-- Reset names only `plan.targets`; `elastic`, `firewall`, `attacker` and `all` are refused. It calls `lab.sh replace targets <vm address>` only; `lab.sh replace` refuses any other stack.
+- Reset names only a target with a VM (`t1`; elastic, firewall, attacker, `all`, `t2` are refused). It calls `scripts/target.sh bump` then `provision`, which address the targets stack only.
 - Shutdown leaves Elastic running by default (Elastic is reached only with `--include-elastic`, graceful power-off, no delete). Nothing in shutdown or reset can issue an Elasticsearch delete (tests assert no DELETE/`_delete_by_query` reaches the fake).
-- Evidence deletion is only `evidence_delete.py`, dry-run first, exact confirmation phrase, refused while an exercise is active.
+- Evidence deletion is only `evidence_delete.py`, dry-run first, confirmation phrase includes the document count, refused while an exercise is active (local state or unmatched markers).
 
 ## Known gaps / decisions for Adam
 
 - **Shutdown vs Elastic**: A9 says shutdown powers off *all* guests; the brief said shutdown must never reach Elastic. Implemented as: excluded by default, graceful `--include-elastic` opt-in. Confirm or change.
-- **`lab.exercise_id` is a marker window, not a per-event field** (see the decision doc). Apache requests also carry it in the User-Agent.
-- `exercise end` needs Elastic; during an outage the exercise stays active (blocks shutdown, reset of that target and evidence deletion) until it returns. Evidence deletion also refuses when Elastic's markers show an unmatched start.
-- Agent retirement in reset is **required**: if the Fleet call fails the rebuild is refused (nothing destroyed). It revokes the old agent's key; the fresh enrolment token per rebuild is M4's.
-- `lab.sh replace` passes `-replace` and `-target` for the one VM address, so nothing else in the targets stack is applied.
+- **`lab.exercise_id` is a marker window, not a per-event field** (the `lab-stamp` pipeline maps the field but nothing sets it per event). Apache requests also carry the id in the User-Agent.
+- Reset needs maintenance mode (M4 provisioning pulls images); afterwards return with `labmode.py exercise`, re-verify denies, `labmode.py select`.
 - Shutdown drains running targets first (Elastic must answer, or `--acknowledge-loss REASON`).
-- Drain-marker lines are not removed by evidence deletion (they sit in whatever stream the agent ships them to).
-- Generation is tracked on the workstation; if `.state` is lost, align with `labops.py generation`.
-- `scripts/a1-verify.sh` and `lab.sh apply all` now include the attacker stack (needs its token, pool and template first).
+- `exercise end` needs Elastic; during an outage the exercise stays active (blocks shutdown, reset of that target and evidence deletion) until it returns.
+- Drain-marker lines are not removed by evidence deletion (they share the Apache access stream).
+- `lab.sh apply all` and `scripts/a1-verify.sh` now include the attacker stack (needs its token, pool and template first).
 - Attacker (and t2) can reach ingestion ports (M2 known gap, unchanged).
-- Unverified live: Fleet `bulk_unenroll` payload, Proxmox shutdown calls, `tofu apply -replace` address, the DVWA login/CSRF flow, the `_cat/allocation` watermark proxy, marker template mappings.
+- Unverified live: Proxmox shutdown calls, the DVWA login/CSRF flow in `exercise1`, the `_cat/allocation` watermark proxy, marker template mappings, and the drain line passing the Apache pipeline.
 - Exercise 1's callback to the attacker (`/dev/tcp/10.77.1.10/4444`) is expected to be **blocked** by the firewall; the Defend network event records the attempt.
-
-## Reconcile when M4 merges
-
-1. VM ids (`plan.targets.*.vm_id`), `tofu_address`, `rebuild_generations` variable and resource naming vs M4's targets stack (merge conflicts likely in `network/plan.json` and `tofu/stacks/targets/versions.tf` header comment).
-2. Inventory host aliases `t1`/`t2`, `playbooks/targets.yml`, `rebuild_generation` extra var.
-3. Agent host name `opaleye-<t>`; drain log path, sudo and Filestream shipping; initial generation 1.
-4. DVWA credentials and setup state; User-Agent in Apache log format.
-5. Add `targets` to `scripts/a1-verify.sh`/`static-checks.sh` only if M4 changed those lists.
 
 ## A6 evidence
 

@@ -4,10 +4,10 @@
   labops.py exercise start ID --target T   set lab.exercise_id: writes the exercise-start marker event
   labops.py exercise end                   writes the exercise-end marker event
   labops.py exercise show ID               time window and target of an exercise, from its markers
-  labops.py generation T [N]               show (or align) the tracked lab.rebuild_generation of target T
+  labops.py generation T                   show the lab.rebuild_generation of target T (owned by scripts/target.sh)
   labops.py drain T                        emit a drain marker on target T and confirm it in Elasticsearch
   labops.py reset T [--acknowledge-loss REASON]
-                                           drain check, retire the agent, rebuild target T only, bump its generation
+                                           drain check, then scripts/target.sh bump + provision for target T only (maintenance mode)
   labops.py attacker-clean                 clear attacker-side exercise state (separate from reset)
   labops.py shutdown [--include-elastic] [--acknowledge-loss REASON]
                                            drain running targets, then graceful power-off of lab guests; nothing is destroyed
@@ -15,12 +15,12 @@
   labops.py status
 
 Evidence deletion is deliberately NOT here: it is its own guarded, confirmed command and nothing in this file can reach it.
-Reset can only name a target in network/plan.json `targets`; it runs lab.sh against the targets stack, never Elastic.
+Reset can only name a target with a VM in network/plan.json `targets`; it runs scripts/target.sh (targets stack), never Elastic.
 Shutdown leaves Elastic running unless --include-elastic is given, and then only asks it to shut down gracefully.
 
 Env: LABMODE_STATE_DIR (default .state, shared with labmode.py), LAB_PLAN, the ELASTIC_* variables of
      scripts/elastic_api.py, PROXMOX_VE_ENDPOINT, PVE_NODE, PROXMOX_VE_INSECURE, PROXMOX_VE_API_TOKEN_<STACK>
-     (shutdown/startup), LABOPS_SSH / LABOPS_LAB_SH / LABOPS_ANSIBLE (command overrides, used by tests),
+     (shutdown/startup), LABOPS_SSH / LABOPS_TARGET_SH (command overrides, used by tests),
      LABOPS_POLL (seconds, default plan ops.drain.poll_s), LABOPS_DRAIN_TIMEOUT, LABOPS_SHUTDOWN_WAIT.
 """
 import argparse
@@ -65,7 +65,7 @@ class Ops:
             with open(self.path) as f:
                 self.state = json.load(f)
         except FileNotFoundError:
-            self.state = {"active": None, "generations": {t: 1 for t in self.plan["targets"]}}
+            self.state = {"active": None}
         self.drain_cfg = self.plan["ops"]["drain"]
         self.poll = float(os.environ.get("LABOPS_POLL") or self.drain_cfg["poll_s"])
 
@@ -76,9 +76,18 @@ class Ops:
             f.write(json.dumps(dict(ts=stamp(), event=event, user=getpass.getuser(), **detail)) + "\n")
 
     def target(self, name):
-        if name not in self.plan["targets"]:
-            die("%r is not a target (%s); only targets can be reset or drained" % (name, ", ".join(self.plan["targets"])))
+        vms = [t for t, v in self.plan["targets"].items() if "vm_id" in v]
+        if name not in vms:
+            die("%r is not a target with a VM (%s); only targets can be reset or drained" % (name, ", ".join(vms)))
         return name
+
+    def generation_of(self, target):
+        """scripts/target.sh owns the counter (it also feeds Tofu and Ansible)."""
+        r = subprocess.run([os.environ.get("LABOPS_TARGET_SH", os.path.join(ROOT, "scripts/target.sh")), "generation", target],
+                           capture_output=True, text=True, cwd=ROOT)
+        if r.returncode != 0 or not r.stdout.strip().isdigit():
+            die("cannot read the rebuild generation of %s: %s" % (target, r.stderr.strip()))
+        return int(r.stdout.strip())
 
     def need_elastic(self):
         es = elastic_api.es_client()
@@ -118,7 +127,7 @@ class Ops:
         worst = max(float(r["disk.percent"]) for r in es.call("/_cat/allocation?format=json"))
         if worst >= limit:
             die("Elasticsearch disk at %g%% (high watermark %d%%): new exercises are blocked; free space via evidence deletion" % (worst, limit))
-        generation = self.state["generations"][target]
+        generation = self.generation_of(target)
         self.marker(es, "exercise-start", exercise_id, target, generation)
         self.state["active"] = {"id": exercise_id, "target": target, "generation": generation, "started": stamp()}
         self.save("exercise-start", exercise_id=exercise_id, target=target)
@@ -145,18 +154,14 @@ class Ops:
         if not any(d["event"]["action"] == "exercise-end" for d in docs):
             print("(no end marker: exercise still running or never ended)")
 
-    def generation(self, target, value):
-        self.target(target)
-        if value is not None:
-            self.state["generations"][target] = value
-            self.save("generation", target=target, generation=value)
-        print(self.state["generations"][target])
+    def generation(self, target):
+        print(self.generation_of(self.target(target)))
 
     def drain(self, target, es=None):
         """Emit a drain marker on the target (it travels the same agent pipeline as evidence) and wait for it in ES."""
         self.target(target)
         es = es or elastic_api.es_client()
-        generation = self.state["generations"][target]
+        generation = self.generation_of(target)
         token = secrets.token_hex(8)
         line = "OPALEYE_DRAIN_MARKER token=%s target_id=%s rebuild_generation=%d" % (token, target, generation)
         cmd = "printf '%%s\\n' %s | sudo -n tee -a %s >/dev/null" % (shlex.quote(line), shlex.quote(self.drain_cfg["log"]))
@@ -184,38 +189,36 @@ class Ops:
         active = self.state["active"]
         if active and active["target"] == target:
             die("exercise %s is active on %s: run `exercise end` first" % (active["id"], target))
+        # Provisioning pulls images and packages: only maintenance mode allows that, so find out before anything changes.
+        self.need_maintenance()
         es = self.need_elastic()  # no reset during an Elastic outage, override or not
         drained = self.drain(target, es)
         if not drained and ack is None:
             die("drain check failed; fix forwarding or accept the loss with --acknowledge-loss REASON")
-        # Fail closed: a rebuilt VM must not enrol next to a live record of its predecessor.
-        self.retire_agent(target)
-        generations = dict(self.state["generations"])
-        generations[target] += 1
-        env = dict(os.environ, TF_VAR_rebuild_generations=json.dumps(generations))
-        lab_sh = os.environ.get("LABOPS_LAB_SH", os.path.join(ROOT, "scripts/lab.sh"))
-        if subprocess.run([lab_sh, "replace", "targets", self.plan["targets"][target]["tofu_address"]], env=env, cwd=ROOT).returncode != 0:
-            self.save("reset-failed", target=target, drained=drained)
-            print("rebuild failed: re-run `reset %s` (a failed target is rebuilt, never hand-repaired)" % target, file=sys.stderr)
+        target_sh = os.environ.get("LABOPS_TARGET_SH", os.path.join(ROOT, "scripts/target.sh"))
+        if subprocess.run([target_sh, "bump", target, "--acknowledge-no-drain-check"], cwd=ROOT).returncode != 0:
+            print("generation bump failed: nothing was rebuilt", file=sys.stderr)
             return 1
-        self.state["generations"] = generations  # the rebuilt VM carries the new generation from here on
-        self.save("reset", target=target, drained=drained, acknowledged_loss=ack, agent_retired=True,
-                  generation=generations[target])
-        ansible = os.environ.get("LABOPS_ANSIBLE", "ansible-playbook")
-        if subprocess.run([ansible, "playbooks/targets.yml", "--limit", target, "-e", "rebuild_generation=%d" % generations[target]],
-                          cwd=os.path.join(ROOT, "ansible")).returncode != 0:
-            print("target rebuilt (generation %d) but provisioning failed: re-run `reset %s`" % (generations[target], target), file=sys.stderr)
+        generation = self.generation_of(target)
+        self.save("reset-bumped", target=target, drained=drained, acknowledged_loss=ack, generation=generation)
+        # target.sh provision replaces the VM (the generation is a replace trigger), then enrols a fresh agent:
+        # fleetctl issue-token deletes the target's older tokens and revokes its older agents.
+        if subprocess.run([target_sh, "provision", target], cwd=ROOT).returncode != 0:
+            self.save("reset-failed", target=target, generation=generation)
+            print("provisioning failed at generation %d: re-run `scripts/target.sh provision %s` (a failed target is rebuilt, never hand-repaired)" % (generation, target), file=sys.stderr)
             return 1
-        print("%s rebuilt: generation %d. Prior events stay searchable by exercise id." % (target, generations[target]))
+        self.save("reset", target=target, drained=drained, acknowledged_loss=ack, generation=generation)
+        print("%s rebuilt: generation %d. Prior events stay searchable by exercise id. Return to exercise mode and re-verify denies (labmode.py)." % (target, generation))
         return 0
 
-    def retire_agent(self, target):
-        """Revoke the old agent (its API key) before the rebuilt VM enrols afresh; refuse the rebuild if that fails."""
+    def need_maintenance(self):
         try:
-            elastic_api.kibana_client(self.plan).call("/api/fleet/agents/bulk_unenroll", {
-                "agents": 'local_metadata.host.name : "opaleye-%s"' % target, "revoke": True})
-        except elastic_api.EsError as e:
-            die("old agent for %s not retired (%s); nothing was rebuilt. Fix Fleet access and re-run" % (target, e))
+            with open(self.labmode_path) as f:
+                mode = json.load(f).get("mode")
+        except FileNotFoundError:
+            mode = None
+        if mode != "maintenance":
+            die("provisioning needs maintenance mode: run scripts/labmode.py maintenance --minutes 60 --reason \"target reset\" first")
 
     def attacker_clean(self):
         if self.ssh("attacker", "find %s -mindepth 1 -delete" % shlex.quote(EXERCISE_DIR)) != 0:
@@ -259,8 +262,7 @@ def main(argv):
     start.add_argument("id"), start.add_argument("--target", required=True)
     exercise.add_parser("end")
     exercise.add_parser("show").add_argument("id")
-    gen = sub.add_parser("generation")
-    gen.add_argument("target"), gen.add_argument("value", nargs="?", type=int)
+    sub.add_parser("generation").add_argument("target")
     sub.add_parser("drain").add_argument("target")
     reset = sub.add_parser("reset")
     reset.add_argument("target"), reset.add_argument("--acknowledge-loss", metavar="REASON", default=None)
@@ -282,7 +284,7 @@ def main(argv):
         elif a.cmd == "exercise":
             ops.exercise_show(a.id)
         elif a.cmd == "generation":
-            ops.generation(a.target, a.value)
+            ops.generation(a.target)
         elif a.cmd == "drain":
             return 0 if ops.drain(a.target) else 1
         elif a.cmd == "reset":

@@ -1,0 +1,42 @@
+# Managed by Ansible (issue #23). Do not edit by hand: a changed target is rebuilt, not repaired.
+# Images are pinned by digest from network/plan.json (target_stack.dvwa.images). The database credentials are
+# DVWA's own published defaults for a deliberately vulnerable lab app; the database port is not published.
+name: dvwa
+
+volumes:
+  dvwa:
+
+networks:
+  dvwa:
+
+services:
+  dvwa:
+    image: {{ ts.dvwa.images.app.ref }}@{{ ts.dvwa.images.app.digest }}
+    pull_policy: missing
+    environment:
+      - DB_SERVER=db
+      - DEFAULT_SECURITY_LEVEL={{ ts.dvwa.security_level }}
+    depends_on:
+      - db
+    networks:
+      - dvwa
+    ports:
+      - "80:80"
+    volumes:
+      # Real files instead of the image's /dev/stdout symlinks, so Filestream can read the Apache logs.
+      - {{ apache_log_dir }}:/var/log/apache2
+    restart: unless-stopped
+
+  db:
+    image: {{ ts.dvwa.images.db.ref }}@{{ ts.dvwa.images.db.digest }}
+    pull_policy: missing
+    environment:
+      - MYSQL_ROOT_PASSWORD=dvwa
+      - MYSQL_DATABASE=dvwa
+      - MYSQL_USER=dvwa
+      - MYSQL_PASSWORD=p@ssw0rd
+    volumes:
+      - dvwa:/var/lib/mysql
+    networks:
+      - dvwa
+    restart: unless-stopped

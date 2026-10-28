@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Ordered runner for the Tofu stacks. Usage: lab.sh <init|plan|apply|destroy> <stack|all>
-#                                          lab.sh replace targets <resource address>   (target reset: labops.py reset)
 # Env (from the operator secrets store, never the repo):
 #   OPALEYE_STATE_PASSPHRASE   offline-recoverable state key (>= 16 chars)
 #   PROXMOX_VE_ENDPOINT        https://<node>:8006/
@@ -11,13 +10,6 @@ cd "$(dirname "$0")/.."
 ORDER="firewall elastic targets attacker"
 cmd=${1:?usage: lab.sh <init|plan|apply|destroy> <stack|all>}
 target=${2:?usage: lab.sh <init|plan|apply|destroy> <stack|all>}
-addr=${3:-}
-# Replace rebuilds one named target VM and nothing else: only the targets stack, only a VM resource address.
-if [ "$cmd" = replace ]; then
-  [ "$target" = targets ] || { echo "refused: replace only applies to the targets stack" >&2; exit 1; }
-  [[ $addr =~ ^proxmox_virtual_environment_vm\.[a-z_]+(\[\"[a-z0-9]+\"\])?$ ]] \
-    || { echo "refused: replace needs a proxmox_virtual_environment_vm resource address" >&2; exit 1; }
-fi
 
 : "${OPALEYE_STATE_PASSPHRASE:?set the state passphrase}"
 [ "${#OPALEYE_STATE_PASSPHRASE}" -ge 16 ] || { echo "passphrase too short" >&2; exit 1; }
@@ -27,7 +19,7 @@ case $OPALEYE_STATE_PASSPHRASE in *[\"\\\$]*) echo "passphrase must not contain 
 export TF_ENCRYPTION="key_provider \"pbkdf2\" \"lab\" { passphrase = \"$OPALEYE_STATE_PASSPHRASE\" }"
 mkdir -p .state
 
-case $cmd in init|plan|apply|destroy|replace) ;; *) echo "bad command" >&2; exit 1;; esac
+case $cmd in init|plan|apply|destroy) ;; *) echo "bad command" >&2; exit 1;; esac
 if [ "$target" = all ]; then
   stacks=$ORDER
   # Guard: a broad destroy never reaches Elastic evidence.
@@ -50,6 +42,5 @@ for s in $stacks; do
       plan) tofu plan -input=false -detailed-exitcode || [ $? = 2 ] ;;
       apply) tofu apply -input=false -auto-approve ;;
       destroy) tofu destroy -input=false -auto-approve ;;
-      replace) tofu apply -input=false -auto-approve "-replace=$addr" "-target=$addr" ;;  # -target: no other resource in the stack is touched
     esac )
 done

@@ -1,0 +1,58 @@
+- name: Directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: ["{{ dvwa_dir }}", "{{ apache_log_dir }}", /var/lib/opaleye]
+
+# Drain marker log (scripts/labops.py drain appends to it over SSH with sudo); shipped by the Apache access stream.
+- name: Drain marker log
+  ansible.builtin.file:
+    path: "{{ plan.ops.drain.log }}"
+    state: touch
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+
+- name: Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ dvwa_dir }}/compose.yml"
+    mode: "0644"
+  register: compose
+
+- name: Start DVWA
+  ansible.builtin.command:
+    cmd: docker-compose -f {{ dvwa_dir }}/compose.yml up -d
+  register: up
+  changed_when: "'Created' in up.stderr or 'Recreated' in up.stderr or 'Started' in up.stderr"
+
+- name: Wait for the web app
+  ansible.builtin.uri:
+    url: http://127.0.0.1/setup.php
+    return_content: true
+  register: setup
+  until: setup.status == 200
+  retries: 30
+  delay: 5
+
+# DVWA starts without tables. Create them once per VM; a rebuilt VM has no marker, so it is always fresh.
+- name: Create the DVWA database (known state)
+  ansible.builtin.shell: |
+    set -eu
+    jar=$(mktemp)
+    tok=$(curl -fsS -c "$jar" http://127.0.0.1/setup.php | sed -n "s/.*name=['\"]user_token['\"] value=['\"]\([a-f0-9]*\)['\"].*/\1/p" | head -1)
+    [ -n "$tok" ] || { echo "no user_token on setup.php" >&2; exit 1; }
+    curl -fsS -b "$jar" -c "$jar" -o /tmp/dvwa-setup.html --data-urlencode "create_db=Create / Reset Database" --data-urlencode "user_token=$tok" http://127.0.0.1/setup.php
+    grep -q "Setup successful" /tmp/dvwa-setup.html
+    rm -f "$jar" /tmp/dvwa-setup.html
+    touch /var/lib/opaleye/dvwa-db.done
+  args:
+    creates: /var/lib/opaleye/dvwa-db.done
+    executable: /bin/bash
+
+- name: Security level is the exercise level
+  ansible.builtin.command: docker-compose -f {{ dvwa_dir }}/compose.yml exec -T dvwa printenv DEFAULT_SECURITY_LEVEL
+  register: lvl
+  changed_when: false
+  failed_when: lvl.stdout != ts.dvwa.security_level

@@ -1,0 +1,13 @@
+- name: Guards
+  ansible.builtin.assert:
+    that:
+      - target in plan.targets
+      - plan.targets[target].vm_id is defined
+      - rebuild_generation | int >= 1
+    fail_msg: "pass -e target=t1 -e rebuild_generation=N (scripts/target.sh does)"
+- name: Base OS and time
+  ansible.builtin.import_tasks: base.yml
+- name: Docker and the pinned DVWA stack
+  ansible.builtin.import_tasks: dvwa.yml
+- name: Elastic Agent enrolment
+  ansible.builtin.import_tasks: agent.yml

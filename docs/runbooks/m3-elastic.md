@@ -34,6 +34,7 @@ Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks
 - **A3 shows config, not streams**: no evidence data streams exist until M4, so the per-stream lifecycle row only proves the `@custom` templates; A4 re-checks real streams. The restore test uses a throwaway index, not an SLM-made snapshot.
 - **Destroy guard** is proven by `lab.sh` refusal, the `prevent_destroy` setting and the token-scope rows (SKIP without Proxmox env), not by a live `tofu plan`.
 
+- M4 code now provides the upload and the `lab-stamp` pipeline (see [M4 runbook](m4-target.md)); the M3 play creates the pipeline, so re-run `playbooks/elastic.yml` once before M4.
 - **Integration packages** (`auditd_manager`, `docker`, `apache`, firewall flow logs) are not in Kibana's bundled set and Elastic has no Internet (`xpack.fleet.isAirGapped: true`). M4 uploads them as zip packages from the workstation (`POST /api/fleet/epm/packages`). Bundled: `fleet_server`, `endpoint`, `system`, `elastic_agent`.
 - **Dataset names in `plan.json` are expected, not observed.** `a3-verify.sh services` fails if a data stream exists without a lab policy; A4 confirms the real names (esp. Defend `logs-endpoint.events.*`, whether its template includes `@custom`) and extends the lists.
 - **Ingest-lag alert and exercise block** (Basic-license ability): decided at A4, with the scheduled-script fallback from #9.

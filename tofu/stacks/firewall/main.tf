@@ -26,6 +26,12 @@ variable "attach_installer" {
   default     = true
 }
 
+variable "seed_iso_file_id" {
+  description = "Config seed ISO (scripts/opnsense_seed.py iso, secrets injected from the operator environment, uploaded to the ISO store out of band), e.g. iso-files:iso/opaleye-fw-seed.iso. Attached in the cdrom slot once the installer is detached; the OPNsense config importer reads conf/config.xml from it. The id is not a secret; the ISO content is, so keep the store private."
+  type        = string
+  default     = ""
+}
+
 variable "probe_vms" {
   description = "Create throwaway A2 probe guests in the attacker, elastic and target zones. Destroy after A2."
   type        = bool
@@ -105,7 +111,8 @@ resource "proxmox_virtual_environment_vm" "firewall" {
   }
 
   cdrom {
-    file_id   = var.attach_installer ? var.installer_iso_file_id : "none" # "none" = empty drive
+    # installer first; after install the seed (if any) takes the slot; "none" = empty drive
+    file_id   = var.attach_installer ? var.installer_iso_file_id : (var.seed_iso_file_id != "" ? var.seed_iso_file_id : "none")
     interface = "ide2"
   }
 

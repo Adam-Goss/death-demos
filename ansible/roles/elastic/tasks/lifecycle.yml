@@ -22,6 +22,37 @@
   become: false
   no_log: true
 
+# M4 (issue #23): the final pipeline that stamps lab.target_id / lab.rebuild_generation must exist before any
+# stream names it, or indexing into that stream fails. Created only when absent: its agent registry is appended
+# to by scripts/fleetctl.py register-agent and a re-run of this play must never wipe it.
+- name: Lab stamp pipeline present?
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_ingest/pipeline/{{ plan.target_stack.stamp_pipeline }}"
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    status_code: [200, 404]
+  register: stamp
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Lab stamp pipeline (create only)
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_ingest/pipeline/{{ plan.target_stack.stamp_pipeline }}"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body: "{{ lookup('ansible.builtin.file', 'lab-stamp-pipeline.json') | from_json }}"
+  when: stamp.status == 404
+  delegate_to: localhost
+  become: false
+  no_log: true
+
 # Fleet integration templates include <data stream>@custom, so this sets the policy per data stream.
 # No replicas: single node. Datasets confirmed against real data at A4; extend plan.json then.
 - name: Per-data-stream lifecycle (@custom component templates)
@@ -38,6 +69,14 @@
         settings:
           index.lifecycle.name: "{{ el.retention[item.class].policy }}"
           index.number_of_replicas: 0
+          index.final_pipeline: "{{ plan.target_stack.stamp_pipeline }}"
+        mappings:
+          properties:
+            lab:
+              properties:
+                target_id: { type: keyword }
+                rebuild_generation: { type: long }
+                exercise_id: { type: keyword }
       _meta: { managed_by: opaleye, retention_class: "{{ item.class }}" }
   loop: >-
     {{ (el.datasets.evidence | map('community.general.dict_kv', 'name') | map('combine', {'class': 'evidence'}) | list)

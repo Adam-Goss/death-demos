@@ -18,7 +18,8 @@ class AttackerStack(unittest.TestCase):
     def test_vm_ids_are_unique_across_the_lab(self):
         ids = [PLAN["firewall"]["vm_id"], PLAN["elastic"]["vm_id"], PLAN["elastic"]["template_vm_id"],
                PLAN["attacker"]["vm_id"], PLAN["attacker"]["template_vm_id"], 2100]
-        ids += [t["vm_id"] for t in PLAN["targets"].values()]
+        ids += [t["vm_id"] for t in PLAN["targets"].values() if "vm_id" in t]
+        ids += [t["template_vm_id"] for t in PLAN["targets"].values() if "template_vm_id" in t]
         self.assertEqual(len(ids), len(set(ids)))
 
     def test_attacker_address_and_bridge_come_from_the_plan(self):
@@ -62,9 +63,15 @@ class Markers(unittest.TestCase):
     def test_marker_stream_is_not_in_the_dataset_lists_that_expect_a_custom_template(self):
         self.assertNotIn("logs-lab_marker.events", PLAN["elastic"]["datasets"]["evidence"])
 
-    def test_every_target_has_a_reset_address_that_is_a_vm_resource(self):
-        for t, v in PLAN["targets"].items():
-            self.assertRegex(v["tofu_address"], r'^proxmox_virtual_environment_vm\.[a-z_]+\["%s"\]$' % t)
+    def test_the_drain_log_is_shipped_by_the_apache_access_stream(self):
+        self.assertIn('plan["ops"]["drain"]["log"]', read("scripts/fleetctl.py"))
+        self.assertTrue(PLAN["ops"]["drain"]["log"].startswith(PLAN["target_stack"]["apache_log_dir"] + "/"))
+        self.assertIn("plan.ops.drain.log", read("ansible/roles/target/tasks/dvwa.yml"))
+
+    def test_reset_uses_target_sh_and_not_the_stack_runner(self):
+        text = read("scripts/labops.py")
+        self.assertIn("target.sh", text)
+        self.assertNotIn("lab.sh", text.replace("labmode", ""))
 
 
 class Playbooks(unittest.TestCase):

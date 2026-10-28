@@ -9,7 +9,7 @@ import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
-from fake_elastic import FakeEs  # noqa: E402
+from fake_es_ops import FakeEs  # noqa: E402
 
 PLAN = json.load(open(os.path.join(ROOT, "network/plan.json")))
 MARK = PLAN["ops"]["marker_stream"]
@@ -106,20 +106,6 @@ class EvidenceDelete(unittest.TestCase):
             self.assertEqual(json.loads(f.readline())["scope"], "all")
 
 
-class ReplaceGuard(unittest.TestCase):
-    def test_replace_takes_only_a_single_vm_resource_address(self):
-        env = dict(os.environ, OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij", PROXMOX_VE_ENDPOINT="https://x/")
-        for addr in ("", "proxmox_virtual_environment_vm.target;x", "proxmox_virtual_environment_vm.target[t1]",
-                     "proxmox_virtual_environment_pool.p", "-destroy", "proxmox_virtual_environment_vm.target[\"t1\"] -x"):
-            r = subprocess.run(["bash", os.path.join(ROOT, "scripts/lab.sh"), "replace", "targets", addr],
-                               env=env, capture_output=True, text=True)
-            self.assertNotEqual(r.returncode, 0, addr)
-            self.assertIn("refused", r.stderr, addr)
-
-    def test_replace_also_targets_the_address_so_other_resources_are_untouched(self):
-        self.assertIn('"-replace=$addr" "-target=$addr"', open(os.path.join(ROOT, "scripts/lab.sh")).read())
-
-
 class Unreachable(unittest.TestCase):
     """Evidence deletion is its own entry point; reset, shutdown and the stack runner cannot reach it."""
 
@@ -140,12 +126,11 @@ class Unreachable(unittest.TestCase):
     def test_pve_client_has_no_stop_delete_or_config_call(self):
         self.assertNotRegex(self.read("scripts/pve.py"), r"status/stop|DELETE|status/reset|/config")
 
-    def test_lab_sh_still_refuses_to_destroy_or_replace_elastic(self):
+    def test_lab_sh_still_refuses_to_destroy_elastic(self):
         env = dict(os.environ, OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij", PROXMOX_VE_ENDPOINT="https://x/")
-        for args in (["destroy", "elastic"], ["replace", "elastic", "x"], ["replace", "all", "x"], ["replace", "attacker", "x"]):
-            r = subprocess.run(["bash", os.path.join(ROOT, "scripts/lab.sh"), *args], env=env, capture_output=True, text=True)
-            self.assertNotEqual(r.returncode, 0, args)
-            self.assertIn("refused", r.stderr, args)
+        r = subprocess.run(["bash", os.path.join(ROOT, "scripts/lab.sh"), "destroy", "elastic"], env=env, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("refused", r.stderr)
 
 
 if __name__ == "__main__":

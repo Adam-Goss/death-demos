@@ -57,8 +57,22 @@ check "no Elastic secrets in ansible/tofu (generated under secrets/)" bash -c "!
 check "elastic playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/elastic.yml --syntax-check)"
 
 # M5 (issue #24): attacker stack and operator-command guards.
-check "operator commands never reference evidence deletion" bash -c "! grep -Eq 'evidence-delete|evidence_delete|_delete_by_query' scripts/labops.py scripts/pve.py scripts/lab.sh"
-check "lab.sh replace only for the targets stack" bash -c "lab=\$(bash scripts/lab.sh replace elastic x 2>&1; true); echo \"\$lab\" | grep -q refused"
+check "operator commands never reference evidence deletion" bash -c "! grep -Eq 'evidence-delete|evidence_delete|_delete_by_query' scripts/labops.py scripts/labpower.py scripts/pve.py scripts/lab.sh scripts/target.sh"
 check "attacker playbook passes syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/attacker.yml --syntax-check)"
+
+# M4 (issue #23): target VM guards.
+check "target images pinned by digest in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['target_stack']['dvwa']['images'];sys.exit(0 if all(re.fullmatch('sha256:[0-9a-f]{64}',v['digest']) for v in i.values()) else 1)"
+check "integration zips pinned by sha256 in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['target_stack']['integrations'];sys.exit(0 if all(re.fullmatch('[0-9a-f]{64}',v['sha256']) for v in i.values()) else 1)"
+check "no enrolment token in the target role or template script" bash -c "! grep -RIniE 'enrol+ment[-_ ]?(token|key)|api_key' ansible/roles/target/templates ansible/roles/target/defaults scripts/make-target-template.sh"
+check "target stack has no prevent_destroy (rebuilt, never kept)" bash -c "! grep -q prevent_destroy tofu/stacks/targets/main.tf"
+check "target playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/target.yml --syntax-check -e target=t1 -e rebuild_generation=1 && ansible-playbook playbooks/elastic-evidence.yml --syntax-check)"
+check "fleetctl and target tests pass" python3 -m unittest tests.test_fleetctl tests.test_target_plan
+
+# M2 follow-up (issue #31): firewall config as code.
+check "firewall seed is current, secret-free, rule-free and passes invariants" python3 scripts/opnsense_seed.py check
+check "seed generator tests pass" python3 -m unittest tests.test_opnsense_seed
+check "no real secrets in any non-ignored XML (config.xml seeds)" bash -c "echo \"$files\" | grep -E '\.xml$' | xargs python3 scripts/opnsense_seed.py scan"
+check "no rendered seed or ISO outside gitignored paths" bash -c "! git ls-files | grep -Eq '(^|/)(opnsense-seed\.iso|config\.xml)$'"
+check "firewall stack takes the seed by file id only (no secret variables)" bash -c "grep -q seed_iso_file_id tofu/stacks/firewall/main.tf && ! grep -Eiq 'variable \"[a-z_]*(password|secret|private_key|api_key)' tofu/stacks/firewall/*.tf"
 
 exit $fail
