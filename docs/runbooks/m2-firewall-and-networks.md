@@ -8,7 +8,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 | Gap | Choice |
 | --- | --- |
-| Firewall product | OPNsense CE 26.1.11 ([research](../research/opnsense-vs-pfsense.md)); ISO sha256 to be recorded in `network/plan.json` at download |
+| Firewall product | OPNsense CE 26.7 ([research](../research/opnsense-vs-pfsense.md)); ISO `OPNsense-26.7-dvd-amd64.iso`, sha256 `1efd5dc9fa12a1f93571183fe5e3823e22e332872de8417fafb5e4e4d48d5dcd` (pinned in `network/plan.json`; verify with `sha256sum` on the node before use) |
 | VPN | WireGuard on the firewall, `10.77.9.0/24`, handshake on UDP 51820 from the workstation only |
 | Ranges | `10.77.0.0/16`: attacker `.1.0/24`, elastic `.3.0/24`, one `/24` and one bridge per target (`.11`, `.12`), VPN `.9`. Checked against Ludus (`10.1/16`, `192.0.2/24`, `198.51.100/24`) and home `192.168.0.0/24` |
 | Bridges | `vmbr2001` attacker, `vmbr2003` elastic, `vmbr2011`/`vmbr2012` targets. No host IP, no physical port. Per-target bridges because a shared L2 would let targets talk without crossing the firewall |
