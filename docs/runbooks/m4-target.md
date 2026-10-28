@@ -22,7 +22,7 @@ Issue #23. Exit = checks **A4, A5** in [acceptance checks](../decisions/acceptan
 ## Run (when the lab is available)
 
 1. Preconditions: A3 passed; `scripts/make-target-template.sh` run on the node as root (pool `lab-targets` exists from M1); the elastic probe guest at `10.77.11.10` destroyed (`TF_VAR_probe_zones='["attacker","elastic","t2"]'`, `lab.sh apply firewall`) because it holds the same address.
-2. Elastic side, VPN up, `scripts/elastic-tunnel.sh` running in another terminal: `cd ansible && ansible-playbook playbooks/elastic.yml` (re-run once so the `@custom` templates and `lab-stamp` exist), then `ansible-playbook playbooks/elastic-evidence.yml` (fetch and upload zips, pipeline, policy, lag rule).
+2. Elastic side, VPN up, `scripts/elastic-tunnel.sh` running in another terminal: `cd ansible && ansible-playbook playbooks/elastic.yml` (re-run once so the `@custom` templates and `lab-stamp` exist), then `ansible-playbook playbooks/elastic-evidence.yml` (fetch and upload zips, policy, lag rule; the `lab-stamp` pipeline comes from the M3 play).
 3. Target: `labmode.py maintenance --minutes 60 --reason "M4 provision"` (`labmode.py tick` timer running), `export TF_VAR_node_name=ludus TF_VAR_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)"`, `scripts/target.sh provision t1`. Re-run is safe (token issued only when the Agent is missing; DB created once per VM). Then `labmode.py exercise`, `REVERIFY=1 scripts/a2-verify.sh exercise t1 lab`, `labmode.py select t1`.
 4. Generate traffic from the attacker VM (browse `http://10.77.11.10/`, log in `admin`/`password`, open Command Injection with a benign `127.0.0.1; id`).
 5. Evidence: `scripts/a5-verify.sh t1`, `scripts/a4-verify.sh t1`, then the manual A4 rows below. Paste unedited output into the tables at the bottom.
@@ -43,6 +43,9 @@ A rebuild (after M5's drain check exists): `scripts/target.sh bump t1`, then ste
 - **Attacker and t2 can reach ingestion ports** (M3 gap, unchanged). t2 has no VM.
 - `elastic-tunnel.sh` is needed for ES calls from the workstation; Kibana (5601) is direct.
 - Image digests pin the images, not the packages Debian `apt` installs at provision time (Debian is the moving part; recorded in the evidence if it matters).
+- **Events before `register-agent` runs are unstamped** (the pipeline maps `agent.id`, known only after enrolment). Backfill is not built; A4 uses events after registration.
+- A4 requires `@timestamp` and `event.ingested` distinct; `event.created` is shown but may be absent for Defend. The ingest-lag rule's firing is not tested, only that it exists.
+- `ghcr.io` in `update_sources`, `target.sh bump` and the `lab.exercise_id` mapping go slightly past M4's scope; kept because the image and rebuild flow need them.
 - Enrolment token appears briefly in the target's process list during `elastic-agent install`.
 - Host key changes on each rebuild; `target.sh` clears the old one.
 - A5 "no token on disk" greps the places our code touches; the Agent's own encrypted store under `/opt/Elastic` is expected and out of scope.

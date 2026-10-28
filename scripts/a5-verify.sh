@@ -10,6 +10,7 @@ PLAN=network/plan.json
 ip=$(python3 -c "import json;print(json.load(open('$PLAN'))['hosts']['$t']['ip'])") || exit 2
 app=$(python3 -c "import json;i=json.load(open('$PLAN'))['target_stack']['dvwa']['images']['app'];print(i['ref']+'@'+i['digest'])")
 db=$(python3 -c "import json;i=json.load(open('$PLAN'))['target_stack']['dvwa']['images']['db'];print(i['ref']+'@'+i['digest'])")
+dir=$(python3 -c "import json;print(json.load(open('$PLAN'))['target_stack']['dvwa_dir'])")
 level=$(python3 -c "import json;print(json.load(open('$PLAN'))['target_stack']['dvwa']['security_level'])")
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 opaleye@$ip"
 fail=0
@@ -21,14 +22,14 @@ row() { # name expected actual
 }
 run() { $SSH "$@" 2>/dev/null | tr -d '\r' | head -1; }
 
-row "app image digest" "$app" "$(run "sudo docker inspect --format '{{index .RepoDigests 0}}' \$(sudo docker-compose -f /opt/dvwa/compose.yml ps -q dvwa)")"
-row "db image digest" "$db" "$(run "sudo docker inspect --format '{{index .RepoDigests 0}}' \$(sudo docker-compose -f /opt/dvwa/compose.yml ps -q db)")"
+row "app image digest" "$app" "$(run "sudo docker inspect --format '{{index .RepoDigests 0}}' \$(sudo docker-compose -f $dir/compose.yml ps -q dvwa)")"
+row "db image digest" "$db" "$(run "sudo docker inspect --format '{{index .RepoDigests 0}}' \$(sudo docker-compose -f $dir/compose.yml ps -q db)")"
 row "login page" "200" "$(run "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/login.php")"
-row "security level" "$level" "$(run "sudo docker-compose -f /opt/dvwa/compose.yml exec -T dvwa printenv DEFAULT_SECURITY_LEVEL" | tr -d '[:space:]')"
+row "security level" "$level" "$(run "sudo docker-compose -f $dir/compose.yml exec -T dvwa printenv DEFAULT_SECURITY_LEVEL" | tr -d '[:space:]')"
 row "database created" "yes" "$(run "test -f /var/lib/opaleye/dvwa-db.done && echo yes || echo no")"
 row "agent state" "HEALTHY" "$(run "sudo elastic-agent status | sed -n 's/^State: *//p'" | tr -d '[:space:]')"
 # The token is never written by our code. These locations would hold it if a command line or file leaked it.
-row "no enrolment token on disk outside the agent's own store" "0" "$(run "sudo grep -rIl -e '--enrollment-token' -e 'enrollment_token' /opt/dvwa /etc/lab-ca /var/tmp /home /root /etc/systemd 2>/dev/null | wc -l" | tr -d '[:space:]')"
+row "no enrolment token on disk outside the agent's own store" "0" "$(run "sudo grep -rIl -e '--enrollment-token' -e 'enrollment_token' $dir /etc/lab-ca /var/tmp /home /root /etc/systemd 2>/dev/null | wc -l" | tr -d '[:space:]')"
 echo
 [ $fail = 0 ] && echo "phase=A5 target=$t PASS" || echo "phase=A5 target=$t FAIL"
 exit $fail

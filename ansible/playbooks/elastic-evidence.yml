@@ -17,10 +17,7 @@
       register: up
       changed_when: "'uploaded' in up.stdout"
 
-    - name: Lab stamp pipeline (create only)
-      ansible.builtin.command: python3 {{ fleetctl }} ensure-pipeline
-      register: pl
-      changed_when: "'created' in pl.stdout"
+    # The lab-stamp pipeline is created by the M3 play (playbooks/elastic.yml), its only creator in the plays.
 
     - name: Agent policy and package policies
       ansible.builtin.command: python3 {{ fleetctl }} ensure-policy {{ item }}

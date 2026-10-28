@@ -11,5 +11,5 @@ secrets_dir: "{{ playbook_dir }}/../../secrets/elastic"
 # Same controller cache as the Elastic role: one verified copy of the Agent tarball.
 cache_dir: "{{ playbook_dir }}/../../.state/elastic-packages"
 fleetctl: "{{ playbook_dir }}/../../scripts/fleetctl.py"
-dvwa_dir: /opt/dvwa
-apache_log_dir: /var/log/dvwa/apache2
+dvwa_dir: "{{ ts.dvwa_dir }}"
+apache_log_dir: "{{ ts.apache_log_dir }}"

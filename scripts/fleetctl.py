@@ -146,7 +146,6 @@ AUDIT_RULES = "\n".join([
     "-a always,exit -F arch=b64 -S execve,execveat -k lab_exec",
     "-a always,exit -F arch=b64 -S connect -k lab_connect",
 ])
-APACHE_DIR = "/var/log/dvwa/apache2"
 # Filestream waits for 1,024 bytes before it fingerprints a file; tiny exercise logs would look missing.
 FINGERPRINT = "prospector.scanner.fingerprint.offset: 0\nprospector.scanner.fingerprint.length: 64\n"
 
@@ -171,8 +170,8 @@ def package_policy(target, pkg, plan, version=None):
     elif pkg == "apache":
         base["inputs"] = {
             "apache-filestream": {"enabled": True, "streams": {
-                "apache.access": {"enabled": True, "vars": {"paths": [APACHE_DIR + "/access.log*"], "custom": FINGERPRINT}},
-                "apache.error": {"enabled": True, "vars": {"paths": [APACHE_DIR + "/error.log*"], "custom": FINGERPRINT}}}},
+                "apache.access": {"enabled": True, "vars": {"paths": [plan["target_stack"]["apache_log_dir"] + "/access.log*"], "custom": FINGERPRINT}},
+                "apache.error": {"enabled": True, "vars": {"paths": [plan["target_stack"]["apache_log_dir"] + "/error.log*"], "custom": FINGERPRINT}}}},
             "apache-apache/metrics": {"enabled": False},
         }
     elif pkg != "system":

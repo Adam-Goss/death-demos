@@ -87,6 +87,8 @@
   "target_stack": {
     "agent_policy_prefix": "lab-target-",
     "stamp_pipeline": "lab-stamp",
+    "dvwa_dir": "/opt/dvwa",
+    "apache_log_dir": "/var/log/dvwa/apache2",
     "ingest_lag_seconds": 120,
     "dvwa": {
       "security_level": "low",

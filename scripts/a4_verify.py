@@ -59,8 +59,9 @@ def check(es, target, gen, window):
         hits = s["hits"]["hits"]
         src = hits[0]["_source"] if hits else {}
         t = [get(src, "@timestamp"), get(src, "event.created"), get(src, "event.ingested")]
-        ok = all(t) and len(set(t)) == 3
-        rows.append((target, name + " times", mode, "@timestamp, event.created, event.ingested present and distinct",
+        # event.created is the integration's and some sources (Defend) may omit it: report it, require the other two distinct.
+        ok = bool(t[0] and t[2] and t[0] != t[2] and t[1] != t[2])
+        rows.append((target, name + " times", mode, "@timestamp and event.ingested present and distinct (event.created shown)",
                      "/".join(str(x) for x in t) if hits else "no sample", "elastic " + index, ok))
     limit = fleetctl.load_plan()["target_stack"]["ingest_lag_seconds"]
     _, lag = es.call("POST", "/logs-*,metrics-*/_search?ignore_unavailable=true&allow_no_indices=true", {
