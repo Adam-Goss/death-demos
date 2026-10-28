@@ -53,6 +53,10 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - Docker-published ports and per-target NICs need the M4 target; probe a published non-exercise port from outside the target before it powers on.
 - `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny.
 
+## API user scope
+
+`opaleye-api` is not an administrator and has only the firewall rule ("Firewall: Rules [new]", the `firewall/filter/*` API), firewall alias, and firewall log privileges (set in System > Access > Users; part of the manual first boot, #31). Verified 2026-10-28: `labmode.py` select, maintenance, exercise and `denylog` work with it, and `GET /api/core/firmware/status` and `/api/core/system/status` return 403. If a push returns 403, a privilege is missing; do not widen to Administrators.
+
 ## How to rerun A2
 
 All from the workstation, tunnel up, `OPNSENSE_URL=https://10.77.9.1`, `OPNSENSE_NO_SAVEPOINT=true`; probe guests created with `TF_VAR_probe_vms=true` (clone of template 2100). SSH host keys change on every recreate: `ssh-keygen -R <ip>` first.
