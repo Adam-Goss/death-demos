@@ -211,12 +211,18 @@ class Reset(OpsCase):
         self.assertNotIn("t2", body["agents"])
         self.assertTrue(body["revoke"])
 
-    def test_a_failed_agent_retirement_warns_and_is_recorded(self):
+    def test_a_failed_agent_retirement_refuses_the_rebuild(self):
         self.es.fail_unenroll = True
         r = self.ops("reset", "t1")
-        self.assertEqual(r.returncode, 0)
-        self.assertIn("WARNING", r.stderr)
-        self.assertTrue(self.audit()[-1]["agent_retired"] is False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not retired", r.stderr)
+        self.assertEqual([c for c in self.stub_calls() if c.startswith("replace|")], [])
+        self.assertEqual(self.ops("generation", "t1").stdout.strip(), "1")
+
+    def test_an_acknowledged_loss_needs_a_real_reason(self):
+        for reason in ("", "  ", "ok"):
+            self.assertNotEqual(self.ops("reset", "t1", "--acknowledge-loss", reason, STUB_DROP="1").returncode, 0)
+        self.assertEqual(self.stub_calls(), [])
 
     def test_a_failed_rebuild_keeps_the_generation(self):
         r = self.ops("reset", "t1", STUB_CMD_RC="1")
@@ -239,7 +245,8 @@ class Shutdown(OpsCase):
         self.assertEqual(self.vm_ops("shutdown"), [AT, T1, T2, FW])
         self.assertEqual(self.pve.vms[EL], "running")
         self.assertIn("Elastic left running", r.stdout)
-        self.assertEqual(self.es.calls, [])
+        self.assertEqual(self.es.deletes(), [])
+        self.assertEqual([p for _, p, _ in self.es.calls if "unenroll" in p], [])
         self.assertTrue(all(t != "el!t=2" for _, _, t in self.pve.calls))
 
     def test_include_elastic_is_a_graceful_shutdown_only_and_never_a_delete(self):
@@ -248,17 +255,36 @@ class Shutdown(OpsCase):
         self.assertEqual(self.vm_ops("shutdown"), [AT, T1, T2, EL, FW])
         self.assertTrue(all(m in ("GET", "POST") for m, _ in self.pve.paths()))
         self.assertTrue(all(p.endswith(("/status/current", "/status/shutdown")) for _, p in self.pve.paths()))
-        self.assertEqual(self.es.calls, [])
+        self.assertEqual(self.es.deletes(), [])
+
+    def test_shutdown_drains_running_targets_first(self):
+        self.ops("shutdown")
+        drained = [json.loads(c)[-2] for c in self.stub_calls()]
+        self.assertEqual(sorted(drained), ["opaleye@10.77.11.10", "opaleye@10.77.12.10"])
+
+    def test_a_failed_drain_stops_the_shutdown_before_anything_is_powered_off(self):
+        r = self.ops("shutdown", STUB_DROP="1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.vm_ops("shutdown"), [])
+
+    def test_shutdown_during_an_elastic_outage_needs_acknowledged_loss(self):
+        self.es.down = True
+        self.assertNotEqual(self.ops("shutdown").returncode, 0)
+        self.assertEqual(self.vm_ops("shutdown"), [])
+        r = self.ops("shutdown", "--acknowledge-loss", "elastic is down", STUB_DROP="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, T2, FW])
 
     def test_shutdown_is_refused_during_an_active_exercise(self):
         self.start()
         self.assertNotEqual(self.ops("shutdown").returncode, 0)
         self.assertEqual(self.pve.calls, [])
 
-    def test_stopped_guests_are_skipped(self):
+    def test_stopped_guests_are_skipped_and_not_drained(self):
         self.pve.vms[T2] = "stopped"
         self.ops("shutdown")
         self.assertNotIn(T2, self.vm_ops("shutdown"))
+        self.assertEqual(len(self.stub_calls()), 1)
 
     def test_a_guest_that_will_not_stop_fails_the_run_and_is_never_forced(self):
         self.pve.stuck.add(T1)

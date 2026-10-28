@@ -62,6 +62,7 @@
     "ssh_user": "opaleye",
     "marker_stream": "logs-lab_marker.events-default",
     "high_watermark_pct": 90,
+    "callback_port": 4444,
     "drain": { "log": "/var/log/opaleye/drain.log", "timeout_s": 180, "poll_s": 5 }
   },
   "nic_order": ["home", "attacker", "elastic", "t1", "t2"],

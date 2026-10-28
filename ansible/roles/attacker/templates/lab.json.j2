@@ -1,1 +1,1 @@
-{"attacker_ip": "{{ plan.hosts.attacker.ip }}", "targets": { {% for t in plan.targets %}"{{ t }}": "{{ plan.hosts[t].ip }}"{{ "," if not loop.last }}{% endfor %} }}
+{"attacker_ip": "{{ plan.hosts.attacker.ip }}", "callback_port": {{ plan.ops.callback_port }}, "targets": { {% for t in plan.targets %}"{{ t }}": "{{ plan.hosts[t].ip }}"{{ "," if not loop.last }}{% endfor %} }}

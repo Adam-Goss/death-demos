@@ -27,8 +27,8 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
    - `scripts/labops.py exercise end`
    - hunt in Kibana: both directions (process to request, request to process) inside the window from `labops.py exercise show ex-001`
    - `scripts/labops.py drain t1`, then `reset t1` (A7), `attacker-clean`.
-6. Lab off/on: `labops.py shutdown [--include-elastic]` / `startup [--include-elastic]` (A9). Needs `PROXMOX_VE_ENDPOINT`, `PVE_NODE`, `PROXMOX_VE_API_TOKEN_{ATTACKER,TARGETS,FIREWALL}` (+ `_ELASTIC`).
-7. Evidence deletion: `scripts/evidence_delete.py all` (dry run), then re-run with the printed `--confirm`.
+6. Lab off/on: `labops.py shutdown [--include-elastic] [--acknowledge-loss REASON]` / `startup [--include-elastic]` (A9). Needs `PROXMOX_VE_ENDPOINT`, `PVE_NODE`, `PROXMOX_VE_API_TOKEN_{ATTACKER,TARGETS,FIREWALL}` (+ `_ELASTIC`).
+7. Evidence deletion: `scripts/evidence_delete.py all` (dry run), then re-run with the printed `--confirm` phrase (it includes the document count).
 
 ## Guards
 
@@ -41,8 +41,10 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 - **Shutdown vs Elastic**: A9 says shutdown powers off *all* guests; the brief said shutdown must never reach Elastic. Implemented as: excluded by default, graceful `--include-elastic` opt-in. Confirm or change.
 - **`lab.exercise_id` is a marker window, not a per-event field** (see the decision doc). Apache requests also carry it in the User-Agent.
 - `exercise end` needs Elastic; during an outage the exercise stays active (blocks shutdown, reset of that target and evidence deletion) until it returns. Evidence deletion also refuses when Elastic's markers show an unmatched start.
-- Agent retirement in reset is best-effort (warns, audited); the old Fleet record must then be retired by hand before enrolment.
-- `tofu apply -replace` applies the whole targets stack, not just one VM.
+- Agent retirement in reset is **required**: if the Fleet call fails the rebuild is refused (nothing destroyed). It revokes the old agent's key; the fresh enrolment token per rebuild is M4's.
+- `lab.sh replace` passes `-replace` and `-target` for the one VM address, so nothing else in the targets stack is applied.
+- Shutdown drains running targets first (Elastic must answer, or `--acknowledge-loss REASON`).
+- Drain-marker lines are not removed by evidence deletion (they sit in whatever stream the agent ships them to).
 - Generation is tracked on the workstation; if `.state` is lost, align with `labops.py generation`.
 - `scripts/a1-verify.sh` and `lab.sh apply all` now include the attacker stack (needs its token, pool and template first).
 - Attacker (and t2) can reach ingestion ports (M2 known gap, unchanged).

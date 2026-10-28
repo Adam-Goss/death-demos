@@ -65,7 +65,7 @@ class Exercise1(unittest.TestCase):
 
     def run_script(self, *extra):
         return subprocess.run([sys.executable, SCRIPT, "--exercise-id", "ex-001", "--base-url", self.dvwa.url,
-                               "--attacker-ip", "10.77.1.10", "--workdir", self.work, *extra],
+                               "--attacker-ip", "10.77.1.10", "--callback-port", "4444", "--workdir", self.work, *extra],
                               capture_output=True, text=True)
 
     def test_logs_in_and_injects_at_security_low(self):

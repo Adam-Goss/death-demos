@@ -3,10 +3,13 @@
 Deliberately has no stop, delete or config call: a lab shutdown is a graceful guest shutdown and nothing else.
 Env: PROXMOX_VE_ENDPOINT, PROXMOX_VE_INSECURE=true (self-signed).
 """
-import json
+import os
 import ssl
+import sys
 import time
-import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from labcommon import fetch_json  # noqa: E402
 
 
 class PveError(RuntimeError):
@@ -20,12 +23,9 @@ class Client:
         self.ctx = ssl._create_unverified_context() if insecure else None
 
     def _call(self, path, method="GET", body=None):
-        data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(self.base + path, data=data, method=method, headers={
-            "Authorization": "PVEAPIToken=" + self.token, "Content-Type": "application/json"})
+        headers = {"Authorization": "PVEAPIToken=" + self.token, "Content-Type": "application/json"}
         try:
-            with urllib.request.urlopen(req, timeout=30, context=self.ctx) as r:
-                return json.load(r).get("data")
+            return fetch_json(self.base + path, method, headers, body, self.ctx).get("data")
         except Exception as e:  # noqa: BLE001
             raise PveError("%s %s: %s" % (method, path, e))
 
@@ -45,3 +45,14 @@ class Client:
                 return True
             time.sleep(poll)
         return self.status(vmid) == want
+
+
+def from_env(stack):
+    """Client for one stack's token. Shutdown/startup read their settings only here."""
+    endpoint, node = os.environ.get("PROXMOX_VE_ENDPOINT"), os.environ.get("PVE_NODE")
+    if not (endpoint and node):
+        raise SystemExit("set PROXMOX_VE_ENDPOINT and PVE_NODE")
+    var = "PROXMOX_VE_API_TOKEN_" + stack.upper()
+    if not os.environ.get(var):
+        raise SystemExit("set " + var)
+    return Client(endpoint, node, os.environ[var], os.environ.get("PROXMOX_VE_INSECURE") == "true")

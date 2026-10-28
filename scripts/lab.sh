@@ -15,10 +15,8 @@ addr=${3:-}
 # Replace rebuilds one named target VM and nothing else: only the targets stack, only a VM resource address.
 if [ "$cmd" = replace ]; then
   [ "$target" = targets ] || { echo "refused: replace only applies to the targets stack" >&2; exit 1; }
-  case $addr in
-    proxmox_virtual_environment_vm.[a-z_]*) ;;
-    *) echo "refused: replace needs a proxmox_virtual_environment_vm resource address" >&2; exit 1;;
-  esac
+  [[ $addr =~ ^proxmox_virtual_environment_vm\.[a-z_]+(\[\"[a-z0-9]+\"\])?$ ]] \
+    || { echo "refused: replace needs a proxmox_virtual_environment_vm resource address" >&2; exit 1; }
 fi
 
 : "${OPALEYE_STATE_PASSPHRASE:?set the state passphrase}"
@@ -52,6 +50,6 @@ for s in $stacks; do
       plan) tofu plan -input=false -detailed-exitcode || [ $? = 2 ] ;;
       apply) tofu apply -input=false -auto-approve ;;
       destroy) tofu destroy -input=false -auto-approve ;;
-      replace) tofu apply -input=false -auto-approve "-replace=$addr" ;;
+      replace) tofu apply -input=false -auto-approve "-replace=$addr" "-target=$addr" ;;  # -target: no other resource in the stack is touched
     esac )
 done

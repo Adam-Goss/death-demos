@@ -6,13 +6,13 @@ Env: ELASTIC_ES_URL (default https://127.0.0.1:19200), ELASTIC_KB_URL (default h
      ELASTIC_PASSWORD_FILE (default secrets/elastic/elastic.password).
 """
 import base64
-import json
 import os
 import ssl
+import sys
 import urllib.error
-import urllib.request
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from labcommon import ROOT, fetch_json  # noqa: E402
 
 
 class EsError(RuntimeError):
@@ -32,12 +32,8 @@ class Client:
         headers = {"Content-Type": "application/json", "kbn-xsrf": "labops"}
         if self.auth:
             headers["Authorization"] = self.auth
-        data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(self.url + path, data=data, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=30, context=self.ctx) as r:
-                raw = r.read()
-                return json.loads(raw) if raw else {}
+            return fetch_json(self.url + path, method, headers, body, self.ctx)
         except urllib.error.HTTPError as e:
             raise EsError("%s %s: http %d" % (method, path, e.code))
         except Exception as e:  # noqa: BLE001

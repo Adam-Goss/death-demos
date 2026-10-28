@@ -38,13 +38,17 @@ class EvidenceDelete(unittest.TestCase):
         return subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "evidence_delete.py"), *args],
                               env=self.env, capture_output=True, text=True)
 
+    def phrase(self, scope):
+        out = self.run_cli(scope).stdout
+        return re.search(r'--confirm "(.*)"', out).group(1)
+
     def count(self, prefix):
         return len(self.es.select(prefix))
 
     def test_without_confirmation_it_only_reports_what_it_would_delete(self):
         r = self.run_cli("all")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("DELETE EVIDENCE all", r.stdout)
+        self.assertIn("DELETE EVIDENCE all (7 documents)", r.stdout)
         self.assertEqual(self.es.deletes(), [])
 
     def test_a_wrong_phrase_deletes_nothing(self):
@@ -54,19 +58,30 @@ class EvidenceDelete(unittest.TestCase):
         self.assertEqual(self.count("logs-"), 7)
 
     def test_all_removes_evidence_and_markers_but_not_metrics(self):
-        r = self.run_cli("all", "--confirm", "DELETE EVIDENCE all")
+        r = self.run_cli("all", "--confirm", self.phrase("all"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.count("logs-"), 0)
         self.assertEqual(self.count("metrics-"), 1)
 
     def test_one_exercise_removes_only_its_window_on_its_target(self):
-        r = self.run_cli("exercise:ex-1", "--confirm", "DELETE EVIDENCE exercise:ex-1")
+        r = self.run_cli("exercise:ex-1", "--confirm", self.phrase("exercise:ex-1"))
         self.assertEqual(r.returncode, 0, r.stderr)
         left = self.es.select("logs-endpoint.events.process")
         self.assertEqual([d["@timestamp"] for d in left], ["2026-10-28T12:00:00Z"])
         self.assertEqual(self.count("logs-apache.access"), 0)
         self.assertEqual(self.count(MARK), 0)
         self.assertEqual(self.count("metrics-"), 1)
+
+    def test_a_phrase_for_a_different_scope_or_count_is_refused(self):
+        self.assertNotEqual(self.run_cli("all", "--confirm", "DELETE EVIDENCE all").returncode, 0)
+        self.assertNotEqual(self.run_cli("all", "--confirm", "DELETE EVIDENCE all (9 documents)").returncode, 0)
+        self.assertEqual(self.es.deletes(), [])
+
+    def test_firewall_flow_rows_in_the_window_go_with_the_exercise(self):
+        self.es.add("logs-lab_firewall.flow-default", {"@timestamp": "2026-10-28T10:30:00Z"})
+        self.es.add("logs-lab_firewall.flow-default", {"@timestamp": "2026-10-28T14:00:00Z"})
+        self.assertEqual(self.run_cli("exercise:ex-1", "--confirm", self.phrase("exercise:ex-1")).returncode, 0)
+        self.assertEqual([d["@timestamp"] for d in self.es.select("logs-lab_firewall.flow")], ["2026-10-28T14:00:00Z"])
 
     def test_an_unknown_exercise_is_refused(self):
         self.assertNotEqual(self.run_cli("exercise:nope", "--confirm", "DELETE EVIDENCE exercise:nope").returncode, 0)
@@ -75,20 +90,34 @@ class EvidenceDelete(unittest.TestCase):
     def test_refused_while_an_exercise_is_active(self):
         with open(os.path.join(self.dir, "labops.json"), "w") as f:
             json.dump({"active": {"id": "ex-9", "target": "t1"}, "generations": {}}, f)
-        r = self.run_cli("all", "--confirm", "DELETE EVIDENCE all")
+        r = self.run_cli("all", "--confirm", "DELETE EVIDENCE all (7 documents)")
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.es.deletes(), [])
 
     def test_refused_when_the_markers_show_an_open_exercise_even_without_local_state(self):
         self.es.add(MARK, {"@timestamp": "2026-10-28T13:00:00Z", "event": {"action": "exercise-start"}, "lab": {"exercise_id": "ex-2", "target_id": "t1"}})
-        r = self.run_cli("all", "--confirm", "DELETE EVIDENCE all")
+        r = self.run_cli("all", "--confirm", "DELETE EVIDENCE all (9 documents)")
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.es.deletes(), [])
 
     def test_a_confirmed_deletion_is_audited(self):
-        self.run_cli("all", "--confirm", "DELETE EVIDENCE all")
+        self.run_cli("all", "--confirm", self.phrase("all"))
         with open(os.path.join(self.dir, "evidence-delete.log")) as f:
             self.assertEqual(json.loads(f.readline())["scope"], "all")
+
+
+class ReplaceGuard(unittest.TestCase):
+    def test_replace_takes_only_a_single_vm_resource_address(self):
+        env = dict(os.environ, OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij", PROXMOX_VE_ENDPOINT="https://x/")
+        for addr in ("", "proxmox_virtual_environment_vm.target;x", "proxmox_virtual_environment_vm.target[t1]",
+                     "proxmox_virtual_environment_pool.p", "-destroy", "proxmox_virtual_environment_vm.target[\"t1\"] -x"):
+            r = subprocess.run(["bash", os.path.join(ROOT, "scripts/lab.sh"), "replace", "targets", addr],
+                               env=env, capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0, addr)
+            self.assertIn("refused", r.stderr, addr)
+
+    def test_replace_also_targets_the_address_so_other_resources_are_untouched(self):
+        self.assertIn('"-replace=$addr" "-target=$addr"', open(os.path.join(ROOT, "scripts/lab.sh")).read())
 
 
 class Unreachable(unittest.TestCase):
