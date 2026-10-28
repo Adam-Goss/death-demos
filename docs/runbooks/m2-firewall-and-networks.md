@@ -118,6 +118,17 @@ Run with the Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 203.0.
 
 VPN handshake with the filter on confirmed by capture: `192.168.0.223 -> 192.168.0.82:51820` initiation, response and keepalives, passed by `pass in quick on vtnet0 ... from 192.168.0.223 to (self) port 51820`.
 
+### Exercise mode, phase `home` (`a2-verify.sh exercise t1 home`): PASS-WITH-SKIPS, 4 run, 3 skipped
+
+Source is the workstation (192.168.0.223) entering through the firewall WAN: host routes `10.77.1.10/32`, `10.77.3.10/32`, `10.77.11.10/32` via `192.168.0.82` (they beat the tunnel's `/16`); tunnel up so the log check can reach the API. Skipped: `workstation -> fw:51820` (WG_IFACE unset; handshake shown by capture above), `home_other` and `public` (sources not available from this host; same interface default-deny, no port forwards).
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| workstation | fw:443 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | t1:80 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | attacker:22 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | elastic:5601 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+
 ### Still to record
 
-`home` phase (VPN down), `failclosed`, maintenance mode and the post-maintenance exercise re-run, then remove the OPNsense anti-lockout rule and rerun.
+`failclosed`, maintenance mode and the post-maintenance exercise re-run, then remove the OPNsense anti-lockout rule and rerun.
