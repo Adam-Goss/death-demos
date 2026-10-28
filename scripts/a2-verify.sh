@@ -13,8 +13,7 @@
 #         `home_other` (192.168.0.50) and `public` (203.0.113.55) rows bind to those addresses, so add them to this
 #         host first: `sudo ip addr add 192.168.0.50/32 dev <if>`, same for 203.0.113.55 (spoofed source, never leaves the LAN
 #         segment: it is routed to the firewall WAN by the host routes above).
-# Env: PROBE_SSH (default: ssh -o BatchMode=yes -o ConnectTimeout=5, user opaleye), WG_IFACE (VPN interface name,
-#      for the handshake check), REVERIFY=1 (after a clean exercise/lab pass, clear labmode's re-verify flag),
+# Env: PROBE_SSH (default: ssh -o BatchMode=yes -o ConnectTimeout=5, user opaleye), REVERIFY=1 (after a clean exercise/lab pass, clear labmode's re-verify flag),
 #      and for `failclosed`: PROXMOX_VE_ENDPOINT, PROXMOX_VE_API_TOKEN_FIREWALL, PVE_NODE, PROXMOX_VE_INSECURE.
 # Exit non-zero if any row differs from expected. Rows that cannot be sourced from here are listed as SKIP.
 set -u
@@ -45,10 +44,8 @@ probe_dns() { # python3 only: probe guests have no dig and no Internet to instal
 probe_ntp() {
   run "$1" "$2" "python3 -c \"import socket,sys;s=socket.socket(2,2);s.settimeout(2);s.sendto(b'\\x1b'+47*b'\\0',('$3',123));s.recvfrom(64)\" >/dev/null 2>&1; echo rc=\$?" | grep -q 'rc=0$' && echo allow || echo deny
 }
-probe_wg() { # allowed iff the VPN handshake is fresh
-  [ -n "${WG_IFACE:-}" ] || { echo SKIP; return; }
-  local hs; hs=$(wg show "$WG_IFACE" latest-handshakes 2>/dev/null | awk '{print $2}' | sort -n | tail -1)
-  [ -n "$hs" ] && [ $(( $(date +%s) - hs )) -lt 180 ] && echo allow || echo deny
+probe_wg() { # allowed iff the firewall itself reports a fresh handshake from the workstation (it only completes through the WAN allow)
+  $PY scripts/labmode.py wgpeer workstation "$1" 2>/dev/null && echo allow || echo deny
 }
 probe_noipv6() {
   # deny = no global IPv6 address, no IPv6 default route, and nothing answers an all-routers ping on the vantage link
@@ -142,7 +139,7 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
       tcp)      if [ "$src" = home_other ] || [ "$src" = public ]; then actual=$(probe_bound_tcp "$sip" "$dip" "$port"); else actual=$(probe_tcp "$src" "$sip" "$dip" "$port"); fi ;;
       dns)      actual=$(probe_dns "$src" "$sip" "$dip") ;;
       ntp)      actual=$(probe_ntp "$src" "$sip" "$dip") ;;
-      wg)       if [ "$src" = home_other ]; then actual=$(probe_bound_udp "$sip" "$dip" "$port"); else actual=$(probe_wg); fi ;;
+      wg)       if [ "$src" = home_other ]; then actual=$(probe_bound_udp "$sip" "$dip" "$port"); else actual=$(probe_wg "$sip"); fi ;;
       no-ipv6)  actual=$(probe_noipv6 "$src" "$sip") ;;
     esac
   fi

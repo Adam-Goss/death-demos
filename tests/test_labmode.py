@@ -161,6 +161,19 @@ class LabMode(unittest.TestCase):
         self.fw.log.append(dict(old, __digest__="bbb"))
         self.assertEqual(self.run_cli("denylog", "10.77.11.10", "10.77.12.10", "80", LABMODE_LOG_BASELINE=base).returncode, 0)
 
+    def test_wgpeer_accepts_only_a_fresh_handshake_from_the_expected_source(self):
+        peer = {"type": "peer", "name": "workstation", "endpoint": "192.168.0.223:51490", "latest-handshake-age": 112}
+        args = ("wgpeer", "workstation", "192.168.0.223")
+        self.assertNotEqual(self.run_cli(*args).returncode, 0)  # no peers at all
+        self.fw.wg_rows = [dict(peer)]
+        self.assertEqual(self.run_cli(*args).returncode, 0)
+        self.fw.wg_rows = [dict(peer, **{"latest-handshake-age": 400})]
+        self.assertNotEqual(self.run_cli(*args).returncode, 0)  # stale
+        self.fw.wg_rows = [dict(peer, **{"latest-handshake-age": None})]
+        self.assertNotEqual(self.run_cli(*args).returncode, 0)  # never shook hands
+        self.fw.wg_rows = [dict(peer, endpoint="192.168.0.50:51490")]
+        self.assertNotEqual(self.run_cli(*args).returncode, 0)  # wrong source address
+
     def test_refuses_without_credentials(self):
         r = self.run_cli("exercise", "t1", creds=False)
         self.assertNotEqual(r.returncode, 0)

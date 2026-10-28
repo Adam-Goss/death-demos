@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 class Fake:
     def __init__(self, key="k", secret="s"):
         self.auth = "Basic " + base64.b64encode(("%s:%s" % (key, secret)).encode()).decode()
-        self.rules, self.aliases, self.calls, self.log = {}, {}, [], []
+        self.rules, self.aliases, self.calls, self.log, self.wg_rows = {}, {}, [], [], []
         self.fail_apply = False
         self.core_only = False  # OPNsense core: no savepoint/cancelRollback, apply takes no revision
         self.srv = HTTPServer(("127.0.0.1", 0), self._handler())
@@ -64,6 +64,8 @@ class Fake:
             return "reconfigureAlias", {"status": "ok"}
         if path.endswith("/diagnostics/firewall/log"):
             return "log", list(self.log)
+        if path.endswith("/wireguard/service/show"):
+            return "wgshow", {"total": len(self.wg_rows), "rows": list(self.wg_rows)}
         return "unknown", {"status": "error"}
 
     def _handler(self):

@@ -9,6 +9,8 @@
   labmode.py reverified                      record that exercise-mode denies were re-verified (a2-verify.sh)
   labmode.py denylog SRC DST PORT            exit 0 if the firewall logged that block (only rows newer than
                                              the LABMODE_LOG_BASELINE file, when that env var is set)
+  labmode.py wgpeer NAME IP [MAX_AGE]        exit 0 if WireGuard peer NAME shook hands within MAX_AGE s (default 180)
+                                             from source address IP (the VPN allow on the firewall WAN, seen by the firewall)
   labmode.py logmark FILE                    write the digests of the current log rows to FILE (the baseline)
   labmode.py status
 
@@ -145,6 +147,14 @@ class Lab:
         self.st["reverify_required"] = False
         self.commit("reverified")
 
+    def wgpeer(self, name, ip, max_age):
+        for p in self.client().wireguard_peers():
+            age = p.get("latest-handshake-age")
+            if p.get("name") == name and age is not None and age < max_age                     and str(p.get("endpoint", "")).rsplit(":", 1)[0] == ip:
+                return 0
+        print("no fresh handshake from %s at %s" % (name, ip), file=sys.stderr)
+        return 1
+
     def logmark(self, path):
         with open(path, "w") as f:
             f.write("\n".join(r.get("__digest__", "") for r in self.client().firewall_log()) + "\n")
@@ -178,6 +188,8 @@ def main(argv):
     d = sub.add_parser("denylog")
     d.add_argument("src"), d.add_argument("dst"), d.add_argument("port")
     sub.add_parser("logmark").add_argument("file")
+    w = sub.add_parser("wgpeer")
+    w.add_argument("name"), w.add_argument("ip"), w.add_argument("max_age", nargs="?", type=int, default=180)
     a = ap.parse_args(argv[1:])
 
     lab = Lab()
@@ -194,6 +206,8 @@ def main(argv):
             lab.reverified()
         elif a.cmd == "denylog":
             return lab.denylog(a.src, a.dst, a.port)
+        elif a.cmd == "wgpeer":
+            return lab.wgpeer(a.name, a.ip, a.max_age)
         elif a.cmd == "logmark":
             lab.logmark(a.file)
         elif a.cmd == "status":

@@ -86,5 +86,9 @@ class Client:
         self.call("firewall/alias/reconfigure")
         return True
 
+    def wireguard_peers(self):
+        rows = self.call("wireguard/service/show", method="GET").get("rows", [])
+        return [r for r in rows if r.get("type") == "peer"]
+
     def firewall_log(self):
         return self.call("diagnostics/firewall/log?limit=100", method="GET")
