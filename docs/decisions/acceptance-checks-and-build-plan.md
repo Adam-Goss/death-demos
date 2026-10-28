@@ -49,6 +49,7 @@ Resolve at the named milestone, not now, unless Adam prefers otherwise.
 | Exercise 2 (file upload) validation | After M6 | Research pass needed (#7). |
 | Backup storage availability | M0 | If none, risk accepted explicitly (#9). |
 | Elastic config/secrets backup mechanism | M3 | Offline key from #8. |
+| Firewall product (OPNsense vs pfSense CE) | M2 | Recommended: OPNsense CE, pinned. See [research](../research/opnsense-vs-pfsense.md) (#26); confirm via A2. |
 
 ## Handoff rules (confirmed)
 
