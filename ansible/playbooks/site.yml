@@ -1,0 +1,5 @@
+# In-guest configuration entry point. Roles are added per milestone (M2-M5).
+- name: Placeholder until guests exist
+  hosts: localhost
+  gather_facts: false
+  tasks: []

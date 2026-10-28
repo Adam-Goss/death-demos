@@ -1,0 +1,17 @@
+# Encrypted state still stays on the operator workstation only
+.state/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+crash.log
+# Offline key material and tokens
+secrets/
+*.pem
+*.key
+.env
+.env.*
+# Collector output may hold host details
+m0-inventory-*.txt
