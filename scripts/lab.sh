@@ -14,7 +14,7 @@ target=${2:?usage: lab.sh <init|plan|apply|destroy> <stack|all>}
 : "${OPALEYE_STATE_PASSPHRASE:?set the state passphrase}"
 [ "${#OPALEYE_STATE_PASSPHRASE}" -ge 16 ] || { echo "passphrase too short" >&2; exit 1; }
 # It is interpolated into HCL: refuse characters that would break or inject.
-case $OPALEYE_STATE_PASSPHRASE in *[\"\$]*) echo "passphrase must not contain \" \ or \$" >&2; exit 1;; esac
+case $OPALEYE_STATE_PASSPHRASE in *[\"\\\$]*) echo "passphrase must not contain \" \ or \$" >&2; exit 1;; esac
 : "${PROXMOX_VE_ENDPOINT:?set the endpoint}"
 export TF_ENCRYPTION="key_provider \"pbkdf2\" \"lab\" { passphrase = \"$OPALEYE_STATE_PASSPHRASE\" }"
 mkdir -p .state
