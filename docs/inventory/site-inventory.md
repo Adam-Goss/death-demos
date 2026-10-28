@@ -13,18 +13,18 @@ Issue #19. Exit = check A0 in [acceptance checks](../decisions/acceptance-checks
 | `/etc/network/interfaces` | `vmbr0` 192.168.0.161/24 gw 192.168.0.1 on `enp8s0` (home LAN, not VLAN-aware). Ludus blocks: `vmbr1000` NAT 192.0.2.254/24 (VLAN-aware 2-4094, MASQUERADE out `vmbr0`, ip_forward=1), `vmbr1001` Ludus user 1 (VLAN-aware 2-4094, route 10.1.0.0/16 via 192.0.2.101). Spare NICs `eno1`, `ens4` DOWN | `/etc/network/interfaces` |
 | Bridges / VLANs | Only VLAN 1 present on ports; Ludus bridges allow 2-4094. Free VLAN IDs: undetermined (Ludus allocates per range). Lab should use a **new dedicated bridge**, not `vmbr1000`/`vmbr1001` | `bridge vlan show` |
 | Other interfaces | `wg0` 198.51.100.1/24 (Ludus WireGuard) | `ip -br addr` |
-| Router / gateway | 192.168.0.1 (model, VLAN support, DHCP reservations: **TODO human**) | `ip route` |
-| IPv6 state | Host: link-local only, no global address, no IPv6 default route, `disable_ipv6=0`, `ipv6.forwarding=0`. Router RA/DHCPv6: **TODO human** | `ip -6 route`, `sysctl` |
-| Management path | `vmbr0` 192.168.0.161 (Proxmox UI/SSH on home LAN). Recovery console (IPMI/iKVM/physical): **TODO human** | `ip -br addr` |
+| Router / gateway | Home router 192.168.0.1 stays the upstream gateway (model/VLAN/RA not needed for lab). Lab router/firewall will be a **virtualized OPNsense or pfSense VM** in M2; product choice is a separate research ticket. Note: stopped VM 114 `pfsense01` already exists (Ludus-side, not lab) | `ip route`, Adam 2026-10-28 |
+| IPv6 state | Host: link-local only, no global address, no IPv6 default route, `disable_ipv6=0`, `ipv6.forwarding=0`. Upstream RA/DHCPv6 on home router: unconfirmed, A2 probes IPv6 regardless | `ip -6 route`, `sysctl` |
+| Management path | `vmbr0` 192.168.0.161 (Proxmox UI/SSH on home LAN). Recovery console: **physical access** to the host (no IPMI), per Adam 2026-10-28 | `ip -br addr` |
 | CPU | 2x Xeon E5-2683 v4, 32 cores / 64 threads, VT-x, 2 NUMA nodes | `lscpu` |
 | RAM | 125 GiB total, 122 GiB available, 976 MiB swap | `free -h` |
 | Storage | `local` (dir, NVMe 238 GB root): **89.5% used, 13 GB free, do not use**. `iso-files` (dir, SATA SSD CT2000MX500, 1.8 TB): 1.6 TB free, content incl. images/backup | `pvesm status`, `lsblk` |
-| Backup storage | No PBS or NFS. `iso-files` allows `backup` but is a second disk **in the same host** (no offsite). Decision needed: use it, or explicitly accept risk (#9) | `/etc/pve/storage.cfg` |
+| Backup storage | No PBS or NFS. `iso-files` allows `backup` but is a second disk **in the same host** . **Risk accepted explicitly by Adam, 2026-10-28 (#9):** no separate backup storage; snapshots at best on `iso-files`; host loss = evidence loss | `/etc/pve/storage.cfg` |
 | Existing guests | 20 VMs, all stopped (templates 100-109, 111-113; VMs 110, 114-119). Largest: `win11` 20 vCPU/40 GB, `android` 20/39 GB, `jump01` 8/17.5 GB | `pvesh get /cluster/resources` |
 | Time/DNS | NTP synced, Europe/London; resolvers 192.168.0.1, 8.8.8.8, 1.1.1.1 | `timedatectl`, `resolv.conf` |
-| Image approach | **TODO human** (cloud image + first boot vs Packer) | #8 |
-| Image pins + checksums | **TODO** after approach chosen | |
-| Authority to change shared networking | **TODO human** (who, scope; Ludus may rewrite its managed blocks) | |
+| Image approach | **Cloud image + first boot, or a Proxmox template** (no Packer), per Adam 2026-10-28. Final per-VM choice at M2-M4 | #8 |
+| Image pins + checksums | Record version + SHA256 when each image is selected (firewall M2, Elastic M3, target M4, attacker M5) | |
+| Authority to change shared networking | **Adam has authority**; Ludus tolerates additional bridges alongside its own (Adam 2026-10-28). Keep lab bridges outside Ludus-marked blocks | Adam 2026-10-28 |
 
 ## A0 sizing check
 
@@ -47,7 +47,7 @@ Caveat: if Ludus guests run concurrently (e.g. win11 + android = 40 vCPU / 80 GB
 
 ## A0 result
 
-- [ ] All facts recorded (open: router, IPv6 RA, recovery console, image approach/pins, backup decision)
+- [x] All facts recorded (image pins deferred to the milestone that selects each image; IPv6 RA covered by A2 probes)
 - [x] Sizing >= placeholders
-- [ ] Change authority confirmed
+- [x] Change authority confirmed
 - M1 does not start until all three checked.
