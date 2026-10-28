@@ -19,8 +19,8 @@ PROBE_SSH=${PROBE_SSH:-ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKey
 # run <src-host> <command>: execute on the vantage that owns that source address.
 run() {
   case $1 in
-    attacker|elastic|t1|t2) $PROBE_SSH "opaleye@$2" "$3" ;;
-    *) bash -c "$3" ;;
+    attacker|elastic|t1|t2) $PROBE_SSH "opaleye@$2" "$3" </dev/null ;;  # never let ssh eat the loop's stdin
+    *) bash -c "$3" </dev/null ;;
   esac
 }
 
@@ -113,6 +113,12 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
   printf '| %s | %s:%s | %s | %s | %s | %s |\n' "$src" "$dst" "$port" "$mode" "$expected" "$actual" "$where"
 done < <($PY scripts/netpolicy.py matrix "$mode" "$sel")
 
+total=$($PY scripts/netpolicy.py matrix "$mode" "$sel" | awk -F'	' -v p="$want" '
+  p=="lab"  && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2") {c++}
+  p=="vpn"  && $2=="operator" {c++}
+  p=="home" && ($2=="workstation"||$2=="home_other"||$2=="public") {c++}
+  END {print c+0}')
+if [ $((n + skipped)) != "$total" ]; then echo "ROWS MISSING: ran $((n + skipped)) of $total"; fail=1; fi
 echo
 verdict=FAIL; [ $fail = 0 ] && { verdict=PASS; [ $skipped = 0 ] || verdict="PASS-WITH-SKIPS"; }
 echo "phase=$want mode=$mode selected=$sel rows=$n skipped=$skipped $verdict"
