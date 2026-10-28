@@ -20,7 +20,8 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 - `network/plan.json`: single source (zones, bridges, hosts, services, targets, literal A2 probe table).
 - `scripts/netpolicy.py`: flows -> rendered ruleset; `lint` checks it against the probe table; `matrix`, `bridges`, `check`.
-- `scripts/opnsense.py`, `scripts/labmode.py`: push the ruleset (savepoint -> apply -> confirm, so a change that cuts the controller off reverts) and switch exercise/maintenance/selected target. State and audit log in `.state/labmode.{json,log}`.
+- `scripts/opnsense.py`, `scripts/labmode.py`: push the ruleset (pending marker -> apply -> confirm marker; the dead-man job reverts a push the controller never confirmed) and switch exercise/maintenance/selected target. State and audit log in `.state/labmode.{json,log}`.
+- `scripts/firewall/opaleye_deadman.py`, `scripts/install-deadman.sh`: dead-man switch that runs on the firewall (#32); tests in `tests/test_deadman.py`.
 - `scripts/bootstrap-bridges.sh`: root, node shell. Writes `/etc/network/interfaces.d/opaleye-lab.conf` (outside the Ludus blocks) and `ifup`s only new bridges.
 - `tofu/stacks/firewall`: firewall VM (only guest with the home bridge, WAN = first NIC) and optional throwaway probe guests.
 - `scripts/a2-verify.sh`: prints the A2 evidence table.
@@ -44,12 +45,12 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 ## Known gaps
 
 - **Manual first boot** (#31): interfaces, WireGuard, Unbound/NTP, API user, **Interfaces > WAN > Block private networks off** (it drops the workstation before the handshake allow), anti-lockout off, no default allow-any rules, hardware offload off, IPv6 off. Ping to the firewall is denied by design (only TCP 443 from the VPN); test with `curl -k https://10.77.9.1/`.
-- **No auto-revert on rule pushes** (#32): OPNsense core 26.7 has no `savepoint`/`cancelRollback` (`os-firewall` plugin only) and `apply` takes no revision. `labmode.py` refuses unless `OPNSENSE_NO_SAVEPOINT=true`; a bad push can then only be undone from the VM console (`pfctl -d`, or a config backup). Take **System > Configuration > Backups** before the first push.
+- **Dead-man switch** (#32, replaces the missing core savepoint; **implemented and tested offline, not yet proven on the firewall**): `scripts/install-deadman.sh <fw>` copies the job and a configd action; add a GUI cron job (System > Settings > Cron, every minute, "Opaleye dead-man switch"); then `labmode.py arm`. Each push sets alias `opaleye_pending` to a fresh token, applies, then sets `opaleye_confirmed` to the same token, which only works if the API is still reachable. The job keeps a copy of `config.xml` whenever the two match and, if they differ for 120 s, restores that copy and reloads the filter (worst case about 3 min). The restore also drops any other config change made since the last confirmed push. `labmode.py` refuses to push while unarmed or while a previous push is unconfirmed. Unverified on 26.7: the configd action file format and the `configctl filter reload` / `refresh_aliases` commands the job uses. Take **System > Configuration > Backups** before the first push anyway.
 - IPv6 is probed per side: lab vantages (no global address, no default route, no reply to an all-routers ping); VPN (the firewall's own WireGuard peer config routes no IPv6: `labmode.py wgv4only`); home (the firewall's WAN MAC from the Proxmox API must not answer a `ping -6 ff02::1`, with other neighbours answering as the control, else ERROR). The home probe needs `PROXMOX_VE_*`/`PVE_NODE` in the environment and a working IPv6 multicast path on the workstation. Recorded in the `vpn` and `home` runs below.
 - The `workstation -> fw:51820` allow row reads the firewall's own WireGuard status (`labmode.py wgpeer`: peer `workstation`, fresh handshake, endpoint `192.168.0.223`); needs the `VPN: WireGuard: Status` privilege on `opaleye-api`. Recorded in the `home` run below (7 rows, 0 skipped).
 - `attacker -> fw` is probed on 443/22 (p46, p47) in the `lab` phase only; the other phases' tables predate those rows.
 - `denylog` ignores rows already in the log when the verifier starts (digest baseline), so a stale block from an earlier run cannot satisfy a row; within one run, an identical earlier block for the same src/dst/port still would.
-- `labmode.py tick` needs a timer: `scripts/install-tick-timer.sh` installs a per-minute user crontab line (WSL: `sudo service cron start`, VPN up); `--remove` uninstalls. Needs `export OPNSENSE_NO_SAVEPOINT=true` in `secrets/env.sh` (cron sees only that file); the installer refuses without it. Proven live 2026-10-28 by cron: a 1-minute maintenance window closed itself (`maintenance expired: back to exercise mode`, `reverify_required: true`); the first attempt failed for the missing variable and left maintenance open until fixed (the tick retries each minute).
+- `labmode.py tick` needs a timer: `scripts/install-tick-timer.sh` installs a per-minute user crontab line (WSL: `sudo service cron start`, VPN up); `--remove` uninstalls. Credentials come from `secrets/env.sh` (cron sees only that file). Proven live 2026-10-28 by cron: a 1-minute maintenance window closed itself (`maintenance expired: back to exercise mode`, `reverify_required: true`); the first attempt failed for a missing variable and left maintenance open until fixed (the tick retries each minute).
 - Docker-published ports and per-target NICs need the M4 target; probe a published non-exercise port from outside the target before it powers on.
 - `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny.
 
@@ -59,7 +60,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 ## How to rerun A2
 
-All from the workstation, tunnel up, `OPNSENSE_URL=https://10.77.9.1`, `OPNSENSE_NO_SAVEPOINT=true`; probe guests created with `TF_VAR_probe_vms=true` (clone of template 2100). SSH host keys change on every recreate: `ssh-keygen -R <ip>` first.
+All from the workstation, tunnel up, `OPNSENSE_URL=https://10.77.9.1`; probe guests created with `TF_VAR_probe_vms=true` (clone of template 2100). SSH host keys change on every recreate: `ssh-keygen -R <ip>` first.
 
 - `exercise lab`: `labmode.py select t1; a2-verify.sh exercise t1 lab`
 - `vpn`: Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 1.1.1.1/32` (restore afterwards), then `a2-verify.sh exercise t1 vpn`
@@ -71,7 +72,7 @@ All from the workstation, tunnel up, `OPNSENSE_URL=https://10.77.9.1`, `OPNSENSE
 
 ## A2 evidence
 
-Collected 2026-10-28 on node `ludus`, OPNsense 26.7 (VM 2000), probe guests cloned from template 2100, `1.1.1.1:443` as the Internet canary. Packet filter enabled, anti-lockout disabled (confirmed by Adam). Rules pushed with `labmode.py` (`OPNSENSE_NO_SAVEPOINT=true`). Tables below are the verifier output files from the final run, unedited. Earlier runs of the same phases failed and led to fixes (filter disabled, log client bugs, ssh consuming the matrix, selected-target verdicts, update-source resolution); only the passing runs are recorded.
+Collected 2026-10-28 on node `ludus`, OPNsense 26.7 (VM 2000), probe guests cloned from template 2100, `1.1.1.1:443` as the Internet canary. Packet filter enabled, anti-lockout disabled (confirmed by Adam). Rules pushed with `labmode.py` (before #32, so without auto-revert). Tables below are the verifier output files from the final run, unedited. Earlier runs of the same phases failed and led to fixes (filter disabled, log client bugs, ssh consuming the matrix, selected-target verdicts, update-source resolution); only the passing runs are recorded.
 
 ### Exercise mode, t1 selected, phase `lab`
 

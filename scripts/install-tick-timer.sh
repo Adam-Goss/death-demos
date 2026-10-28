@@ -12,8 +12,7 @@ if [ "${1:-}" = "--remove" ]; then
   echo "tick timer removed"
   exit 0
 fi
-[ -f secrets/env.sh ] || { echo "missing secrets/env.sh (OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET, OPNSENSE_NO_SAVEPOINT)" >&2; exit 1; }
-grep -Eq '^[[:space:]]*(export[[:space:]]+)?OPNSENSE_NO_SAVEPOINT=.?true' secrets/env.sh || { echo "secrets/env.sh must set OPNSENSE_NO_SAVEPOINT=true (core 26.7 has no savepoint); without it every tick fails and a maintenance window never closes" >&2; exit 1; }
+[ -f secrets/env.sh ] || { echo "missing secrets/env.sh (OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET)" >&2; exit 1; }
 mkdir -p .state
 printf '%s\n%s\n' "$current" "$LINE" | sed '/^$/d' | crontab -
 echo "tick timer installed (every minute); needs the cron service running (WSL: sudo service cron start) and the VPN up"
