@@ -40,6 +40,9 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 
 - **Shutdown vs Elastic**: A9 says shutdown powers off *all* guests; the brief said shutdown must never reach Elastic. Implemented as: excluded by default, graceful `--include-elastic` opt-in. Confirm or change.
 - **`lab.exercise_id` is a marker window, not a per-event field** (see the decision doc). Apache requests also carry it in the User-Agent.
+- `exercise end` needs Elastic; during an outage the exercise stays active (blocks shutdown, reset of that target and evidence deletion) until it returns. Evidence deletion also refuses when Elastic's markers show an unmatched start.
+- Agent retirement in reset is best-effort (warns, audited); the old Fleet record must then be retired by hand before enrolment.
+- `tofu apply -replace` applies the whole targets stack, not just one VM.
 - Generation is tracked on the workstation; if `.state` is lost, align with `labops.py generation`.
 - `scripts/a1-verify.sh` and `lab.sh apply all` now include the attacker stack (needs its token, pool and template first).
 - Attacker (and t2) can reach ingestion ports (M2 known gap, unchanged).

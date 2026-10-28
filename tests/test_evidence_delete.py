@@ -79,6 +79,12 @@ class EvidenceDelete(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.es.deletes(), [])
 
+    def test_refused_when_the_markers_show_an_open_exercise_even_without_local_state(self):
+        self.es.add(MARK, {"@timestamp": "2026-10-28T13:00:00Z", "event": {"action": "exercise-start"}, "lab": {"exercise_id": "ex-2", "target_id": "t1"}})
+        r = self.run_cli("all", "--confirm", "DELETE EVIDENCE all")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.es.deletes(), [])
+
     def test_a_confirmed_deletion_is_audited(self):
         self.run_cli("all", "--confirm", "DELETE EVIDENCE all")
         with open(os.path.join(self.dir, "evidence-delete.log")) as f:

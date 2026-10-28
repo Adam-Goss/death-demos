@@ -47,6 +47,11 @@ def main(argv):
         die("exercise %s is active: end it first" % active["id"])
 
     es = elastic_api.es_client()
+    # Local state can be lost or stale (another workstation): Elastic's own markers must agree no exercise is open.
+    n = {act: es.call("/%s/_count" % marker, {"query": {"term": {"event.action": act}}})["count"]
+         for act in ("exercise-start", "exercise-end")}
+    if n["exercise-start"] != n["exercise-end"]:
+        die("markers show an exercise without an end (%d starts, %d ends): end it first" % (n["exercise-start"], n["exercise-end"]))
     query = {"match_all": {}}
     if kind == "exercise":
         res = es.call("/%s/_search" % marker, {"query": {"bool": {"filter": [{"term": {"lab.exercise_id": ex}}]}}, "size": 10})

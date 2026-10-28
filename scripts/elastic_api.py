@@ -27,7 +27,7 @@ class Client:
         if password is not None:
             self.auth = "Basic " + base64.b64encode(("elastic:%s" % password).encode()).decode()
 
-    def call(self, path, body=None, method=None, ok=(200, 201)):
+    def call(self, path, body=None, method=None):
         method = method or ("POST" if body is not None else "GET")
         headers = {"Content-Type": "application/json", "kbn-xsrf": "labops"}
         if self.auth:
