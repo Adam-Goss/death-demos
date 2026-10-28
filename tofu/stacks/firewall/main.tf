@@ -121,16 +121,16 @@ resource "proxmox_virtual_environment_file" "seed" {
 # NIC order is fixed by plan.nic_order (vtnet0..n) and must match the OPNsense interface
 # assignment in plan.zones[*].iface.
 resource "proxmox_virtual_environment_vm" "firewall" {
-  name          = "opaleye-firewall"
-  node_name     = var.node_name
-  vm_id         = local.plan.firewall.vm_id
-  pool_id       = var.pool_id
-  description   = "Lab boundary firewall (OPNsense ${local.plan.firewall.version}); managed by OpenTofu"
-  machine       = "q35"
-  bios          = "seabios"
-  on_boot       = false
-  started       = true
-  tags          = ["opaleye", "firewall"]
+  name            = "opaleye-firewall"
+  node_name       = var.node_name
+  vm_id           = local.plan.firewall.vm_id
+  pool_id         = var.pool_id
+  description     = "Lab boundary firewall (OPNsense ${local.plan.firewall.version}); managed by OpenTofu"
+  machine         = "q35"
+  bios            = "seabios"
+  on_boot         = false
+  started         = true
+  tags            = ["opaleye", "firewall"]
   stop_on_destroy = true
 
   operating_system {
@@ -162,7 +162,7 @@ resource "proxmox_virtual_environment_vm" "firewall" {
   cdrom {
     # seeded: the uploaded seed. Otherwise installer first; after install the out-of-band seed (if any); "none" = empty drive
     file_id = (var.seeded ? proxmox_virtual_environment_file.seed[0].id
-    : var.attach_installer ? var.installer_iso_file_id
+      : var.attach_installer ? var.installer_iso_file_id
     : var.seed_iso_file_id != "" ? var.seed_iso_file_id : "none")
     interface = "ide2"
   }
