@@ -43,28 +43,35 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 ## Known gaps
 
-- **First-boot OPNsense setting:** untick **Interfaces > WAN > Block private networks**; it drops the workstation (`192.168.0.0/16`) before the handshake allow rule. Ping to the firewall is denied by design (only TCP 443 is allowed); test with `curl -k https://10.77.9.1/`.
-
-- **No savepoint on OPNsense core 26.7.** `firewall/filter/savepoint` and `cancelRollback` belong to the `os-firewall` plugin (404 on core). Core `apply` takes no revision and nothing auto-reverts. `labmode.py` refuses unless `OPNSENSE_NO_SAVEPOINT=true`; a bad push can then only be undone from the Proxmox VM console (`pfctl -d`, or restore a config backup). Take a **System > Configuration > Backups** download before the first push.
-
-- **Step 4 is hand configuration**, against "re-runnable code only". The OPNsense interface-assignment and WireGuard APIs were incomplete on 26.1 ([research](../research/opnsense-vs-pfsense.md)); a `config.xml` seed would replace it but cannot be written blind. Decide after seeing the real VM.
-- Rule diffing compares only the fields we send; if live OPNsense returns them in another shape the controller will re-`setRule` every run (harmless, but not a no-op).
-- `home_other` and `public` rows bind to alias addresses on the workstation (`192.168.0.50`, `203.0.113.55`: `sudo ip addr add <ip>/32 dev <if>`), entering via the WAN host routes; the UDP row is evidenced by the logged block.
-- Docker-published ports: probe a target-published port from outside the target (the `attacker -> target` rows) once M4 exists; A2 here uses probe guests.
-- The WireGuard handshake row needs `WG_IFACE`; otherwise SKIP.
-
-- **Delete OPNsense default rules** (default LAN allow-any, anti-lockout) in step 4, or they bypass the default-deny set; add an attacker -> firewall probe once done (only t1 -> firewall is probed).
-- The "Internet" deny rows now probe the routable canary `1.1.1.1:443` (plan `hosts.internet`), so a hole in egress would show as an allow. The evidence tables below were taken with the earlier TEST-NET address `203.0.113.10` and need rerunning with the canary (exercise and maintenance).
-- IPv6 rows check that lab vantages have no global address and no default route, and that nothing answers an all-routers ping (`ff02::2`) on the link. Nothing probes v6 from the VPN or home side.
-- `denylog` matches any past block row for src/dst/port (no timestamp), and `tick` needs a timer you install on the workstation; neither is enforced by code.
-- **VPN phase needs the tunnel to carry the probe destinations.** Temporarily set the Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 1.1.1.1/32` for the `vpn` phase (restore afterwards), or the verifier reports `ERROR` for `proxmox` and `internet` rows.
+- **Manual first boot** (#31): interfaces, WireGuard, Unbound/NTP, API user, **Interfaces > WAN > Block private networks off** (it drops the workstation before the handshake allow), anti-lockout off, no default allow-any rules, hardware offload off, IPv6 off. Ping to the firewall is denied by design (only TCP 443 from the VPN); test with `curl -k https://10.77.9.1/`.
+- **No auto-revert on rule pushes** (#32): OPNsense core 26.7 has no `savepoint`/`cancelRollback` (`os-firewall` plugin only) and `apply` takes no revision. `labmode.py` refuses unless `OPNSENSE_NO_SAVEPOINT=true`; a bad push can then only be undone from the VM console (`pfctl -d`, or a config backup). Take **System > Configuration > Backups** before the first push.
+- IPv6 is checked from the lab vantages only (no global address, no default route, no reply to an all-routers ping); nothing probes IPv6 from the VPN or home side.
+- The `workstation -> fw:51820` allow row is SKIP (`WG_IFACE` unset); the handshake is evidenced by packet capture.
+- Only `t1 -> fw` is probed for firewall management ports; there is no `attacker -> fw` probe.
+- `denylog` matches any recent block row for src/dst/port within the last 100 log rows (no timestamp).
+- `labmode.py tick` needs a timer on the workstation (cron or Task Scheduler, every minute); nothing installs it.
+- Docker-published ports and per-target NICs need the M4 target; probe a published non-exercise port from outside the target before it powers on.
 - `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny.
+
+## How to rerun A2
+
+All from the workstation, tunnel up, `OPNSENSE_URL=https://10.77.9.1`, `OPNSENSE_NO_SAVEPOINT=true`; probe guests created with `TF_VAR_probe_vms=true` (clone of template 2100). SSH host keys change on every recreate: `ssh-keygen -R <ip>` first.
+
+- `exercise lab`: `labmode.py select t1; a2-verify.sh exercise t1 lab`
+- `vpn`: Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 1.1.1.1/32` (restore afterwards), then `a2-verify.sh exercise t1 vpn`
+- `home`: `sudo ip addr add 192.168.0.50/32 dev <if>`, same for `203.0.113.55/32`, and `sudo ip route add <10.77.1.10|10.77.3.10|10.77.11.10>/32 via 192.168.0.82`, then `a2-verify.sh exercise t1 home`; remove them afterwards
+- `failclosed`: `PVE_NODE=ludus a2-verify.sh failclosed`
+- maintenance: `labmode.py maintenance --minutes 30 --reason ...`, `a2-verify.sh maintenance none lab`, then `labmode.py exercise`, `REVERIFY=1 a2-verify.sh exercise none lab`, `labmode.py select t1`
+- NIC audit: `PVE_NODE=ludus python3 scripts/nicaudit.py`
+- Update-source rows resolve the name on the probe guest through the firewall DNS, because the firewall alias resolves it its own way.
 
 ## A2 evidence
 
-Collected 2026-10-28 on node `ludus`, OPNsense 26.7 (VM 2000), probe guests cloned from template 2100. Packet filter confirmed enabled; rules pushed with `labmode.py exercise t1` (`OPNSENSE_NO_SAVEPOINT=true`).
+Collected 2026-10-28 on node `ludus`, OPNsense 26.7 (VM 2000), probe guests cloned from template 2100, `1.1.1.1:443` as the Internet canary. Packet filter enabled, anti-lockout disabled (confirmed by Adam). Rules pushed with `labmode.py` (`OPNSENSE_NO_SAVEPOINT=true`). Tables below are the verifier output files from the final run, unedited. Earlier runs of the same phases failed and led to fixes (filter disabled, log client bugs, ssh consuming the matrix, selected-target verdicts, update-source resolution); only the passing runs are recorded.
 
-### Exercise mode, selected target t1, phase `lab` (`a2-verify.sh exercise t1 lab`): PASS, 34/34
+### Exercise mode, t1 selected, phase `lab`
+
+phase=lab mode=exercise selected=t1 rows=34 skipped=0 PASS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
@@ -98,16 +105,16 @@ Collected 2026-10-28 on node `ludus`, OPNsense 26.7 (VM 2000), probe guests clon
 | elastic | attacker:22 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
 | elastic | proxmox:8006 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
 | elastic | fw:123 | exercise | allow | allow | firewall:opt1 |
-| attacker | fw:0 (IPv6) | exercise | deny | deny | firewall:lan |
-| elastic | fw:0 (IPv6) | exercise | deny | deny | firewall:opt1 |
-| t1 | fw:0 (IPv6) | exercise | deny | deny | firewall:opt2 |
-| t2 | fw:0 (IPv6) | exercise | deny | deny | firewall:opt3 |
+| attacker | fw:0 | exercise | deny | deny | firewall:lan |
+| elastic | fw:0 | exercise | deny | deny | firewall:opt1 |
+| t1 | fw:0 | exercise | deny | deny | firewall:opt2 |
+| t2 | fw:0 | exercise | deny | deny | firewall:opt3 |
 
-Earlier runs of the same phase failed (filter was disabled; log client bugs); only this passing run is recorded.
+### Exercise mode, phase `vpn`
 
-### Exercise mode, phase `vpn` (`a2-verify.sh exercise t1 vpn`): PASS, 8/8
+Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 1.1.1.1/32` so the proxmox and internet probes enter the tunnel (the verifier reports ERROR otherwise).
 
-Run with the Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 203.0.113.10/32` so the proxmox and internet probes enter the tunnel (the verifier reports ERROR otherwise). Filter enabled.
+phase=vpn mode=exercise selected=t1 rows=8 skipped=0 PASS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
@@ -120,22 +127,29 @@ Run with the Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 203.0.
 | operator | internet:443 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
 | operator | elastic:22 | exercise | allow | allow | firewall:opt4 |
 
-VPN handshake with the filter on confirmed by capture: `192.168.0.223 -> 192.168.0.82:51820` initiation, response and keepalives, passed by `pass in quick on vtnet0 ... from 192.168.0.223 to (self) port 51820`.
+VPN handshake with the filter on, by capture at the firewall: `192.168.0.223 -> 192.168.0.82:51820` initiation, response and keepalives, passed by `pass in quick on vtnet0 ... from 192.168.0.223 to (self) port 51820`.
 
-### Exercise mode, phase `home` (`a2-verify.sh exercise t1 home`): PASS-WITH-SKIPS, 4 run, 3 skipped
+### Exercise mode, phase `home`
 
-Source is the workstation (192.168.0.223) entering through the firewall WAN: host routes `10.77.1.10/32`, `10.77.3.10/32`, `10.77.11.10/32` via `192.168.0.82` (they beat the tunnel's `/16`); tunnel up so the log check can reach the API. Skipped: `workstation -> fw:51820` (WG_IFACE unset; handshake shown by capture above), `home_other` and `public` (sources not available from this host; same interface default-deny, no port forwards).
+Source addresses on the workstation: `192.168.0.223`, plus aliases `192.168.0.50` (`home_other`) and `203.0.113.55` (`public`). Host routes `10.77.1.10/32`, `10.77.3.10/32`, `10.77.11.10/32` via `192.168.0.82` beat the tunnel's `/16`, so the probes enter through the firewall WAN; the tunnel stays up for the log check. The `home_other` UDP row has no reply to observe, so its verdict is the logged block.
+
+phase=home mode=exercise selected=t1 rows=6 skipped=1 PASS-WITH-SKIPS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
+| workstation | fw:51820 | exercise | allow | SKIP | firewall:wan |
 | workstation | fw:443 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 | workstation | t1:80 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 | workstation | attacker:22 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 | workstation | elastic:5601 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| home_other | fw:51820 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| public | t1:80 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 
-### Firewall down (`a2-verify.sh failclosed`): PASS, 4/4
+### Firewall down (`a2-verify.sh failclosed`)
 
-Each flow the firewall normally allows was armed on its source guest, then VM 2000 was stopped for 60 s and restarted; results read back from the guests. Only a connect or an RST counts as a path; a timeout or "No route to host" counts as none. (An earlier run misclassified a fast "No route to host" as allow; the classifier was fixed and the run repeated.) After restart the tunnel, rules and probe SSH came back without changes.
+Each normally-allowed flow was armed on its source guest, then VM 2000 was stopped for 60 s and restarted; results read back from the guests. Only a connect or an RST counts as a path; a timeout or "No route to host" counts as none. Run before the canary and IPv6 probe changes, which do not touch this phase.
+
+phase=failclosed rows=4 PASS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
@@ -144,9 +158,11 @@ Each flow the firewall normally allows was armed on its source guest, then VM 20
 | t1 | elastic:9200 | firewall down | deny | deny | no forwarding path (VM stopped) |
 | t1 | elastic:8220 | firewall down | deny | deny | no forwarding path (VM stopped) |
 
-### Maintenance mode (`labmode.py maintenance --minutes 30 --reason "A2 maintenance test"`, then `a2-verify.sh maintenance none lab`): PASS, 34/34
+### Maintenance mode
 
-Applied without auto-revert (`OPNSENSE_NO_SAVEPOINT=true`; see Known gaps). No target selected, so `attacker -> t1:80` is denied. Update-source probes use the address the workstation resolves for the first source (deb.debian.org).
+`labmode.py maintenance --minutes 30 --reason "A2 rerun"`, then `a2-verify.sh maintenance none lab`. No target selected, so `attacker -> t1:80` is denied. The update-source rows resolve `deb.debian.org` on the probe guest through the firewall DNS and make real connections out.
+
+phase=lab mode=maintenance selected=none rows=34 skipped=0 PASS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
@@ -180,14 +196,16 @@ Applied without auto-revert (`OPNSENSE_NO_SAVEPOINT=true`; see Known gaps). No t
 | elastic | attacker:22 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
 | elastic | proxmox:8006 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
 | elastic | fw:123 | maintenance | allow | allow | firewall:opt1 |
-| attacker | fw:0 (IPv6) | maintenance | deny | deny | firewall:lan |
-| elastic | fw:0 (IPv6) | maintenance | deny | deny | firewall:opt1 |
-| t1 | fw:0 (IPv6) | maintenance | deny | deny | firewall:opt2 |
-| t2 | fw:0 (IPv6) | maintenance | deny | deny | firewall:opt3 |
+| attacker | fw:0 | maintenance | deny | deny | firewall:lan |
+| elastic | fw:0 | maintenance | deny | deny | firewall:opt1 |
+| t1 | fw:0 | maintenance | deny | deny | firewall:opt2 |
+| t2 | fw:0 | maintenance | deny | deny | firewall:opt3 |
 
-### Return to exercise mode, re-verified (`labmode.py exercise`, `REVERIFY=1 a2-verify.sh exercise none lab`): PASS, 34/34
+### Back to exercise mode, re-verified
 
-`labmode.py select t1` was refused until this passed ("exercise-mode denies not re-verified since maintenance"), then the flag cleared. No target selected, so `attacker -> t1:80` is denied.
+`labmode.py exercise`; `labmode.py select t1` is refused until `REVERIFY=1 a2-verify.sh exercise none lab` passes, then succeeds.
+
+phase=lab mode=exercise selected=none rows=34 skipped=0 PASS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
@@ -221,19 +239,17 @@ Applied without auto-revert (`OPNSENSE_NO_SAVEPOINT=true`; see Known gaps). No t
 | elastic | attacker:22 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
 | elastic | proxmox:8006 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
 | elastic | fw:123 | exercise | allow | allow | firewall:opt1 |
-| attacker | fw:0 (IPv6) | exercise | deny | deny | firewall:lan |
-| elastic | fw:0 (IPv6) | exercise | deny | deny | firewall:opt1 |
-| t1 | fw:0 (IPv6) | exercise | deny | deny | firewall:opt2 |
-| t2 | fw:0 (IPv6) | exercise | deny | deny | firewall:opt3 |
+| attacker | fw:0 | exercise | deny | deny | firewall:lan |
+| elastic | fw:0 | exercise | deny | deny | firewall:opt1 |
+| t1 | fw:0 | exercise | deny | deny | firewall:opt2 |
+| t2 | fw:0 | exercise | deny | deny | firewall:opt3 |
 
-### Final state check (`a2-verify.sh exercise t1 lab`, after the post-maintenance re-verification and `labmode.py select t1`): PASS, 34/34
+### Other checks
 
-Identical verdicts to the first exercise table above (all 21 denies logged). Taken with the OPNsense anti-lockout rule disabled (confirmed by Adam) and the packet filter enabled (`pfctl -si`: Enabled); admin access over the tunnel (`opaleye:op-fw-admin`, `https://10.77.9.1`) was used by the log checks throughout.
+- **NIC audit** (`nicaudit.py`): VM 2000 on `vmbr0, vmbr2001, vmbr2003, vmbr2011, vmbr2012`; template VM 2100 on `vmbr2001`. `ok: only the firewall VM touches the home bridge; every other guest is on one lab bridge`.
+- **Rule push idempotence:** `labmode.py exercise t1` run twice reports `no changes` both times.
+- **Maintenance expiry:** `maintenance --minutes 1`; `tick` before expiry does nothing; `tick` after 70 s prints `maintenance expired: back to exercise mode`, mode `exercise`, `reverify_required: true`. A probe run with the guests gone reported ERROR on every row, never a pass.
 
-### Not covered by this A2 run
+### Not covered
 
-- `workstation -> fw:51820` allow (WG_IFACE unset): shown by packet capture instead. `home_other` and `public` sources: SKIP.
-- Probes to "Internet" use unroutable TEST-NET addresses except the maintenance update-source rows, which made real connections.
-- IPv6: lab vantages have no global address or default route; no IPv6 packets were sent.
-- Docker-published ports and alternate NICs: need the target VM (M4); recheck there before a vulnerable target powers on beyond what A2 covers.
-- Cleanup still to do: destroy the probe guests (`TF_VAR_probe_vms=false scripts/lab.sh apply firewall`).
+See Known gaps. Not evidenced: IPv6 from the VPN and home side, `workstation -> fw:51820` allow (by capture only), Docker-published ports and per-target NICs (M4).
