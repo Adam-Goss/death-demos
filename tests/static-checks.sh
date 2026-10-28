@@ -56,4 +56,11 @@ check "elastic packages pinned by sha512" python3 -c "import json,re,sys;e=json.
 check "no Elastic secrets in ansible/tofu (generated under secrets/)" bash -c "! grep -REn 'password: *[\"'\''][A-Za-z0-9]{8,}' ansible tofu/stacks/elastic"
 check "elastic playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/elastic.yml --syntax-check)"
 
+# M2 follow-up (issue #31): firewall config as code.
+check "firewall seed is current, secret-free, rule-free and passes invariants" python3 scripts/opnsense_seed.py check
+check "seed generator tests pass" python3 -m unittest tests.test_opnsense_seed
+check "no real secrets in any non-ignored XML (config.xml seeds)" bash -c "echo \"$files\" | grep -E '\.xml$' | xargs python3 scripts/opnsense_seed.py scan"
+check "no rendered seed or ISO outside gitignored paths" bash -c "! git ls-files | grep -Eq '(^|/)(opnsense-seed\.iso|config\.xml)$'"
+check "firewall stack takes the seed by file id only (no secret variables)" bash -c "grep -q seed_iso_file_id tofu/stacks/firewall/main.tf && ! grep -Eiq 'variable \"[a-z_]*(password|secret|private_key|api_key)' tofu/stacks/firewall/*.tf"
+
 exit $fail
