@@ -51,6 +51,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - `TEST-NET` addresses stand in for "Internet" in deny rows, so they prove policy, not a live egress hole; the maintenance rows use a real update-source IP. Add a routable canary (e.g. 1.1.1.1) at A2 time.
 - IPv6 rows check only that lab vantages have no global address or default route; no v6 packet is sent, and nothing probes v6 from home/VPN.
 - `denylog` matches any past block row for src/dst/port (no timestamp), and `tick` needs a timer you install on the workstation; neither is enforced by code.
+- **VPN phase needs the tunnel to carry the probe destinations.** Temporarily set the Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 203.0.113.10/32` for the `vpn` phase (restore afterwards), or the verifier reports `ERROR` for `proxmox` and `internet` rows.
 - `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny.
 
 ## A2 evidence

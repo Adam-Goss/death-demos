@@ -93,6 +93,8 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
   # A dead vantage would turn every deny row green: it must answer before its rows count.
   if [ "$(phase_of "$src")" != none ] && ! run "$src" "$sip" true >/dev/null 2>&1; then
     actual=ERROR
+  elif [ "$src" = operator ] && ! ip route get "$dip" 2>/dev/null | grep -q "src $sip"; then
+    actual=ERROR  # the route to this destination bypasses the tunnel: it never reaches the firewall's VPN interface
   elif [ "$(phase_of "$src")" != none ] && { [ "$dip" != "" ] || [ "$kind" = no-ipv6 ]; }; then
     case $kind in
       tcp)      actual=$(probe_tcp "$src" "$sip" "$dip" "$port") ;;
