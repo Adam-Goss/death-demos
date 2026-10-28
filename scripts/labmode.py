@@ -17,8 +17,9 @@
 
 Env: OPNSENSE_NO_SAVEPOINT=true (OPNsense core has no savepoint API: apply without auto-revert),
      OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET, OPNSENSE_INSECURE=true (self-signed),
-     LABMODE_STATE_DIR (default .state), LAB_PLAN. Every change goes savepoint -> apply -> confirm, so a
-     change that cuts the controller off reverts on its own. State and audit log stay on the workstation.
+     LABMODE_STATE_DIR (default .state), LAB_PLAN. With a savepoint API every change goes savepoint -> apply ->
+     confirm and reverts on its own if the controller is cut off; on core 26.7 (OPNSENSE_NO_SAVEPOINT=true) it is
+     applied directly with NO auto-revert (issue #32). State and audit log stay on the workstation.
 """
 import argparse
 import getpass
@@ -113,7 +114,7 @@ class Lab:
 
     def exercise(self, target):
         target = self.need_target(target)
-        if target and self.st["reverify_required"]:
+        if target and (self.st["reverify_required"] or self.st["mode"] == "maintenance"):
             raise SystemExit("exercise-mode denies not re-verified since maintenance: run: REVERIFY=1 scripts/a2-verify.sh exercise none lab")
         back = self.st["mode"] == "maintenance"
         self.set_mode("exercise", "exercise", target)

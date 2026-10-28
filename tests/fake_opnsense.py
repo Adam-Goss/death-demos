@@ -11,6 +11,7 @@ class Fake:
         self.auth = "Basic " + base64.b64encode(("%s:%s" % (key, secret)).encode()).decode()
         self.rules, self.aliases, self.calls, self.log, self.wg_rows = {}, {}, [], [], []
         self.fail_apply = False
+        self.reject_rules = False  # OPNsense answers 200 with result=failed for a rejected rule
         self.core_only = False  # OPNsense core: no savepoint/cancelRollback, apply takes no revision
         self.srv = HTTPServer(("127.0.0.1", 0), self._handler())
         self.url = "http://127.0.0.1:%d" % self.srv.server_port
@@ -42,6 +43,8 @@ class Fake:
         if path.endswith("/filter/searchRule"):
             return "searchRule", {"rows": [dict(r, uuid=u) for u, r in self.rules.items()], "rowCount": len(self.rules)}
         if path.endswith("/filter/addRule"):
+            if self.reject_rules:
+                return "addRule", {"result": "failed", "validations": {"rule.interface": "not a valid interface"}}
             u = str(uuid.uuid4())
             self.rules[u] = body["rule"]
             return "addRule", {"result": "saved", "uuid": u}

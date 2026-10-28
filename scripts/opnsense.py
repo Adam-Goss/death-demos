@@ -1,7 +1,8 @@
 """Minimal OPNsense API client for the lab filter rules (issue #21).
 
 Endpoints follow the OPNsense core firewall API (filter savepoint/apply/cancelRollback,
-rule CRUD, alias CRUD). Untested against a live OPNsense yet: A2 on the real VM is the proof.
+rule CRUD, alias CRUD). Exercised live against OPNsense CE 26.7 by A2 (docs/runbooks/m2-firewall-and-networks.md).
+Core 26.7 has no savepoint: see allow_no_savepoint.
 Auth: HTTP basic with the API key and secret from the OPNsense user (env, never the repo).
 """
 import base64
@@ -40,14 +41,21 @@ class Client:
         rows = self.call("firewall/filter/searchRule", {"rowCount": -1}).get("rows", [])
         return {r["description"]: r for r in rows if r.get("description", "").startswith(prefix)}
 
+    def _changed(self, path, body=None):
+        """A rejected change is HTTP 200 with result=failed (and validations): it must not read as success."""
+        out = self.call(path, body)
+        if out.get("result") == "failed" or out.get("validations"):
+            raise ApiError("%s rejected: %s" % (path, out))
+        return out
+
     def add_rule(self, rule):
-        self.call("firewall/filter/addRule", {"rule": rule})
+        self._changed("firewall/filter/addRule", {"rule": rule})
 
     def set_rule(self, uuid, rule):
-        self.call("firewall/filter/setRule/" + uuid, {"rule": rule})
+        self._changed("firewall/filter/setRule/" + uuid, {"rule": rule})
 
     def del_rule(self, uuid):
-        self.call("firewall/filter/delRule/" + uuid)
+        self._changed("firewall/filter/delRule/" + uuid)
 
     # transaction: apply auto-reverts unless cancel_rollback is called for the same revision
     # OPNsense core has no savepoint (that is the os-firewall plugin): apply takes no revision and
@@ -80,9 +88,9 @@ class Client:
         if cur and cur.get("content") == want["content"]:
             return False
         if cur:
-            self.call("firewall/alias/setItem/" + cur["uuid"], {"alias": want})
+            self._changed("firewall/alias/setItem/" + cur["uuid"], {"alias": want})
         else:
-            self.call("firewall/alias/addItem", {"alias": want})
+            self._changed("firewall/alias/addItem", {"alias": want})
         self.call("firewall/alias/reconfigure")
         return True
 

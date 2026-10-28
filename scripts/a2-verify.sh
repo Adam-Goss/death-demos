@@ -137,6 +137,7 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
     dip=$(run "$src" "$sip" "getent ahostsv4 $ufqdn | awk 'NR==1{print \$1}'" 2>/dev/null)
   fi
   actual=SKIP
+  [ -z "${dip:-}" ] && [ "$kind" != no-ipv6 ] && actual=ERROR  # the update-source name did not resolve on the vantage: that is a broken path, not a skipped row
   # A dead vantage would turn every deny row green: it must answer before its rows count.
   if [ "$(phase_of "$src")" != none ] && ! run "$src" "$sip" true >/dev/null 2>&1; then
     actual=ERROR

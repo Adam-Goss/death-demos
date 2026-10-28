@@ -182,6 +182,17 @@ class LabMode(unittest.TestCase):
         self.fw.wg_rows = [dict(peer, endpoint="192.168.0.50:51490")]
         self.assertNotEqual(self.run_cli(*args).returncode, 0)  # wrong source address
 
+    def test_a_rule_the_firewall_rejects_fails_the_push_and_leaves_the_recorded_mode_alone(self):
+        self.fw.reject_rules = True
+        self.assertNotEqual(self.run_cli("exercise", "t1").returncode, 0)
+        self.assertIsNone(json.loads(self.run_cli("status").stdout)["mode"])
+
+    def test_leaving_maintenance_straight_into_a_target_needs_the_reverify_first(self):
+        self.run_cli("exercise")
+        self.run_cli("maintenance", "--minutes", "30", "--reason", "updates")
+        self.assertNotEqual(self.run_cli("exercise", "t1").returncode, 0)
+        self.assertTrue(all(v == "0" for v in self.enabled("exercise-t1@lan").values()))
+
     def test_refuses_without_credentials(self):
         r = self.run_cli("exercise", "t1", creds=False)
         self.assertNotEqual(r.returncode, 0)
