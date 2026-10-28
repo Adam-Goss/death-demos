@@ -28,7 +28,7 @@
     "home_router": { "zone": "home",     "ip": "192.168.0.1" },
     "proxmox":     { "zone": "home",     "ip": "192.168.0.161" },
     "public":      { "zone": "home",     "ip": "203.0.113.55" },
-    "internet":    { "zone": "home",     "ip": "203.0.113.10" }
+    "internet":    { "zone": "home",     "ip": "1.1.1.1" }
   },
   "services": {
     "ntp":       { "proto": "udp", "ports": [123] },
