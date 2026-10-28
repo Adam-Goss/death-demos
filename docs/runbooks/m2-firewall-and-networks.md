@@ -46,7 +46,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - **Manual first boot** (#31): interfaces, WireGuard, Unbound/NTP, API user, **Interfaces > WAN > Block private networks off** (it drops the workstation before the handshake allow), anti-lockout off, no default allow-any rules, hardware offload off, IPv6 off. Ping to the firewall is denied by design (only TCP 443 from the VPN); test with `curl -k https://10.77.9.1/`.
 - **No auto-revert on rule pushes** (#32): OPNsense core 26.7 has no `savepoint`/`cancelRollback` (`os-firewall` plugin only) and `apply` takes no revision. `labmode.py` refuses unless `OPNSENSE_NO_SAVEPOINT=true`; a bad push can then only be undone from the VM console (`pfctl -d`, or a config backup). Take **System > Configuration > Backups** before the first push.
 - IPv6 is checked from the lab vantages only (no global address, no default route, no reply to an all-routers ping); nothing probes IPv6 from the VPN or home side.
-- The `workstation -> fw:51820` allow row now reads the firewall's own WireGuard status (`labmode.py wgpeer`: peer `workstation`, fresh handshake, endpoint `192.168.0.223`); needs the `VPN: WireGuard: Status` privilege on `opaleye-api`. Not yet in a recorded `home` run.
+- The `workstation -> fw:51820` allow row reads the firewall's own WireGuard status (`labmode.py wgpeer`: peer `workstation`, fresh handshake, endpoint `192.168.0.223`); needs the `VPN: WireGuard: Status` privilege on `opaleye-api`. Recorded in the `home` run below (7 rows, 0 skipped).
 - `attacker -> fw` is probed on 443/22 (p46, p47) in the `lab` phase only; the other phases' tables predate those rows.
 - `denylog` ignores rows already in the log when the verifier starts (digest baseline), so a stale block from an earlier run cannot satisfy a row; within one run, an identical earlier block for the same src/dst/port still would.
 - `labmode.py tick` needs a timer: `scripts/install-tick-timer.sh` installs a per-minute user crontab line (WSL: `sudo service cron start`, VPN up); `--remove` uninstalls. Needs `export OPNSENSE_NO_SAVEPOINT=true` in `secrets/env.sh` (cron sees only that file); the installer refuses without it. Proven live 2026-10-28 by cron: a 1-minute maintenance window closed itself (`maintenance expired: back to exercise mode`, `reverify_required: true`); the first attempt failed for the missing variable and left maintenance open until fixed (the tick retries each minute).
@@ -137,13 +137,13 @@ VPN handshake with the filter on, by capture at the firewall: `192.168.0.223 -> 
 
 ### Exercise mode, phase `home`
 
-Source addresses on the workstation: `192.168.0.223`, plus aliases `192.168.0.50` (`home_other`) and `203.0.113.55` (`public`). Host routes `10.77.1.10/32`, `10.77.3.10/32`, `10.77.11.10/32` via `192.168.0.82` beat the tunnel's `/16`, so the probes enter through the firewall WAN; the tunnel stays up for the log check. The `home_other` UDP row has no reply to observe, so its verdict is the logged block.
+Source addresses on the workstation: `192.168.0.223`, plus aliases `192.168.0.50` (`home_other`) and `203.0.113.55` (`public`). Host routes `10.77.1.10/32`, `10.77.3.10/32`, `10.77.11.10/32` via `192.168.0.82` beat the tunnel's `/16`, so the probes enter through the firewall WAN; the tunnel stays up for the log check. The `home_other` UDP row has no reply to observe, so its verdict is the logged block. The `workstation -> fw:51820` allow is read from the firewall's WireGuard status.
 
-phase=home mode=exercise selected=t1 rows=6 skipped=1 PASS-WITH-SKIPS
+phase=home mode=exercise selected=t1 rows=7 skipped=0 PASS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
-| workstation | fw:51820 | exercise | allow | SKIP | firewall:wan |
+| workstation | fw:51820 | exercise | allow | allow | firewall:wan |
 | workstation | fw:443 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 | workstation | t1:80 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 | workstation | attacker:22 | exercise | deny | deny | firewall:wan (deny logged: yes) |
