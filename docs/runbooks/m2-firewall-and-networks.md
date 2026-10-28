@@ -26,6 +26,10 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - `scripts/a2-verify.sh`: prints the A2 evidence table.
 - Tests: `tests/test_netpolicy.py`, `tests/test_labmode.py` (against `tests/fake_opnsense.py`), guards in `tests/static-checks.sh`.
 
+## Extra checks (run after A2)
+
+- `PVE_NODE=ludus python3 scripts/nicaudit.py`: only VM 2000 touches the home bridge; every other guest is on exactly one lab bridge (`tests/test_nicaudit.py` covers the rules).
+
 ## Run
 
 1. Fix the two home placeholders in `network/plan.json`; `python3 scripts/netpolicy.py check`.
@@ -45,13 +49,13 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 - **Step 4 is hand configuration**, against "re-runnable code only". The OPNsense interface-assignment and WireGuard APIs were incomplete on 26.1 ([research](../research/opnsense-vs-pfsense.md)); a `config.xml` seed would replace it but cannot be written blind. Decide after seeing the real VM.
 - Rule diffing compares only the fields we send; if live OPNsense returns them in another shape the controller will re-`setRule` every run (harmless, but not a no-op).
-- `home_other` and `public` probe rows are SKIP: they cannot be sourced from the workstation. Covered by the rules lint and per-interface default-deny; there is no port forward or public inbound path.
+- `home_other` and `public` rows bind to alias addresses on the workstation (`192.168.0.50`, `203.0.113.55`: `sudo ip addr add <ip>/32 dev <if>`), entering via the WAN host routes; the UDP row is evidenced by the logged block.
 - Docker-published ports: probe a target-published port from outside the target (the `attacker -> target` rows) once M4 exists; A2 here uses probe guests.
 - The WireGuard handshake row needs `WG_IFACE`; otherwise SKIP.
 
 - **Delete OPNsense default rules** (default LAN allow-any, anti-lockout) in step 4, or they bypass the default-deny set; add an attacker -> firewall probe once done (only t1 -> firewall is probed).
 - The "Internet" deny rows now probe the routable canary `1.1.1.1:443` (plan `hosts.internet`), so a hole in egress would show as an allow. The evidence tables below were taken with the earlier TEST-NET address `203.0.113.10` and need rerunning with the canary (exercise and maintenance).
-- IPv6 rows check only that lab vantages have no global address or default route; no v6 packet is sent, and nothing probes v6 from home/VPN.
+- IPv6 rows check that lab vantages have no global address and no default route, and that nothing answers an all-routers ping (`ff02::2`) on the link. Nothing probes v6 from the VPN or home side.
 - `denylog` matches any past block row for src/dst/port (no timestamp), and `tick` needs a timer you install on the workstation; neither is enforced by code.
 - **VPN phase needs the tunnel to carry the probe destinations.** Temporarily set the Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 1.1.1.1/32` for the `vpn` phase (restore afterwards), or the verifier reports `ERROR` for `proxmox` and `internet` rows.
 - `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny.

@@ -10,6 +10,9 @@
 #         that beat the tunnel's /16, e.g. `sudo ip route add 10.77.11.10/32 via <wan_ip>` for each lab target
 #         (attacker 10.77.1.10, elastic 10.77.3.10, t1 10.77.11.10); otherwise the rows are ERROR. Keep the VPN up
 #         so the log check can reach the API. With the VPN down there is simply no route to the lab.
+#         `home_other` (192.168.0.50) and `public` (203.0.113.55) rows bind to those addresses, so add them to this
+#         host first: `sudo ip addr add 192.168.0.50/32 dev <if>`, same for 203.0.113.55 (spoofed source, never leaves the LAN
+#         segment: it is routed to the firewall WAN by the host routes above).
 # Env: PROBE_SSH (default: ssh -o BatchMode=yes -o ConnectTimeout=5, user opaleye), WG_IFACE (VPN interface name,
 #      for the handshake check), REVERIFY=1 (after a clean exercise/lab pass, clear labmode's re-verify flag),
 #      and for `failclosed`: PROXMOX_VE_ENDPOINT, PROXMOX_VE_API_TOKEN_FIREWALL, PVE_NODE, PROXMOX_VE_INSECURE.
@@ -47,11 +50,30 @@ probe_wg() { # allowed iff the VPN handshake is fresh
   local hs; hs=$(wg show "$WG_IFACE" latest-handshakes 2>/dev/null | awk '{print $2}' | sort -n | tail -1)
   [ -n "$hs" ] && [ $(( $(date +%s) - hs )) -lt 180 ] && echo allow || echo deny
 }
-probe_noipv6() { # deny = no global IPv6 address and no IPv6 default route on the vantage
-  run "$1" "$2" "ip -6 addr show scope global | grep -q inet6 || ip -6 route show default | grep -q default; echo rc=\$?" | grep -q 'rc=1$' && echo deny || echo allow
+probe_noipv6() {
+  # deny = no global IPv6 address, no IPv6 default route, and nothing answers an all-routers ping on the vantage link
+  run "$1" "$2" "ip -6 addr show scope global | grep -q inet6 || ip -6 route show default | grep -q default || ping -6 -c1 -W2 -I \$(ls /sys/class/net | grep -v '^lo\$' | head -1) ff02::2 >/dev/null 2>&1; echo rc=\$?" | grep -Eq 'rc=[12]$' && echo deny || echo allow
 }
 
-phase_of() { case $1 in attacker|elastic|t1|t2) echo lab ;; operator) echo vpn ;; workstation) echo home ;; *) echo none ;; esac; }
+phase_of() { case $1 in attacker|elastic|t1|t2) echo lab ;; operator) echo vpn ;; workstation|home_other|public) echo home ;; *) echo none ;; esac; }
+
+# Extra home-side source addresses are aliases on this host (sudo ip addr add <ip>/32 dev <if>); the probe binds to them.
+probe_bound_tcp() { # src_ip dst_ip port
+  python3 -c "
+import socket
+s = socket.socket(); s.bind(('$1', 0)); s.settimeout(3)
+try:
+    s.connect(('$2', $3)); print('rc=0')
+except ConnectionRefusedError:
+    print('rc=refused')
+except Exception:
+    print('rc=timeout')" 2>/dev/null | grep -Eq 'rc=(0|refused)' && echo allow || echo deny
+}
+probe_bound_udp() { # src_ip dst_ip port: a blocked UDP packet gets no answer, so "deny" means the firewall logged the block
+  python3 -c "import socket;s=socket.socket(2,2);s.bind(('$1',0));s.sendto(b'x',('$2',$3))" 2>/dev/null || { echo ERROR; return; }
+  for _ in 1 2 3; do $PY scripts/labmode.py denylog "$1" "$2" "$3" 2>/dev/null && { echo deny; return; }; sleep 1; done
+  echo allow
+}
 
 if [ "${1:-}" = failclosed ]; then
   # The VPN ends on the firewall VM, so nothing can be run on the guests while it is down.
@@ -98,7 +120,7 @@ echo "| source | destination/port | mode | expected | actual | enforcement point
 echo "| --- | --- | --- | --- | --- | --- |"
 fail=0; skipped=0; n=0
 while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip dip; do
-  [ "$(phase_of "$src")" = "$want" ] || { [ "$(phase_of "$src")" = none ] && [ "$want" = home ] || continue; }
+  [ "$(phase_of "$src")" = "$want" ] || continue
   [ "$dip" = UPDATE_SOURCE ] && dip=${upd:-}
   actual=SKIP
   # A dead vantage would turn every deny row green: it must answer before its rows count.
@@ -106,14 +128,16 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
     actual=ERROR
   elif [ "$src" = operator ] && ! ip route get "$dip" 2>/dev/null | grep -q "src $sip"; then
     actual=ERROR  # the route to this destination bypasses the tunnel: it never reaches the firewall's VPN interface
-  elif [ "$src" = workstation ] && [ "$dst" != fw ] && ! ip route get "$dip" 2>/dev/null | grep -q "via $wan"; then
+  elif { [ "$src" = home_other ] || [ "$src" = public ]; } && ! ip -4 addr show 2>/dev/null | grep -q "inet $sip/"; then
+    actual=ERROR  # this host does not own the source address: add it as an alias first
+  elif [ "$(phase_of "$src")" = home ] && [ "$dst" != fw ] && ! ip route get "$dip" from "$sip" 2>/dev/null | grep -q "via $wan"; then
     actual=ERROR  # no route into the firewall WAN: the probe would die at the home router and prove nothing
   elif [ "$(phase_of "$src")" != none ] && { [ "$dip" != "" ] || [ "$kind" = no-ipv6 ]; }; then
     case $kind in
-      tcp)      actual=$(probe_tcp "$src" "$sip" "$dip" "$port") ;;
+      tcp)      if [ "$src" = home_other ] || [ "$src" = public ]; then actual=$(probe_bound_tcp "$sip" "$dip" "$port"); else actual=$(probe_tcp "$src" "$sip" "$dip" "$port"); fi ;;
       dns)      actual=$(probe_dns "$src" "$sip" "$dip") ;;
       ntp)      actual=$(probe_ntp "$src" "$sip" "$dip") ;;
-      wg)       actual=$(probe_wg) ;;
+      wg)       if [ "$src" = home_other ]; then actual=$(probe_bound_udp "$sip" "$dip" "$port"); else actual=$(probe_wg); fi ;;
       no-ipv6)  actual=$(probe_noipv6 "$src" "$sip") ;;
     esac
   fi
@@ -124,6 +148,7 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
     where="$enf (deny logged: $logged)"
     [ "$logged" = yes ] || fail=1
   fi
+  if [ "$kind" = wg ] && [ "$src" = home_other ] && [ "$actual" = deny ]; then where="$enf (deny logged: yes)"; fi
   if [ "$actual" = SKIP ]; then skipped=$((skipped+1)); else n=$((n+1)); [ "$actual" = "$expected" ] || fail=1; fi
   printf '| %s | %s:%s | %s | %s | %s | %s |\n' "$src" "$dst" "$port" "$mode" "$expected" "$actual" "$where"
 done < <($PY scripts/netpolicy.py matrix "$mode" "$sel")
