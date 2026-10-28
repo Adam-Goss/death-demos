@@ -15,3 +15,5 @@ secrets/
 .env.*
 # Collector output may hold host details
 m0-inventory-*.txt
+__pycache__/
+*.pyc

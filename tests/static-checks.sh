@@ -39,4 +39,15 @@ check "no PVE token secrets (uuid) in repo" bash -c "! echo \"$files\" | xargs g
 check "no private keys in repo" bash -c "! echo \"$files\" | xargs grep -EIl 'BEGIN (OPENSSH|RSA|EC) PRIVATE KEY|AGE-SECRET-KEY' 2>/dev/null | grep -q ."
 check "no tfstate/tfvars tracked" bash -c "! git ls-files | grep -Eq '\.(tfstate|tfvars)(\.|$)'"
 
+# M2 (issue #21): lab network plan and isolation guards.
+check "network plan is sane (unique bridges, no overlap with Ludus/home)" python3 scripts/netpolicy.py check
+check "exercise rules match the A2 probe matrix" python3 scripts/netpolicy.py lint exercise t1
+check "maintenance rules match the A2 probe matrix" python3 scripts/netpolicy.py lint maintenance
+check "netpolicy and labmode unit tests pass" python3 -m unittest discover -s tests -p 'test_*.py'
+check "firewall stack builds NICs from the plan (no literal bridge names)"   bash -c "grep -q 'nic_order' tofu/stacks/firewall/main.tf && ! grep -Eq 'vmbr[0-9]+' tofu/stacks/*/*.tf"
+check "only the firewall stack can reach the home bridge"   bash -c "! grep -Eq 'zones\.home|zones\[\"home\"\]|\.home\b' tofu/stacks/elastic/*.tf tofu/stacks/targets/*.tf"
+check "bridge bootstrap writes outside Ludus blocks (interfaces.d)" grep -q 'interfaces.d' scripts/bootstrap-bridges.sh
+check "A2 verifier exists" test -f scripts/a2-verify.sh
+check "firewall ISO is pinned by a 64-hex sha256 in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['firewall']['image'];sys.exit(0 if re.fullmatch('[0-9a-f]{64}',i['sha256']) else 1)"
+
 exit $fail
