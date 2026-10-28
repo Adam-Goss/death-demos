@@ -62,7 +62,7 @@ if [ "${1:-}" = failclosed ]; then
   rows=$($PY scripts/netpolicy.py matrix exercise t1 | awk -F'	' '$9=="allow" && $6=="tcp" && $12!="UPDATE_SOURCE" && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2")')
   while IFS=$'	' read -r id src dst proto port kind family mode expected enf sip dip; do
     [ -n "$id" ] || continue
-    run "$src" "$sip" "rm -f /tmp/fc-$id; nohup sh -c 'sleep 40; timeout 3 bash -c \"echo >/dev/tcp/$dip/$port\" >/dev/null 2>&1; echo \$? >/tmp/fc-$id' >/dev/null 2>&1 &" || { echo "cannot arm $id on $src" >&2; exit 1; }
+    run "$src" "$sip" "rm -f /tmp/fc-$id; nohup sh -c 'sleep 40; out=\$(timeout 3 bash -c \"echo >/dev/tcp/$dip/$port\" 2>&1); echo \"\$? \$out\" >/tmp/fc-$id' >/dev/null 2>&1 &" || { echo "cannot arm $id on $src" >&2; exit 1; }
   done <<<"$rows"
   trap 'api start >/dev/null' EXIT
   echo "stopping firewall VM $vmid"; api stop >/dev/null; sleep 60; api start >/dev/null; trap - EXIT
@@ -72,7 +72,13 @@ if [ "${1:-}" = failclosed ]; then
   while IFS=$'	' read -r id src dst proto port kind family mode expected enf sip dip; do
     [ -n "$id" ] || continue
     rc=$(run "$src" "$sip" "cat /tmp/fc-$id 2>/dev/null" 2>/dev/null)
-    case $rc in 124) actual=deny ;; 0|1) actual=allow ;; *) actual=ERROR ;; esac  # 0/1: connected or refused = a path existed
+    read -r code text <<<"$rc"  # "<exit code> <bash error text>"
+    case $code in  # only a refusal (RST from the far end) or a connect proves a path; timeout and "no route" do not
+      0) actual=allow ;;
+      124) actual=deny ;;
+      1) case $text in *refused*) actual=allow ;; *) actual=deny ;; esac ;;
+      *) actual=ERROR ;;
+    esac
     printf '| %s | %s:%s | firewall down | deny | %s | no forwarding path (VM stopped) |
 ' "$src" "$dst" "$port" "$actual"
     [ "$actual" = deny ] || fail=1
