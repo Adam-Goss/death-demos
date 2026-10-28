@@ -27,6 +27,7 @@ class Fake:
         return [n for n in self.names() if n in ("addRule", "setRule", "delRule")]
 
     def _route(self, path, body):
+        path = path.split("?")[0]
         tail = path.split("/")[-1]
         if self.core_only and (path.endswith("/savepoint") or "/cancelRollback/" in path or "/apply/" in path):
             return None, None
