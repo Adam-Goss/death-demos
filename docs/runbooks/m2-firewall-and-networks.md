@@ -181,6 +181,47 @@ Applied without auto-revert (`OPNSENSE_NO_SAVEPOINT=true`; see Known gaps). No t
 | t1 | fw:0 (IPv6) | maintenance | deny | deny | firewall:opt2 |
 | t2 | fw:0 (IPv6) | maintenance | deny | deny | firewall:opt3 |
 
+### Return to exercise mode, re-verified (`labmode.py exercise`, `REVERIFY=1 a2-verify.sh exercise none lab`): PASS, 34/34
+
+`labmode.py select t1` was refused until this passed ("exercise-mode denies not re-verified since maintenance"), then the flag cleared. No target selected, so `attacker -> t1:80` is denied.
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t1:22 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t2:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t1 | t2:80 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t2 | t1:80 | exercise | deny | deny | firewall:opt3 (deny logged: yes) |
+| t1 | proxmox:8006 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | proxmox:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | home_router:80 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | internet:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | update_source:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| attacker | update_source:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| elastic | update_source:443 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| attacker | proxmox:8006 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | home_router:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | internet:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:5601 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:9200 | exercise | allow | allow | firewall:lan |
+| t1 | elastic:9200 | exercise | allow | allow | firewall:opt2 |
+| t1 | elastic:8220 | exercise | allow | allow | firewall:opt2 |
+| t1 | elastic:5601 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | elastic:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:53 | exercise | allow | allow | firewall:opt2 |
+| t1 | fw:123 | exercise | allow | allow | firewall:opt2 |
+| t1 | fw:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| elastic | internet:443 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | t1:80 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | attacker:22 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | proxmox:8006 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | fw:123 | exercise | allow | allow | firewall:opt1 |
+| attacker | fw:0 (IPv6) | exercise | deny | deny | firewall:lan |
+| elastic | fw:0 (IPv6) | exercise | deny | deny | firewall:opt1 |
+| t1 | fw:0 (IPv6) | exercise | deny | deny | firewall:opt2 |
+| t2 | fw:0 (IPv6) | exercise | deny | deny | firewall:opt3 |
+
 ### Still to record
 
-the post-maintenance exercise re-run, then remove the OPNsense anti-lockout rule and rerun.
+then remove the OPNsense anti-lockout rule and rerun.
