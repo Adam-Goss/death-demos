@@ -11,7 +11,10 @@ Secrets come from the operator environment only (never the repo or Tofu state):
   OPNSENSE_WG_PRIVATE_KEY, OPNSENSE_WG_PUBLIC_KEY (the firewall's), OPNSENSE_WG_PEER_PUBLIC_KEY (workstation's).
 Passwords and the API secret are written as SHA-512 crypt hashes, as OPNsense stores them.
 
-Filter rules are deliberately absent: scripts/labmode.py and scripts/netpolicy.py own them.
+Filter rules: only a bootstrap set, so the API is reachable on a rebuilt firewall (default deny otherwise):
+the workstation's WireGuard handshake and the VPN's TCP 443 to the firewall, plus the v6 block and deny-all on
+those two interfaces. They are the exact payloads labmode.py would push (same descriptions), so its first sync
+adopts them in place; labmode.py and netpolicy.py own everything else.
 
 UNVERIFIED on 26.7 (no firewall access when written; compare with a real export once the VPN is up):
 element names under <OPNsense>, the non-`page-filter-api` privilege names, and that the importer accepts
@@ -28,6 +31,9 @@ import sys
 import tempfile
 import uuid
 import xml.etree.ElementTree as ET
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import labmode  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAN = os.path.join(ROOT, "network", "plan.json")
@@ -50,6 +56,8 @@ API_PRIVS = ["page-filter-api", "page-firewall-alias", "page-diagnostics-log-fir
 WG_IF = "wg0"
 WG_PORT = 51820
 PEER_NAME = "workstation"
+BOOTSTRAP_FLOWS = ("vpn-handshake", "op-fw-admin")
+BASELINE_FLOWS = ("v6-block", "deny-all")
 
 
 def load_plan(path=PLAN):
@@ -70,6 +78,19 @@ def _sub(parent, tag, text=None, **attrs):
     if text is not None:
         e.text = str(text)
     return e
+
+
+def _flow(desc):
+    return desc[len(labmode.PREFIX):].split(":")[0].split("@")[0]
+
+
+def bootstrap_rules(plan):
+    """labmode's exercise-mode payloads for the bootstrap flows and the baseline on their interfaces."""
+    want = labmode.desired(plan, "exercise", None)
+    ifaces = {p["interface"] for d, p in want.items() if _flow(d) in BOOTSTRAP_FLOWS}
+    keep = {d: p for d, p in want.items()
+            if p["interface"] in ifaces and _flow(d) in BOOTSTRAP_FLOWS + BASELINE_FLOWS}
+    return sorted(keep.items(), key=lambda kv: int(kv[1]["sequence"]))
 
 
 def build(plan, vals):
@@ -170,7 +191,12 @@ def build(plan, vals):
     _sub(c, "pubkey", vals["wg_peer_public"])
     _sub(c, "tunneladdress", plan["hosts"]["operator"]["ip"] + "/32")  # IPv4 only (A2 wgv4only)
 
-    # No <filter> section: rules belong to labmode.py / netpolicy.py.
+    # Bootstrap rules as the filter API stores them (MVC section); no legacy <filter> section.
+    rules = _sub(_sub(_sub(opn, "Firewall"), "Filter"), "rules")
+    for desc, payload in bootstrap_rules(plan):
+        r = _sub(rules, "rule", uuid=_uuid("rule-" + desc))
+        for k, v in payload.items():
+            _sub(r, k, v)
     return root
 
 
@@ -223,8 +249,12 @@ def problems(xml):
     """Static invariants for a seed (template or render). Empty list = pass."""
     out = []
     root = ET.fromstring(xml)
-    if root.find("filter") is not None or list(root.iter("rule")):
-        out.append("filter rules present (owned by labmode.py)")
+    if root.find("filter") is not None:
+        out.append("legacy <filter> section present")
+    for r in root.iterfind("OPNsense/Firewall/Filter/rules/rule"):
+        desc = r.findtext("description") or ""
+        if not desc.startswith(labmode.PREFIX) or _flow(desc) not in BOOTSTRAP_FLOWS + BASELINE_FLOWS:
+            out.append("non-bootstrap filter rule: " + desc)
     if root.find("system/webgui/noantilockout") is None:
         out.append("anti-lockout not disabled")
     if root.find("system/ipv6allow") is not None:

@@ -126,6 +126,102 @@
         </clients>
       </client>
     </wireguard>
+    <Firewall>
+      <Filter>
+        <rules>
+          <rule uuid="e95325f8-69e1-58a9-80ac-c1622a321da6">
+            <enabled>1</enabled>
+            <action>block</action>
+            <quick>1</quick>
+            <interface>wan</interface>
+            <direction>in</direction>
+            <ipprotocol>inet6</ipprotocol>
+            <protocol>any</protocol>
+            <source_net>any</source_net>
+            <destination_net>any</destination_net>
+            <destination_port />
+            <log>1</log>
+            <sequence>1</sequence>
+            <description>opaleye:v6-block@wan</description>
+          </rule>
+          <rule uuid="ae588abd-4894-560f-a9a3-3eba02b29a80">
+            <enabled>1</enabled>
+            <action>pass</action>
+            <quick>1</quick>
+            <interface>wan</interface>
+            <direction>in</direction>
+            <ipprotocol>inet</ipprotocol>
+            <protocol>UDP</protocol>
+            <source_net>192.168.0.223/32</source_net>
+            <destination_net>(self)</destination_net>
+            <destination_port>51820</destination_port>
+            <log>0</log>
+            <sequence>2</sequence>
+            <description>opaleye:vpn-handshake@wan@workstation:51820</description>
+          </rule>
+          <rule uuid="fbcb20c8-e175-53e7-addb-3be862c96416">
+            <enabled>1</enabled>
+            <action>block</action>
+            <quick>1</quick>
+            <interface>wan</interface>
+            <direction>in</direction>
+            <ipprotocol>inet</ipprotocol>
+            <protocol>any</protocol>
+            <source_net>any</source_net>
+            <destination_net>any</destination_net>
+            <destination_port />
+            <log>1</log>
+            <sequence>3</sequence>
+            <description>opaleye:deny-all@wan</description>
+          </rule>
+          <rule uuid="4ec47248-bf7d-5817-a211-96c0ccbe77c9">
+            <enabled>1</enabled>
+            <action>block</action>
+            <quick>1</quick>
+            <interface>opt4</interface>
+            <direction>in</direction>
+            <ipprotocol>inet6</ipprotocol>
+            <protocol>any</protocol>
+            <source_net>any</source_net>
+            <destination_net>any</destination_net>
+            <destination_port />
+            <log>1</log>
+            <sequence>4</sequence>
+            <description>opaleye:v6-block@opt4</description>
+          </rule>
+          <rule uuid="65dbea96-f206-58a4-99c8-fbfa169adc6e">
+            <enabled>1</enabled>
+            <action>pass</action>
+            <quick>1</quick>
+            <interface>opt4</interface>
+            <direction>in</direction>
+            <ipprotocol>inet</ipprotocol>
+            <protocol>TCP</protocol>
+            <source_net>10.77.9.0/24</source_net>
+            <destination_net>(self)</destination_net>
+            <destination_port>443</destination_port>
+            <log>0</log>
+            <sequence>5</sequence>
+            <description>opaleye:op-fw-admin@opt4@vpn:443</description>
+          </rule>
+          <rule uuid="31f882b7-e60f-50d6-a978-e4e07df02826">
+            <enabled>1</enabled>
+            <action>block</action>
+            <quick>1</quick>
+            <interface>opt4</interface>
+            <direction>in</direction>
+            <ipprotocol>inet</ipprotocol>
+            <protocol>any</protocol>
+            <source_net>any</source_net>
+            <destination_net>any</destination_net>
+            <destination_port />
+            <log>1</log>
+            <sequence>11</sequence>
+            <description>opaleye:deny-all@opt4</description>
+          </rule>
+        </rules>
+      </Filter>
+    </Firewall>
   </OPNsense>
   <ntpd>
     <interface>lan,opt1,opt2,opt3</interface>

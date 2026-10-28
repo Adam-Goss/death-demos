@@ -5,6 +5,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+import labmode  # noqa: E402
 import opnsense_seed as seed  # noqa: E402
 
 WG = "A" * 43 + "="
@@ -59,8 +60,25 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(c.findtext("tunneladdress"), "10.77.9.2/32")
         self.assertEqual(s.findtext("peers"), c.get("uuid"))
 
-    def test_no_filter_rules(self):
+    def rules(self):
+        return {r.findtext("description"): {c.tag: c.text or "" for c in r}
+                for r in self.root.iterfind("OPNsense/Firewall/Filter/rules/rule")}
+
+    def test_bootstrap_rules_are_labmodes_own_payloads(self):
+        want = labmode.desired(self.plan, "exercise", None)
+        got = self.rules()
+        self.assertEqual({"opaleye:vpn-handshake@wan@workstation:51820", "opaleye:op-fw-admin@opt4@vpn:443",
+                          "opaleye:v6-block@wan", "opaleye:deny-all@wan",
+                          "opaleye:v6-block@opt4", "opaleye:deny-all@opt4"}, set(got))
+        for d, payload in got.items():
+            self.assertEqual(payload, want[d], d)  # labmode's first sync finds nothing to change
+        self.assertEqual(got["opaleye:vpn-handshake@wan@workstation:51820"]["enabled"], "1")
+
+    def test_nothing_beyond_bootstrap_is_open(self):
         self.assertIsNone(self.root.find("filter"))
+        for d, p in self.rules().items():
+            if p["action"] == "pass":
+                self.assertTrue(d.startswith(("opaleye:vpn-handshake", "opaleye:op-fw-admin")), d)
 
     def test_generation_is_deterministic(self):
         self.assertEqual(seed.template(self.plan), seed.template(self.plan))
@@ -91,7 +109,8 @@ class SeedTest(unittest.TestCase):
 
     def test_invariants_catch_regressions(self):
         cases = {
-            "rules": ("</opnsense>", "<filter><rule/></filter></opnsense>"),
+            "legacy": ("</opnsense>", "<filter/></opnsense>"),
+            "extra": ("op-fw-admin@opt4@vpn:443", "op-attacker-ssh@opt4@vpn:22"),
             "blockpriv": ("<enable>1</enable>", "<enable>1</enable><blockpriv>1</blockpriv>"),
             "page-all": ("page-filter-api", "page-all"),
             "ipv6": ("<system>", "<system><ipv6allow>1</ipv6allow>"),
