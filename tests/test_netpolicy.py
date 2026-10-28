@@ -48,6 +48,13 @@ class MatrixShape(unittest.TestCase):
         self.assertTrue(all(r["expected"] == "deny" and r["kind"] == "no-ipv6" for r in v6))
 
 
+class OperatorReach(unittest.TestCase):
+    def test_every_lab_probe_vantage_is_reachable_by_the_operator_over_ssh(self):
+        rules = netpolicy.render_rules(PLAN, "exercise", "t1")
+        for h in ("attacker", "elastic", "t1", "t2"):
+            self.assertEqual(netpolicy.evaluate(PLAN, rules, {"src": "operator", "dst": h, "proto": "tcp", "port": 22}), "allow", h)
+
+
 class ProbeAddresses(unittest.TestCase):
     def row(self, pid):
         return next(r for r in netpolicy.matrix(PLAN, "exercise", "t1") if r["id"] == pid)

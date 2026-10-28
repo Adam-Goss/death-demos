@@ -51,6 +51,7 @@ def flows(plan):
     add("op-fw-admin", ["zone:vpn"], "fw", "fw_admin")
     add("op-attacker-ssh", ["zone:vpn"], "host:attacker", "ssh")
     add("op-kibana", ["zone:vpn"], "host:elastic", "kibana")
+    add("op-elastic-ssh", ["zone:vpn"], "host:elastic", "ssh")
     for t in plan["targets"]:
         add("op-%s-ssh" % t, ["zone:vpn"], "host:" + t, "ssh")
         add("exercise-" + t, ["zone:attacker"], "host:" + t, proto="tcp", ports=plan["targets"][t]["exercise_ports"],

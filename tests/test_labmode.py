@@ -95,6 +95,12 @@ class LabMode(unittest.TestCase):
         self.assertNotEqual(self.run_cli("maintenance", "--minutes", "0", "--reason", "x").returncode, 0)
         self.assertEqual(self.fw.mutations(), [])
 
+    def test_maintenance_cannot_be_extended_by_calling_it_again(self):
+        self.run_cli("exercise", "t1")
+        self.run_cli("maintenance", "--minutes", "30", "--reason", "r")
+        self.assertNotEqual(self.run_cli("maintenance", "--minutes", "30", "--reason", "again", now=T0 + 1700).returncode, 0)
+        self.assertEqual(self.state_json()["expires"], T0 + 1800)
+
     def test_tick_leaves_maintenance_until_expiry_then_restores_exercise(self):
         self.run_cli("exercise", "t1")
         self.run_cli("maintenance", "--minutes", "30", "--reason", "r")

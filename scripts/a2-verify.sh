@@ -49,21 +49,29 @@ probe_noipv6() { # deny = no global IPv6 address and no IPv6 default route on th
 phase_of() { case $1 in attacker|elastic|t1|t2) echo lab ;; operator) echo vpn ;; workstation) echo home ;; *) echo none ;; esac; }
 
 if [ "${1:-}" = failclosed ]; then
+  # The VPN ends on the firewall VM, so nothing can be run on the guests while it is down.
+  # Arm each probe on its guest first (delayed), stop the firewall, restart it, then read the results.
   : "${PROXMOX_VE_ENDPOINT:?}" "${PROXMOX_VE_API_TOKEN_FIREWALL:?}" "${PVE_NODE:?}"
   vmid=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']['vm_id'])")
   api() { curl -sS -o /dev/null -w '%{http_code}' ${PROXMOX_VE_INSECURE:+-k} -X POST -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN_FIREWALL" "${PROXMOX_VE_ENDPOINT%/}/api2/json/nodes/$PVE_NODE/qemu/$vmid/status/$1"; }
+  rows=$($PY scripts/netpolicy.py matrix exercise t1 | awk -F'	' '$9=="allow" && $6=="tcp" && $12!="UPDATE_SOURCE" && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2")')
+  while IFS=$'	' read -r id src dst proto port kind family mode expected enf sip dip; do
+    [ -n "$id" ] || continue
+    run "$src" "$sip" "rm -f /tmp/fc-$id; nohup sh -c 'sleep 40; timeout 3 bash -c \"echo >/dev/tcp/$dip/$port\" >/dev/null 2>&1; echo \$? >/tmp/fc-$id' >/dev/null 2>&1 &" || { echo "cannot arm $id on $src" >&2; exit 1; }
+  done <<<"$rows"
   trap 'api start >/dev/null' EXIT
-  echo "stopping firewall VM $vmid"; api stop >/dev/null; sleep 10
+  echo "stopping firewall VM $vmid"; api stop >/dev/null; sleep 60; api start >/dev/null; trap - EXIT
+  echo "firewall restarted; waiting for the VPN and guests"; sleep 90
   echo "| source | destination/port | mode | expected | actual | enforcement point |"; echo "| --- | --- | --- | --- | --- | --- |"
   fail=0
-  # Every flow the firewall normally allows must now be dead.
-  while IFS=$'\t' read -r id src dst proto port kind family mode expected enf sip dip; do
-    [ "$expected" = allow ] && [ "$kind" = tcp ] && [ "$(phase_of "$src")" = lab ] || continue
-    [ "$dip" = UPDATE_SOURCE ] && continue
-    actual=$(probe_tcp "$src" "$sip" "$dip" "$port")
-    printf '| %s | %s:%s | firewall down | deny | %s | no forwarding path (VM stopped) |\n' "$src" "$dst" "$port" "$actual"
+  while IFS=$'	' read -r id src dst proto port kind family mode expected enf sip dip; do
+    [ -n "$id" ] || continue
+    rc=$(run "$src" "$sip" "cat /tmp/fc-$id 2>/dev/null" 2>/dev/null)
+    case $rc in 124) actual=deny ;; 0|1) actual=allow ;; *) actual=ERROR ;; esac  # 0/1: connected or refused = a path existed
+    printf '| %s | %s:%s | firewall down | deny | %s | no forwarding path (VM stopped) |
+' "$src" "$dst" "$port" "$actual"
     [ "$actual" = deny ] || fail=1
-  done < <($PY scripts/netpolicy.py matrix exercise t1)
+  done <<<"$rows"
   exit $fail
 fi
 
@@ -80,7 +88,10 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
   [ "$(phase_of "$src")" = "$want" ] || { [ "$(phase_of "$src")" = none ] && [ "$want" = home ] || continue; }
   [ "$dip" = UPDATE_SOURCE ] && dip=${upd:-}
   actual=SKIP
-  if [ "$(phase_of "$src")" != none ] && { [ "$dip" != "" ] || [ "$kind" = no-ipv6 ]; }; then
+  # A dead vantage would turn every deny row green: it must answer before its rows count.
+  if [ "$(phase_of "$src")" != none ] && ! run "$src" "$sip" true >/dev/null 2>&1; then
+    actual=ERROR
+  elif [ "$(phase_of "$src")" != none ] && { [ "$dip" != "" ] || [ "$kind" = no-ipv6 ]; }; then
     case $kind in
       tcp)      actual=$(probe_tcp "$src" "$sip" "$dip" "$port") ;;
       dns)      actual=$(probe_dns "$src" "$sip" "$dip") ;;
@@ -101,7 +112,8 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
 done < <($PY scripts/netpolicy.py matrix "$mode" "$sel")
 
 echo
-echo "phase=$want mode=$mode selected=$sel rows=$n skipped=$skipped $([ $fail = 0 ] && echo PASS || echo FAIL)"
+verdict=FAIL; [ $fail = 0 ] && { verdict=PASS; [ $skipped = 0 ] || verdict="PASS-WITH-SKIPS"; }
+echo "phase=$want mode=$mode selected=$sel rows=$n skipped=$skipped $verdict"
 if [ $fail = 0 ] && [ "${REVERIFY:-}" = 1 ] && [ "$mode" = exercise ] && [ "$want" = lab ]; then
   $PY scripts/labmode.py reverified && echo "labmode: exercise-mode denies re-verified"
 fi

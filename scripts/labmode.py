@@ -119,6 +119,8 @@ class Lab:
         self.exercise(target)
 
     def maintenance(self, minutes, reason):
+        if self.st["mode"] == "maintenance":
+            raise SystemExit("already in maintenance (until %s); wait for expiry or run `exercise`" % self.st["expires"])
         limit = self.plan["maintenance"]["max_minutes"]
         if not reason.strip():
             raise SystemExit("--reason is required")

@@ -45,6 +45,12 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - Docker-published ports: probe a target-published port from outside the target (the `attacker -> target` rows) once M4 exists; A2 here uses probe guests.
 - The WireGuard handshake row needs `WG_IFACE`; otherwise SKIP.
 
+- **Delete OPNsense default rules** (default LAN allow-any, anti-lockout) in step 4, or they bypass the default-deny set; add an attacker -> firewall probe once done (only t1 -> firewall is probed).
+- `TEST-NET` addresses stand in for "Internet" in deny rows, so they prove policy, not a live egress hole; the maintenance rows use a real update-source IP. Add a routable canary (e.g. 1.1.1.1) at A2 time.
+- IPv6 rows check only that lab vantages have no global address or default route; no v6 packet is sent, and nothing probes v6 from home/VPN.
+- `denylog` matches any past block row for src/dst/port (no timestamp), and `tick` needs a timer you install on the workstation; neither is enforced by code.
+- `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny.
+
 ## A2 evidence
 
 Not collected. Paste `a2-verify.sh` output for each mode/phase here (source, destination/port, mode, expected, actual, enforcement point), plus the fail-closed table and the post-maintenance exercise re-run.
