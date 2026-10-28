@@ -74,6 +74,10 @@ class Fake:
 
             def _do(self):
                 n = int(self.headers.get("Content-Length") or 0)
+                if self.command == "GET" and n:  # real OPNsense answers 400 to a GET carrying a body
+                    self.send_response(400)
+                    self.end_headers()
+                    return
                 body = json.loads(self.rfile.read(n) or b"{}")
                 if self.headers.get("Authorization") != fake.auth:
                     self.send_response(401)

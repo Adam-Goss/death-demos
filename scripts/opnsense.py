@@ -24,7 +24,7 @@ class Client:
 
     def call(self, path, body=None, method="POST"):
         req = urllib.request.Request(self.url + "/api/" + path, method=method,
-                                     data=json.dumps(body if body is not None else {}).encode(),
+                                     data=None if method == "GET" else json.dumps(body if body is not None else {}).encode(),
                                      headers={"Authorization": self.auth, "Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=20, context=self.ctx) as r:
@@ -84,4 +84,4 @@ class Client:
         return True
 
     def firewall_log(self):
-        return self.call("diagnostics/firewall/log", method="GET")
+        return self.call("diagnostics/firewall/log?limit=2000", method="GET")
