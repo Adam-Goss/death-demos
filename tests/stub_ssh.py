@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Stand-in for ssh in labops tests: records the call; plays the Elastic Agent for drain-marker writes."""
+import json
+import os
+import re
+import sys
+import urllib.request
+
+cmd = sys.argv[-1]
+with open(os.environ["STUB_LOG"], "a") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\n")
+m = re.search(r"token=(\w+) target_id=(\w+) rebuild_generation=(\d+)", cmd)
+if "drain.log" in cmd and m and not os.environ.get("STUB_DROP"):
+    gen = int(os.environ.get("STUB_GENERATION") or m.group(3))
+    body = json.dumps({"@timestamp": "2026-10-28T10:00:00Z", "message": cmd,
+                       "lab": {"target_id": m.group(2), "rebuild_generation": gen}}).encode()
+    urllib.request.urlopen(urllib.request.Request(
+        os.environ["FAKE_ES_URL"] + "/logs-lab_drain.marker-default/_doc", data=body, method="POST"))
+sys.exit(int(os.environ.get("STUB_RC") or 0))

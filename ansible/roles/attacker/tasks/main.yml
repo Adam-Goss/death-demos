@@ -1,0 +1,28 @@
+- name: Attacker tooling packages (maintenance mode only: no Internet otherwise)
+  ansible.builtin.apt:
+    name: "{{ attacker_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Lab details for the exercise scripts (rendered from network/plan.json)
+  ansible.builtin.file: { path: /etc/opaleye, state: directory, mode: "0755" }
+
+- name: Lab details file
+  ansible.builtin.template:
+    src: lab.json.j2
+    dest: /etc/opaleye/lab.json
+    mode: "0644"
+
+- name: Exercise working directory (cleared by labops.py attacker-clean, never by a target reset)
+  ansible.builtin.file:
+    path: "{{ exercise_dir }}"
+    state: directory
+    owner: "{{ attacker_user }}"
+    mode: "0750"
+
+- name: Exercise 1 script
+  ansible.builtin.copy:
+    src: exercise1
+    dest: /usr/local/bin/exercise1
+    mode: "0755"

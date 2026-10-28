@@ -12,7 +12,7 @@ row() { printf '| %s | %s | %s | %s | %s | %s |\n' "$@"; [ "$4" = "$5" ] || fail
 echo "| source | destination | mode | expected | actual | enforcement point |"
 echo "| --- | --- | --- | --- | --- | --- |"
 
-stacks=(firewall elastic targets)
+stacks=(firewall elastic targets attacker)
 for s in "${stacks[@]}"; do
   var=PROXMOX_VE_API_TOKEN_$(echo "$s" | tr a-z A-Z); tok=${!var:?set $var}
   api() { curl "${curlopt[@]}" -H "Authorization: PVEAPIToken=$tok" "$base$1"; }

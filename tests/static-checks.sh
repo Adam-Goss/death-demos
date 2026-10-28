@@ -8,7 +8,7 @@ ok()  { echo "ok   $*"; }
 bad() { echo "FAIL $*"; fail=1; }
 check() { local desc=$1; shift; if "$@" >/dev/null 2>&1; then ok "$desc"; else bad "$desc"; fi; }
 
-stacks=(firewall elastic targets)
+stacks=(firewall elastic targets attacker)
 
 for s in "${stacks[@]}"; do
   d=tofu/stacks/$s
@@ -45,7 +45,7 @@ check "exercise rules match the A2 probe matrix" python3 scripts/netpolicy.py li
 check "maintenance rules match the A2 probe matrix" python3 scripts/netpolicy.py lint maintenance
 check "netpolicy and labmode unit tests pass" python3 -m unittest discover -s tests -p 'test_*.py'
 check "firewall stack builds NICs from the plan (no literal bridge names)"   bash -c "grep -q 'nic_order' tofu/stacks/firewall/main.tf && ! grep -Eq 'vmbr[0-9]+' tofu/stacks/*/*.tf"
-check "only the firewall stack can reach the home bridge"   bash -c "! grep -Eq 'zones\.home|zones\[\"home\"\]|\.home\b' tofu/stacks/elastic/*.tf tofu/stacks/targets/*.tf"
+check "only the firewall stack can reach the home bridge"   bash -c "! grep -Eq 'zones\.home|zones\[\"home\"\]|\.home\b' tofu/stacks/elastic/*.tf tofu/stacks/targets/*.tf tofu/stacks/attacker/*.tf"
 check "bridge bootstrap writes outside Ludus blocks (interfaces.d)" grep -q 'interfaces.d' scripts/bootstrap-bridges.sh
 check "A2 verifier exists" test -f scripts/a2-verify.sh
 check "firewall ISO is pinned by a 64-hex sha256 in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['firewall']['image'];sys.exit(0 if re.fullmatch('[0-9a-f]{64}',i['sha256']) else 1)"
@@ -55,5 +55,10 @@ check "elastic VM has a destroy guard" grep -Eq 'prevent_destroy *= *true' tofu/
 check "elastic packages pinned by sha512" python3 -c "import json,re,sys;e=json.load(open('network/plan.json'))['elastic'];sys.exit(0 if all(re.fullmatch('[0-9a-f]{128}',p['sha512']) for p in e['packages'].values()) else 1)"
 check "no Elastic secrets in ansible/tofu (generated under secrets/)" bash -c "! grep -REn 'password: *[\"'\''][A-Za-z0-9]{8,}' ansible tofu/stacks/elastic"
 check "elastic playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/elastic.yml --syntax-check)"
+
+# M5 (issue #24): attacker stack and operator-command guards.
+check "operator commands never reference evidence deletion" bash -c "! grep -Eq 'evidence-delete|evidence_delete|_delete_by_query' scripts/labops.py scripts/pve.py scripts/lab.sh"
+check "lab.sh replace only for the targets stack" bash -c "lab=\$(bash scripts/lab.sh replace elastic x 2>&1; true); echo \"\$lab\" | grep -q refused"
+check "attacker playbook passes syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/attacker.yml --syntax-check)"
 
 exit $fail
