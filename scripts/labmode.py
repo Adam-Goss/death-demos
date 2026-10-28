@@ -13,13 +13,13 @@
                                              from source address IP (the VPN allow on the firewall WAN, seen by the firewall)
   labmode.py wgv4only NAME                   exit 0 if WireGuard peer NAME routes no IPv6 (allowed-ips has no ':')
   labmode.py logmark FILE                    write the digests of the current log rows to FILE (the baseline)
+  labmode.py arm                             create the dead-man marker aliases (once, after install-deadman.sh)
   labmode.py status
 
-Env: OPNSENSE_NO_SAVEPOINT=true (OPNsense core has no savepoint API: apply without auto-revert),
-     OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET, OPNSENSE_INSECURE=true (self-signed),
-     LABMODE_STATE_DIR (default .state), LAB_PLAN. With a savepoint API every change goes savepoint -> apply ->
-     confirm and reverts on its own if the controller is cut off; on core 26.7 (OPNSENSE_NO_SAVEPOINT=true) it is
-     applied directly with NO auto-revert (issue #32). State and audit log stay on the workstation.
+Env: OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET, OPNSENSE_INSECURE=true (self-signed),
+     LABMODE_STATE_DIR (default .state), LAB_PLAN. Every change goes pending marker -> apply ->
+     confirm marker; the dead-man job on the firewall (scripts/firewall/opaleye_deadman.py, issue #32) restores the last
+     confirmed config if the confirm never lands. State and audit log stay on the workstation.
 """
 import argparse
 import getpass
@@ -27,12 +27,14 @@ import json
 import os
 import sys
 import time
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import netpolicy  # noqa: E402
 import opnsense  # noqa: E402
 
 PREFIX = "opaleye:"
+PENDING, CONFIRMED, GRACE = "opaleye_pending", "opaleye_confirmed", 120
 PROTO = {"tcp": "TCP", "udp": "UDP", "any": "any"}
 
 
@@ -63,15 +65,21 @@ def sync(client, plan, mode, selected):
     dels = [d for d in have if d not in want]
     if not (adds or sets or dels):
         return False
-    rev = client.savepoint()
+    pending, confirmed = client.marker(PENDING), client.marker(CONFIRMED)
+    if pending is None or confirmed is None:
+        raise SystemExit("dead-man switch not armed: run scripts/install-deadman.sh, then labmode.py arm")
+    if pending != confirmed:
+        raise SystemExit("previous push was never confirmed: wait for the dead-man job to revert it (about %d s), then retry" % GRACE)
+    token = uuid.uuid4().hex
+    client.set_marker(PENDING, token)
     for d in adds:
         client.add_rule(want[d])
     for d in sets:
         client.set_rule(have[d]["uuid"], want[d])
     for d in dels:
         client.del_rule(have[d]["uuid"])
-    client.apply(rev)
-    client.cancel_rollback(rev)  # reached only if apply answered; otherwise the firewall reverts itself
+    client.apply()
+    client.set_marker(CONFIRMED, token)  # reached only while the API still answers; otherwise the firewall reverts itself
     return True
 
 
@@ -91,8 +99,7 @@ class Lab:
         url, key, sec = (os.environ.get(k) for k in ("OPNSENSE_URL", "OPNSENSE_API_KEY", "OPNSENSE_API_SECRET"))
         if not (url and key and sec):
             raise SystemExit("set OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET")
-        return opnsense.Client(url, key, sec, os.environ.get("OPNSENSE_INSECURE") == "true",
-                               allow_no_savepoint=os.environ.get("OPNSENSE_NO_SAVEPOINT") == "true")
+        return opnsense.Client(url, key, sec, os.environ.get("OPNSENSE_INSECURE") == "true")
 
     def commit(self, event, **detail):
         with open(self.state_path, "w") as f:
@@ -137,6 +144,17 @@ class Lab:
             raise SystemExit("--minutes must be 1..%d" % limit)
         self.set_mode("maintenance-on", "maintenance", None, expires=now() + minutes * 60,
                       minutes=minutes, reason=reason)
+
+    def arm(self):
+        c = self.client()
+        if c.marker(PENDING) is not None and c.marker(CONFIRMED) is not None:
+            print("already armed")
+            return
+        token = uuid.uuid4().hex
+        c.set_marker(PENDING, token)
+        c.set_marker(CONFIRMED, token)
+        print("armed: markers created (the firewall job saves its first restore point within a minute)")
+        self.commit("armed")
 
     def tick(self):
         if self.st["mode"] == "maintenance" and self.st["expires"] is not None and now() >= self.st["expires"]:
@@ -192,7 +210,7 @@ def main(argv):
     m = sub.add_parser("maintenance")
     m.add_argument("--minutes", type=int, required=True)
     m.add_argument("--reason", default="")
-    for c in ("tick", "reverified", "status"):
+    for c in ("tick", "reverified", "arm", "status"):
         sub.add_parser(c)
     d = sub.add_parser("denylog")
     d.add_argument("src"), d.add_argument("dst"), d.add_argument("port")
@@ -212,6 +230,8 @@ def main(argv):
             lab.maintenance(a.minutes, a.reason)
         elif a.cmd == "tick":
             lab.tick()
+        elif a.cmd == "arm":
+            lab.arm()
         elif a.cmd == "reverified":
             lab.reverified()
         elif a.cmd == "denylog":
@@ -225,7 +245,7 @@ def main(argv):
         elif a.cmd == "status":
             print(json.dumps(lab.st))
     except opnsense.ApiError as e:
-        print("firewall API error: %s (change not confirmed: with a savepoint the firewall reverts on its own, without one check the firewall state)" % e, file=sys.stderr)
+        print("firewall API error: %s (change not confirmed: the firewall job reverts a push within ~%d s plus a minute; check the firewall state)" % (e, GRACE), file=sys.stderr)
         return 1
     return 0
 

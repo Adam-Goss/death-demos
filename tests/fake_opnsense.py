@@ -12,10 +12,18 @@ class Fake:
         self.rules, self.aliases, self.calls, self.log, self.wg_rows = {}, {}, [], [], []
         self.fail_apply = False
         self.reject_rules = False  # OPNsense answers 200 with result=failed for a rejected rule
-        self.core_only = False  # OPNsense core: no savepoint/cancelRollback, apply takes no revision
+        self.cut_off = False  # after apply the controller can no longer reach the API (a push that cut it off)
+        self.applied = False
         self.srv = HTTPServer(("127.0.0.1", 0), self._handler())
         self.url = "http://127.0.0.1:%d" % self.srv.server_port
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def arm(self, token="t0"):
+        for n in ("opaleye_pending", "opaleye_confirmed"):
+            self.aliases[str(uuid.uuid4())] = {"name": n, "description": token, "content": "127.0.0.1"}
+
+    def marker(self, name):
+        return next((a["description"] for a in self.aliases.values() if a["name"] == name), None)
 
     def close(self):
         self.srv.shutdown()
@@ -30,16 +38,11 @@ class Fake:
     def _route(self, path, body):
         path = path.split("?")[0]
         tail = path.split("/")[-1]
-        if self.core_only and (path.endswith("/savepoint") or "/cancelRollback/" in path or "/apply/" in path):
+        if self.cut_off and self.applied:
             return None, None
-        if path.endswith("/savepoint"):
-            return "savepoint", {"revision": "42.0"}
         if path.endswith("/filter/apply"):
+            self.applied = True
             return "apply", ({"status": "error"} if self.fail_apply else {"status": "OK "})
-        if "/apply/" in path:
-            return "apply", ({"status": "error"} if self.fail_apply else {"status": "OK"})
-        if "/cancelRollback/" in path:
-            return "cancelRollback", {"status": "OK"}
         if path.endswith("/filter/searchRule"):
             return "searchRule", {"rows": [dict(r, uuid=u) for u, r in self.rules.items()], "rowCount": len(self.rules)}
         if path.endswith("/filter/addRule"):

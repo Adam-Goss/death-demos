@@ -15,6 +15,7 @@ T0 = 1_800_000_000
 class LabMode(unittest.TestCase):
     def setUp(self):
         self.fw = Fake()
+        self.fw.arm()
         self.state = tempfile.mkdtemp()
 
     def tearDown(self):
@@ -51,32 +52,49 @@ class LabMode(unittest.TestCase):
         self.assertTrue(t2 and all(v == "0" for v in t2.values()))
         self.assertTrue(all(v == "0" for v in self.enabled("maint-updates").values()))
 
-    def test_changes_go_through_savepoint_apply_then_confirm(self):
+    def test_a_push_sets_pending_applies_then_confirms_with_the_same_token(self):
         self.run_cli("exercise", "t1")
-        names = [n for n in self.fw.names() if n in ("savepoint", "apply", "cancelRollback")]
-        self.assertEqual(names, ["savepoint", "apply", "cancelRollback"])
+        pending, confirmed = self.fw.marker("opaleye_pending"), self.fw.marker("opaleye_confirmed")
+        self.assertNotEqual(pending, "t0")
+        self.assertEqual(pending, confirmed)
+        self.assertEqual(self.fw.names().count("apply"), 1)
 
-    def test_core_firewall_without_savepoint_is_refused_unless_explicitly_allowed(self):
-        self.fw.core_only = True
+    def test_a_push_that_cuts_the_controller_off_is_left_unconfirmed_for_the_firewall_job(self):
+        self.fw.cut_off = True
         r = self.run_cli("exercise", "t1")
         self.assertNotEqual(r.returncode, 0)
-        self.assertEqual(self.fw.mutations(), [])
+        self.assertIn("not confirmed", r.stderr)
+        self.assertNotEqual(self.fw.marker("opaleye_pending"), self.fw.marker("opaleye_confirmed"))
         self.assertFalse(os.path.exists(os.path.join(self.state, "labmode.json")))
 
-    def test_core_firewall_applies_plainly_when_opted_in_and_warns(self):
-        self.fw.core_only = True
-        r = self.run_cli("exercise", "t1", OPNSENSE_NO_SAVEPOINT="true")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("no savepoint", r.stderr)
-        self.assertIn("apply", self.fw.names())
-        self.assertNotIn("cancelRollback", self.fw.names())
-        self.assertTrue(all(v == "1" for v in self.enabled("exercise-t1@lan").values()))
+    def test_unarmed_firewall_is_refused_before_any_change(self):
+        self.fw.aliases.clear()
+        r = self.run_cli("exercise", "t1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not armed", r.stderr)
+        self.assertEqual(self.fw.mutations(), [])
+
+    def test_a_previous_unconfirmed_push_blocks_the_next_one(self):
+        next(a for a in self.fw.aliases.values() if a["name"] == "opaleye_pending")["description"] = "stale"
+        r = self.run_cli("exercise", "t1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("never confirmed", r.stderr)
+        self.assertEqual(self.fw.mutations(), [])
+
+    def test_arm_creates_matching_markers_once(self):
+        self.fw.aliases.clear()
+        self.assertEqual(self.run_cli("arm").returncode, 0)
+        self.assertIsNotNone(self.fw.marker("opaleye_pending"))
+        self.assertEqual(self.fw.marker("opaleye_pending"), self.fw.marker("opaleye_confirmed"))
+        tok = self.fw.marker("opaleye_pending")
+        self.assertIn("already armed", self.run_cli("arm").stdout)
+        self.assertEqual(self.fw.marker("opaleye_pending"), tok)
 
     def test_unconfirmed_when_apply_fails_so_the_firewall_reverts(self):
         self.fw.fail_apply = True
         r = self.run_cli("exercise", "t1")
         self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("cancelRollback", self.fw.names())
+        self.assertNotEqual(self.fw.marker("opaleye_pending"), self.fw.marker("opaleye_confirmed"))
         self.assertFalse(os.path.exists(os.path.join(self.state, "labmode.json")))
 
     def test_second_identical_run_changes_nothing(self):
@@ -94,7 +112,7 @@ class LabMode(unittest.TestCase):
 
     def test_update_sources_alias_is_created_from_the_plan(self):
         self.run_cli("exercise", "t1")
-        alias = next(iter(self.fw.aliases.values()))
+        alias = next(a for a in self.fw.aliases.values() if a["name"] == "opaleye_update_sources")
         self.assertEqual(alias["name"], "opaleye_update_sources")
         self.assertIn("deb.debian.org", alias["content"])
 
