@@ -49,9 +49,9 @@
   ],
   "maintenance": { "max_minutes": 120, "initiators": ["attacker", "t1", "t2"] },
   "probes": [
-    { "id": "p01", "src": "attacker", "dst": "t1", "proto": "tcp", "port": 80, "modes": { "exercise": "allow", "maintenance": "deny" } },
+    { "id": "p01", "src": "attacker", "dst": "t1", "proto": "tcp", "port": 80, "allowed_when_selected": "t1", "modes": { "exercise": "allow", "maintenance": "deny" } },
     { "id": "p02", "src": "attacker", "dst": "t1", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
-    { "id": "p03", "src": "attacker", "dst": "t2", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p03", "src": "attacker", "dst": "t2", "proto": "tcp", "port": 80, "allowed_when_selected": "t2", "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p04", "src": "t1", "dst": "t2", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p05", "src": "t2", "dst": "t1", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p06", "src": "t1", "dst": "proxmox", "proto": "tcp", "port": 8006, "modes": { "exercise": "deny", "maintenance": "deny" } },

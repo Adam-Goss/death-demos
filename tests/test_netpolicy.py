@@ -28,6 +28,16 @@ class RulesMatchProbeMatrix(unittest.TestCase):
         probe["dst"] = "t1"
         self.assertEqual(netpolicy.evaluate(PLAN, rules, probe), "deny")
 
+    def test_exercise_with_no_target_selected_denies_attacker_to_every_target(self):
+        self.assertEqual(netpolicy.lint(PLAN, "exercise", None), [])
+        row = next(r for r in netpolicy.matrix(PLAN, "exercise", None) if r["id"] == "p01")
+        self.assertEqual(row["expected"], "deny")
+
+    def test_exercise_with_t2_selected_allows_t2_and_denies_t1(self):
+        self.assertEqual(netpolicy.lint(PLAN, "exercise", "t2"), [])
+        rows = {r["id"]: r["expected"] for r in netpolicy.matrix(PLAN, "exercise", "t2")}
+        self.assertEqual((rows["p01"], rows["p03"]), ("deny", "allow"))
+
     def test_lint_catches_an_overpermissive_rule(self):
         rules = netpolicy.render_rules(PLAN, "exercise", "t1")
         rules.insert(0, {"id": "oops", "iface": "opt2", "action": "pass", "family": "inet", "proto": "tcp",

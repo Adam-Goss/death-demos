@@ -141,12 +141,19 @@ def _dst_ip(plan, src, dst):
     return str(next(ipaddress.ip_network(plan["zones"][zone]["cidr"]).hosts()))
 
 
+def _expected(p, mode, selected):
+    """Literal verdict from the plan; probes tied to a selected target follow the selection in exercise mode."""
+    if mode == "exercise" and "allowed_when_selected" in p:
+        return "allow" if selected == p["allowed_when_selected"] else "deny"
+    return p["modes"][mode]
+
+
 def matrix(plan, mode, selected):
     rows = []
     for p in plan["probes"]:
         zone = plan["hosts"][p["src"]]["zone"]
         rows.append(dict(id=p["id"], src=p["src"], dst=p["dst"], proto=p["proto"], port=p["port"], mode=mode,
-                         selected=selected or "none", expected=p["modes"][mode], family="inet",
+                         selected=selected or "none", expected=_expected(p, mode, selected), family="inet",
                          kind=p.get("kind", "tcp"), enforcement="firewall:" + plan["zones"][zone]["iface"],
                          src_ip=plan["hosts"][p["src"]]["ip"], dst_ip=_dst_ip(plan, p["src"], p["dst"])))
     for z in V6_ZONES:

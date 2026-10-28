@@ -108,7 +108,7 @@ class Lab:
     def exercise(self, target):
         target = self.need_target(target)
         if target and self.st["reverify_required"]:
-            raise SystemExit("exercise-mode denies not re-verified since maintenance: run scripts/a2-verify.sh exercise")
+            raise SystemExit("exercise-mode denies not re-verified since maintenance: run: REVERIFY=1 scripts/a2-verify.sh exercise none lab")
         back = self.st["mode"] == "maintenance"
         self.set_mode("exercise", "exercise", target)
         if back:
