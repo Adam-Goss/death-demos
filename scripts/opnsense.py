@@ -7,6 +7,7 @@ Auth: HTTP basic with the API key and secret from the OPNsense user (env, never 
 import base64
 import json
 import ssl
+import sys
 import urllib.request
 
 
@@ -15,7 +16,8 @@ class ApiError(RuntimeError):
 
 
 class Client:
-    def __init__(self, url, key, secret, insecure=False):
+    def __init__(self, url, key, secret, insecure=False, allow_no_savepoint=False):
+        self.allow_no_savepoint = allow_no_savepoint
         self.url = url.rstrip("/")
         self.auth = "Basic " + base64.b64encode(("%s:%s" % (key, secret)).encode()).decode()
         self.ctx = ssl._create_unverified_context() if insecure else None
@@ -45,15 +47,25 @@ class Client:
         self.call("firewall/filter/delRule/" + uuid)
 
     # transaction: apply auto-reverts unless cancel_rollback is called for the same revision
+    # OPNsense core has no savepoint (that is the os-firewall plugin): apply takes no revision and
+    # nothing reverts a bad change. Only usable when the operator opts in; returns None then.
     def savepoint(self):
-        return self.call("firewall/filter/savepoint")["revision"]
+        try:
+            return self.call("firewall/filter/savepoint")["revision"]
+        except ApiError as e:
+            if self.allow_no_savepoint and "404" in str(e):
+                print("warning: no savepoint on this firewall; changes apply without auto-revert", file=sys.stderr)
+                return None
+            raise
 
     def apply(self, revision):
-        out = self.call("firewall/filter/apply/" + revision)
+        out = self.call("firewall/filter/apply" + ("/" + revision if revision else ""))
         if str(out.get("status", "")).strip().upper() != "OK":
             raise ApiError("apply failed: %s" % out)
 
     def cancel_rollback(self, revision):
+        if revision is None:
+            return
         self.call("firewall/filter/cancelRollback/" + revision)
 
     # aliases

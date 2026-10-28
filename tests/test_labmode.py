@@ -20,8 +20,8 @@ class LabMode(unittest.TestCase):
     def tearDown(self):
         self.fw.close()
 
-    def run_cli(self, *args, now=T0, creds=True):
-        env = dict(os.environ, LABMODE_STATE_DIR=self.state, LABMODE_NOW=str(now), OPNSENSE_URL=self.fw.url)
+    def run_cli(self, *args, now=T0, creds=True, **extra_env):
+        env = dict(os.environ, LABMODE_STATE_DIR=self.state, LABMODE_NOW=str(now), OPNSENSE_URL=self.fw.url, **extra_env)
         if creds:
             env.update(OPNSENSE_API_KEY="k", OPNSENSE_API_SECRET="s")
         else:
@@ -55,6 +55,22 @@ class LabMode(unittest.TestCase):
         self.run_cli("exercise", "t1")
         names = [n for n in self.fw.names() if n in ("savepoint", "apply", "cancelRollback")]
         self.assertEqual(names, ["savepoint", "apply", "cancelRollback"])
+
+    def test_core_firewall_without_savepoint_is_refused_unless_explicitly_allowed(self):
+        self.fw.core_only = True
+        r = self.run_cli("exercise", "t1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.fw.mutations(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.state, "labmode.json")))
+
+    def test_core_firewall_applies_plainly_when_opted_in_and_warns(self):
+        self.fw.core_only = True
+        r = self.run_cli("exercise", "t1", OPNSENSE_NO_SAVEPOINT="true")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("no savepoint", r.stderr)
+        self.assertIn("apply", self.fw.names())
+        self.assertNotIn("cancelRollback", self.fw.names())
+        self.assertTrue(all(v == "1" for v in self.enabled("exercise-t1@lan").values()))
 
     def test_unconfirmed_when_apply_fails_so_the_firewall_reverts(self):
         self.fw.fail_apply = True

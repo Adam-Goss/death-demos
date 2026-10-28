@@ -11,6 +11,7 @@ class Fake:
         self.auth = "Basic " + base64.b64encode(("%s:%s" % (key, secret)).encode()).decode()
         self.rules, self.aliases, self.calls, self.log = {}, {}, [], []
         self.fail_apply = False
+        self.core_only = False  # OPNsense core: no savepoint/cancelRollback, apply takes no revision
         self.srv = HTTPServer(("127.0.0.1", 0), self._handler())
         self.url = "http://127.0.0.1:%d" % self.srv.server_port
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
@@ -27,8 +28,12 @@ class Fake:
 
     def _route(self, path, body):
         tail = path.split("/")[-1]
+        if self.core_only and (path.endswith("/savepoint") or "/cancelRollback/" in path or "/apply/" in path):
+            return None, None
         if path.endswith("/savepoint"):
             return "savepoint", {"revision": "42.0"}
+        if path.endswith("/filter/apply"):
+            return "apply", ({"status": "error"} if self.fail_apply else {"status": "OK "})
         if "/apply/" in path:
             return "apply", ({"status": "error"} if self.fail_apply else {"status": "OK"})
         if "/cancelRollback/" in path:
@@ -75,6 +80,10 @@ class Fake:
                     self.end_headers()
                     return
                 name, out = fake._route(self.path, body)
+                if name is None:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
                 fake.calls.append((name, body))
                 data = json.dumps(out).encode()
                 self.send_response(200)

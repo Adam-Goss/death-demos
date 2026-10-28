@@ -10,7 +10,8 @@
   labmode.py denylog SRC DST PORT            exit 0 if the firewall logged that block
   labmode.py status
 
-Env: OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET, OPNSENSE_INSECURE=true (self-signed),
+Env: OPNSENSE_NO_SAVEPOINT=true (OPNsense core has no savepoint API: apply without auto-revert),
+     OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET, OPNSENSE_INSECURE=true (self-signed),
      LABMODE_STATE_DIR (default .state), LAB_PLAN. Every change goes savepoint -> apply -> confirm, so a
      change that cuts the controller off reverts on its own. State and audit log stay on the workstation.
 """
@@ -84,7 +85,8 @@ class Lab:
         url, key, sec = (os.environ.get(k) for k in ("OPNSENSE_URL", "OPNSENSE_API_KEY", "OPNSENSE_API_SECRET"))
         if not (url and key and sec):
             raise SystemExit("set OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET")
-        return opnsense.Client(url, key, sec, os.environ.get("OPNSENSE_INSECURE") == "true")
+        return opnsense.Client(url, key, sec, os.environ.get("OPNSENSE_INSECURE") == "true",
+                               allow_no_savepoint=os.environ.get("OPNSENSE_NO_SAVEPOINT") == "true")
 
     def commit(self, event, **detail):
         with open(self.state_path, "w") as f:

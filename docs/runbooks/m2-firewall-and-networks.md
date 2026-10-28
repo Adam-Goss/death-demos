@@ -39,6 +39,8 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 ## Known gaps
 
+- **No savepoint on OPNsense core 26.7.** `firewall/filter/savepoint` and `cancelRollback` belong to the `os-firewall` plugin (404 on core). Core `apply` takes no revision and nothing auto-reverts. `labmode.py` refuses unless `OPNSENSE_NO_SAVEPOINT=true`; a bad push can then only be undone from the Proxmox VM console (`pfctl -d`, or restore a config backup). Take a **System > Configuration > Backups** download before the first push.
+
 - **Step 4 is hand configuration**, against "re-runnable code only". The OPNsense interface-assignment and WireGuard APIs were incomplete on 26.1 ([research](../research/opnsense-vs-pfsense.md)); a `config.xml` seed would replace it but cannot be written blind. Decide after seeing the real VM.
 - Rule diffing compares only the fields we send; if live OPNsense returns them in another shape the controller will re-`setRule` every run (harmless, but not a no-op).
 - `home_other` and `public` probe rows are SKIP: they cannot be sourced from the workstation. Covered by the rules lint and per-interface default-deny; there is no port forward or public inbound path.
