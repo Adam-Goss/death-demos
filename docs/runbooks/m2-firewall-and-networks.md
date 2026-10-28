@@ -224,7 +224,7 @@ Applied without auto-revert (`OPNSENSE_NO_SAVEPOINT=true`; see Known gaps). No t
 
 ### Final state check (`a2-verify.sh exercise t1 lab`, after the post-maintenance re-verification and `labmode.py select t1`): PASS, 34/34
 
-Identical verdicts to the first exercise table above (all 21 denies logged). Taken after the anti-lockout change was attempted; admin access over the tunnel (`opaleye:op-fw-admin`, `https://10.77.9.1`) was used by the log checks throughout.
+Identical verdicts to the first exercise table above (all 21 denies logged). Taken with the OPNsense anti-lockout rule disabled (confirmed by Adam) and the packet filter enabled (`pfctl -si`: Enabled); admin access over the tunnel (`opaleye:op-fw-admin`, `https://10.77.9.1`) was used by the log checks throughout.
 
 ### Not covered by this A2 run
 
