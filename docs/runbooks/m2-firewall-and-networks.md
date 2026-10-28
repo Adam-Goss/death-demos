@@ -2,7 +2,7 @@
 
 Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). **A2 is a hard gate before any vulnerable target powers on.** Policy: [ADR 0001](../adr/0001-isolate-the-attack-lab-behind-a-firewall-vm.md) and the #6 flow contract.
 
-**Status: code and offline tests done; A2 evidence not yet collected.** Nothing here has run against the real node or a real OPNsense. The OPNsense API field names and endpoints, and the Tofu VM arguments, are written from docs and unverified.
+**Status: A2 evidence collected 2026-10-28 (see below); pending Adam's review before #21 closes.** The OPNsense API field names and the Tofu VM arguments held up on 26.7 with the fixes recorded in git history; first-boot OPNsense setup is still manual (Known gaps).
 
 ## Decisions (defaults accepted 2026-10-28)
 
@@ -222,6 +222,14 @@ Applied without auto-revert (`OPNSENSE_NO_SAVEPOINT=true`; see Known gaps). No t
 | t1 | fw:0 (IPv6) | exercise | deny | deny | firewall:opt2 |
 | t2 | fw:0 (IPv6) | exercise | deny | deny | firewall:opt3 |
 
-### Still to record
+### Final state check (`a2-verify.sh exercise t1 lab`, after the post-maintenance re-verification and `labmode.py select t1`): PASS, 34/34
 
-then remove the OPNsense anti-lockout rule and rerun.
+Identical verdicts to the first exercise table above (all 21 denies logged). Taken after the anti-lockout change was attempted; admin access over the tunnel (`opaleye:op-fw-admin`, `https://10.77.9.1`) was used by the log checks throughout.
+
+### Not covered by this A2 run
+
+- `workstation -> fw:51820` allow (WG_IFACE unset): shown by packet capture instead. `home_other` and `public` sources: SKIP.
+- Probes to "Internet" use unroutable TEST-NET addresses except the maintenance update-source rows, which made real connections.
+- IPv6: lab vantages have no global address or default route; no IPv6 packets were sent.
+- Docker-published ports and alternate NICs: need the target VM (M4); recheck there before a vulnerable target powers on beyond what A2 covers.
+- Cleanup still to do: destroy the probe guests (`TF_VAR_probe_vms=false scripts/lab.sh apply firewall`).
