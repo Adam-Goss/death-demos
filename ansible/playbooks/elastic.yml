@@ -1,0 +1,6 @@
+# M3 (issue #22): Elasticsearch, Kibana and Fleet Server on the Elastic VM. Re-runnable.
+# Secrets are generated on first run under secrets/elastic/ (gitignored) and reused after.
+- name: Elastic evidence VM
+  hosts: elastic
+  roles:
+    - elastic

@@ -50,4 +50,10 @@ check "bridge bootstrap writes outside Ludus blocks (interfaces.d)" grep -q 'int
 check "A2 verifier exists" test -f scripts/a2-verify.sh
 check "firewall ISO is pinned by a 64-hex sha256 in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['firewall']['image'];sys.exit(0 if re.fullmatch('[0-9a-f]{64}',i['sha256']) else 1)"
 
+# M3 (issue #22): Elastic stack guards.
+check "elastic VM has a destroy guard" grep -Eq 'prevent_destroy *= *true' tofu/stacks/elastic/main.tf
+check "elastic packages pinned by sha512" python3 -c "import json,re,sys;e=json.load(open('network/plan.json'))['elastic'];sys.exit(0 if all(re.fullmatch('[0-9a-f]{128}',p['sha512']) for p in e['packages'].values()) else 1)"
+check "no Elastic secrets in ansible/tofu (generated under secrets/)" bash -c "! grep -REn 'password: *[\"'\''][A-Za-z0-9]{8,}' ansible tofu/stacks/elastic"
+check "elastic playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/elastic.yml --syntax-check)"
+
 exit $fail

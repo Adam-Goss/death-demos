@@ -1,0 +1,16 @@
+plan: "{{ lookup('ansible.builtin.file', playbook_dir + '/../../network/plan.json') | from_json }}"
+el: "{{ plan.elastic }}"
+el_ip: "{{ plan.hosts.elastic.ip }}"
+el_gw: "{{ el_ip.split('.')[:3] | join('.') }}.1"
+secrets_dir: "{{ playbook_dir }}/../../secrets/elastic"
+cache_dir: "{{ playbook_dir }}/../../.state/elastic-packages"
+# Generated once on the controller, reused after (never in the repo).
+elastic_password: "{{ lookup('ansible.builtin.password', secrets_dir + '/elastic.password length=32 chars=ascii_letters,digits') }}"
+kibana_system_password: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana_system.password length=32 chars=ascii_letters,digits') }}"
+kibana_key_saved: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana-saved-objects.key length=40 chars=hexdigits') }}"
+kibana_key_reporting: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana-reporting.key length=40 chars=hexdigits') }}"
+kibana_key_security: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana-security.key length=40 chars=hexdigits') }}"
+api: "https://{{ el_ip }}:9200"
+# The workstation may only reach Kibana and SSH (operator->9200/8220 is denied). Controller-side API calls use an
+# SSH tunnel, so they originate on the VM itself: ssh -N -L 19200:127.0.0.1:9200 opaleye@10.77.3.10 (scripts/elastic-tunnel.sh).
+api_ctl: "https://127.0.0.1:{{ lookup('ansible.builtin.env', 'ELASTIC_TUNNEL_PORT') | default('19200', true) }}"

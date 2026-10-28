@@ -1,0 +1,23 @@
+# Copies Elastic config and secrets (not evidence) to the controller's secrets/ store, which holds the
+# offline key too. Snapshots omit the keystores and certificates, so this is their backup.
+- name: Back up Elastic configuration
+  hosts: elastic
+  tasks:
+    - name: Archive config
+      ansible.builtin.command: >
+        tar czf /var/tmp/elastic-config.tgz /etc/elasticsearch /etc/kibana /etc/lab-ca
+      become: true
+      changed_when: false
+
+    - name: Fetch archive
+      ansible.builtin.fetch:
+        src: /var/tmp/elastic-config.tgz
+        dest: "{{ playbook_dir }}/../../secrets/elastic/config-backup.tgz"
+        flat: true
+      become: true
+
+    - name: Remove remote archive
+      ansible.builtin.file:
+        path: /var/tmp/elastic-config.tgz
+        state: absent
+      become: true

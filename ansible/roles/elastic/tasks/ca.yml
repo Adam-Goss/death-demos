@@ -1,0 +1,54 @@
+# The lab CA key never leaves the controller's secrets/ store and is never in the repo or an image.
+- name: CA directory
+  ansible.builtin.file:
+    path: "{{ secrets_dir }}/ca"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: Lab CA key and certificate (10 years)
+  ansible.builtin.shell: |
+    set -e
+    openssl genrsa -out ca.key 4096
+    openssl req -x509 -new -key ca.key -sha256 -days 3650 -subj "/CN=Opaleye lab CA" \
+      -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -out ca.crt
+    chmod 600 ca.key
+  args:
+    chdir: "{{ secrets_dir }}/ca"
+    creates: "{{ secrets_dir }}/ca/ca.crt"
+  delegate_to: localhost
+  become: false
+
+# Reissued when the SAN set changes; otherwise untouched so the fingerprint agents trust stays stable.
+- name: Server certificate (1 year, SAN = lab IP and name)
+  ansible.builtin.shell: |
+    set -e
+    want='IP:{{ el_ip }},DNS:elastic.lab,DNS:localhost,IP:127.0.0.1'
+    [ "$(cat server.san 2>/dev/null)" = "$want" ] && exit 0
+    openssl genrsa -out server.key 2048
+    openssl req -new -key server.key -subj "/CN=elastic.lab" -out server.csr
+    printf "subjectAltName=$want\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n" > server.ext
+    openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -sha256 -days 365 -extfile server.ext -out server.crt
+    cat server.crt ca.crt > server-chain.crt
+    chmod 600 server.key
+    echo "$want" > server.san
+    echo changed
+  args:
+    chdir: "{{ secrets_dir }}/ca"
+  register: srv
+  changed_when: "'changed' in srv.stdout"
+  delegate_to: localhost
+  become: false
+
+- name: CA SHA-256 fingerprint (agents pin this)
+  ansible.builtin.shell: |
+    set -o pipefail
+    openssl x509 -in ca.crt -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | tr A-F a-f
+  args:
+    executable: /bin/bash
+    chdir: "{{ secrets_dir }}/ca"
+  register: ca_fp
+  changed_when: false
+  delegate_to: localhost
+  become: false
