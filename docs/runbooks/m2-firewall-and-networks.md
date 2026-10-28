@@ -49,7 +49,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - The `workstation -> fw:51820` allow row is SKIP (`WG_IFACE` unset); the handshake is evidenced by packet capture.
 - `attacker -> fw` is probed on 443/22 (p46, p47) in the `lab` phase only; the other phases' tables predate those rows.
 - `denylog` ignores rows already in the log when the verifier starts (digest baseline), so a stale block from an earlier run cannot satisfy a row; within one run, an identical earlier block for the same src/dst/port still would.
-- `labmode.py tick` needs a timer: `scripts/install-tick-timer.sh` installs a per-minute user crontab line (WSL: `sudo service cron start`, VPN up); `--remove` uninstalls. Needs `export OPNSENSE_NO_SAVEPOINT=true` in `secrets/env.sh` (cron sees only that file); the installer refuses without it. A first live test failed for exactly that reason and left maintenance open until fixed.
+- `labmode.py tick` needs a timer: `scripts/install-tick-timer.sh` installs a per-minute user crontab line (WSL: `sudo service cron start`, VPN up); `--remove` uninstalls. Needs `export OPNSENSE_NO_SAVEPOINT=true` in `secrets/env.sh` (cron sees only that file); the installer refuses without it. Proven live 2026-10-28 by cron: a 1-minute maintenance window closed itself (`maintenance expired: back to exercise mode`, `reverify_required: true`); the first attempt failed for the missing variable and left maintenance open until fixed (the tick retries each minute).
 - Docker-published ports and per-target NICs need the M4 target; probe a published non-exercise port from outside the target before it powers on.
 - `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny.
 
