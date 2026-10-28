@@ -26,6 +26,30 @@ variable "attach_installer" {
   default     = true
 }
 
+variable "seeded" {
+  description = "Rebuild from the pre-installed nano image plus the config seed (scripts/seed-build.sh): no installer, no console. false = installer ISO path."
+  type        = bool
+  default     = false
+}
+
+variable "nano_image_url" {
+  description = "OPNsense nano (pre-installed) image URL for the pinned version; used when seeded."
+  type        = string
+  default     = ""
+}
+
+variable "nano_image_sha256" {
+  description = "sha256 of the downloaded nano image, as published by OPNsense."
+  type        = string
+  default     = ""
+}
+
+variable "seed_iso_path" {
+  description = "Seed ISO built by scripts/seed-build.sh (holds the injected secrets; lives in encrypted state only)."
+  type        = string
+  default     = "../../../.state/opnsense-seed.iso"
+}
+
 variable "probe_vms" {
   description = "Create throwaway A2 probe guests in the attacker, elastic and target zones. Destroy after A2."
   type        = bool
@@ -55,6 +79,29 @@ locals {
 # Proves the stack token can read its own pool, and nothing else.
 data "proxmox_virtual_environment_pool" "this" {
   pool_id = var.pool_id
+}
+
+resource "proxmox_virtual_environment_download_file" "nano" {
+  count                   = var.seeded ? 1 : 0
+  node_name               = var.node_name
+  datastore_id            = var.datastore_id
+  content_type            = "import"
+  url                     = var.nano_image_url
+  checksum                = var.nano_image_sha256
+  checksum_algorithm      = "sha256"
+  file_name               = "opnsense-nano.qcow2"
+  decompression_algorithm = "bz2"
+}
+
+resource "proxmox_virtual_environment_file" "seed" {
+  count        = var.seeded ? 1 : 0
+  node_name    = var.node_name
+  datastore_id = var.datastore_id
+  content_type = "iso"
+  source_file {
+    path      = "${path.module}/${var.seed_iso_path}"
+    file_name = "opnsense-seed.iso"
+  }
 }
 
 # The only lab guest with a NIC on the home bridge (first NIC = WAN). All other NICs are
@@ -96,10 +143,13 @@ resource "proxmox_virtual_environment_vm" "firewall" {
     interface    = "virtio0"
     size         = 20
     file_format  = "raw"
+    import_from  = var.seeded ? proxmox_virtual_environment_download_file.nano[0].id : null
   }
 
+  # Seeded: the config seed. Otherwise the installer ISO (empty drive once installed).
   cdrom {
-    file_id   = var.attach_installer ? var.installer_iso_file_id : "none" # "none" = empty drive
+    file_id = (var.seeded ? proxmox_virtual_environment_file.seed[0].id
+    : var.attach_installer ? var.installer_iso_file_id : "none")
     interface = "ide2"
   }
 

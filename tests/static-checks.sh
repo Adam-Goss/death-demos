@@ -50,4 +50,10 @@ check "bridge bootstrap writes outside Ludus blocks (interfaces.d)" grep -q 'int
 check "A2 verifier exists" test -f scripts/a2-verify.sh
 check "firewall ISO is pinned by a 64-hex sha256 in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['firewall']['image'];sys.exit(0 if re.fullmatch('[0-9a-f]{64}',i['sha256']) else 1)"
 
+# M2 follow-up (issue #31): firewall config seed.
+check "seed tooling exists" test -x scripts/seed-build.sh -a -f scripts/seed-sanitize.py
+check "seed template (if present) holds no secrets or filter rules" bash -c "[ ! -f seed/opnsense/config.xml.tmpl ] || python3 -c 'import importlib.util as u,sys;sp=u.spec_from_file_location(\"s\",\"scripts/seed-sanitize.py\");m=u.module_from_spec(sp);sp.loader.exec_module(m);sys.exit(1 if m.leaks(open(\"seed/opnsense/config.xml.tmpl\").read()) else 0)'"
+check "no raw config.xml tracked" bash -c "! git ls-files -co --exclude-standard | grep -E '(^|/)config\.xml$'"
+check "seed ISO stays out of git" bash -c "git check-ignore -q .state/opnsense-seed.iso"
+
 exit $fail
