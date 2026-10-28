@@ -1,7 +1,7 @@
 # Every API call runs from the controller over TLS verified with the lab CA.
 - name: ILM policies (90 days evidence, 14 days metrics; a minimum, the disk watermark is the real limit)
   ansible.builtin.uri:
-    url: "{{ api }}/_ilm/policy/{{ el.retention[item].policy }}"
+    url: "{{ api_ctl }}/_ilm/policy/{{ el.retention[item].policy }}"
     method: PUT
     user: elastic
     password: "{{ elastic_password }}"
@@ -26,7 +26,7 @@
 # No replicas: single node. Datasets confirmed against real data at A4; extend plan.json then.
 - name: Per-data-stream lifecycle (@custom component templates)
   ansible.builtin.uri:
-    url: "{{ api }}/_component_template/{{ item.name }}@custom"
+    url: "{{ api_ctl }}/_component_template/{{ item.name }}@custom"
     method: PUT
     user: elastic
     password: "{{ elastic_password }}"
@@ -49,7 +49,7 @@
 
 - name: Snapshot repository
   ansible.builtin.uri:
-    url: "{{ api }}/_snapshot/{{ el.snapshots.repository }}"
+    url: "{{ api_ctl }}/_snapshot/{{ el.snapshots.repository }}"
     method: PUT
     user: elastic
     password: "{{ elastic_password }}"
@@ -63,7 +63,7 @@
 
 - name: Daily snapshot policy (14 days retained)
   ansible.builtin.uri:
-    url: "{{ api }}/_slm/policy/{{ el.snapshots.policy }}"
+    url: "{{ api_ctl }}/_slm/policy/{{ el.snapshots.policy }}"
     method: PUT
     user: elastic
     password: "{{ elastic_password }}"

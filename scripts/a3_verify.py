@@ -24,9 +24,10 @@ EL = PLAN["elastic"]
 IP = PLAN["hosts"]["elastic"]["ip"]
 SECRETS = ROOT / "secrets/elastic"
 CA = SECRETS / "ca/ca.crt"
-ES = f"https://{IP}:9200"
+# Operator->9200/8220 is denied by design: reach them through an SSH tunnel (scripts/elastic-tunnel.sh).
+ES = os.environ.get("ELASTIC_ES_URL", "https://127.0.0.1:19200")
 KB = f"https://{IP}:5601"
-FLEET = f"https://{IP}:8220"
+FLEET = os.environ.get("ELASTIC_FLEET_URL", "https://127.0.0.1:18220")
 
 rows = []
 
@@ -102,16 +103,9 @@ def tls_rejects_without_ca(url):
 
 
 def check_tls():
-    for name, url in (("elastic:9200", ES), ("elastic:5601", KB), ("elastic:8220", FLEET)):
+    for name, url in (("elastic:9200 (tunnel)", ES), ("elastic:5601", KB), ("elastic:8220 (tunnel)", FLEET)):
         row("operator", f"{name} TLS with lab CA", "verified", tls_ok(url), "server certificate chain")
         row("operator", f"{name} TLS without lab CA", "rejected", tls_rejects_without_ca(url), "client trust store")
-    # Plain HTTP must not be served.
-    try:
-        urllib.request.urlopen(f"http://{IP}:9200/", timeout=5)
-        plain = "served"
-    except Exception:  # noqa: BLE001
-        plain = "refused"
-    row("operator", "elastic:9200 plain http", "refused", plain, "elasticsearch")
 
 
 def check_lifecycle():

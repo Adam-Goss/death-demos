@@ -23,11 +23,16 @@ Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks
 
 1. Node, as root: `scripts/bootstrap-proxmox.sh` (pool/token for `elastic` already exist from M1), then `scripts/make-elastic-template.sh`.
 2. Workstation: `export TF_VAR_node_name=ludus TF_VAR_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)"`; `scripts/lab.sh apply elastic`. Re-apply is a no-op.
-3. VPN up. `cd ansible && ansible-galaxy collection install -r requirements.yml && ansible-playbook playbooks/elastic.yml`. Re-runnable; failures: re-run, then the manual path below.
+3. VPN up. The firewall gives the operator only 5601 and 22 on Elastic (probes p32, p45, p48, p49), so API calls from the workstation go through an SSH tunnel: in another terminal `scripts/elastic-tunnel.sh` (forwards 19200/18220 to the VM's own 9200/8220; the VM must be reachable by SSH first). Then `cd ansible && ansible-galaxy collection install -r requirements.yml && ansible-playbook playbooks/elastic.yml`. Re-runnable; failures: re-run, then the manual path below.
 4. Operator opens `https://10.77.3.10:5601` (user `elastic`, password in `secrets/elastic/elastic.password`; trust `secrets/elastic/ca/ca.crt`).
 5. Evidence (destroy the elastic probe guest first, it holds the same address: `TF_VAR_probe_zones='["attacker","t1","t2"]'`, then `lab.sh apply firewall`): `scripts/a3-verify.sh services`; `labmode.py select t1`; `a3-verify.sh net lab`, `net vpn`, `net home` (vantage setup as in the [M2 runbook](m2-firewall-and-networks.md#how-to-rerun-a2)). Set `PROXMOX_VE_API_TOKEN_FIREWALL`, `_TARGETS`, `PVE_NODE` for the token-scope rows.
 
 ## Known gaps
+
+- **Attacker and t2 reach ingestion ports** (p17, p50-p52): the M2 rules let all lab zones (attacker, t1, t2) send telemetry. #9 says "target to ingestion only"; narrowing attacker out is an M2 rule change, not done here. Raise before A3 sign-off.
+- **Fleet Server install is one-shot** (gated on the Agent being installed): a changed flag, cert or version needs a manual `elastic-agent uninstall` first. Not auto-reconverged.
+- **A3 shows config, not streams**: no evidence data streams exist until M4, so the per-stream lifecycle row only proves the `@custom` templates; A4 re-checks real streams. The restore test uses a throwaway index, not an SLM-made snapshot.
+- **Destroy guard** is proven by `lab.sh` refusal, the `prevent_destroy` setting and the token-scope rows (SKIP without Proxmox env), not by a live `tofu plan`.
 
 - **Integration packages** (`auditd_manager`, `docker`, `apache`, firewall flow logs) are not in Kibana's bundled set and Elastic has no Internet (`xpack.fleet.isAirGapped: true`). M4 uploads them as zip packages from the workstation (`POST /api/fleet/epm/packages`). Bundled: `fleet_server`, `endpoint`, `system`, `elastic_agent`.
 - **Dataset names in `plan.json` are expected, not observed.** `a3-verify.sh services` fails if a data stream exists without a lab policy; A4 confirms the real names (esp. Defend `logs-endpoint.events.*`, whether its template includes `@custom`) and extends the lists.

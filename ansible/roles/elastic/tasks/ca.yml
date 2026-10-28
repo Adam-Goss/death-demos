@@ -24,16 +24,20 @@
 - name: Server certificate (1 year, SAN = lab IP and name)
   ansible.builtin.shell: |
     set -e
+    want='IP:{{ el_ip }},DNS:elastic.lab,DNS:localhost,IP:127.0.0.1'
+    [ "$(cat server.san 2>/dev/null)" = "$want" ] && exit 0
     openssl genrsa -out server.key 2048
     openssl req -new -key server.key -subj "/CN=elastic.lab" -out server.csr
-    printf 'subjectAltName=IP:{{ el_ip }},DNS:elastic.lab,DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n' > server.ext
+    printf "subjectAltName=$want\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n" > server.ext
     openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -sha256 -days 365 -extfile server.ext -out server.crt
     cat server.crt ca.crt > server-chain.crt
     chmod 600 server.key
-    echo "{{ el_ip }}" > server.san
+    echo "$want" > server.san
+    echo changed
   args:
     chdir: "{{ secrets_dir }}/ca"
-    creates: "{{ secrets_dir }}/ca/server.san"
+  register: srv
+  changed_when: "'changed' in srv.stdout"
   delegate_to: localhost
   become: false
 

@@ -11,3 +11,6 @@ kibana_key_saved: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana-
 kibana_key_reporting: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana-reporting.key length=40 chars=hexdigits') }}"
 kibana_key_security: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana-security.key length=40 chars=hexdigits') }}"
 api: "https://{{ el_ip }}:9200"
+# The workstation may only reach Kibana and SSH (operator->9200/8220 is denied). Controller-side API calls use an
+# SSH tunnel, so they originate on the VM itself: ssh -N -L 19200:127.0.0.1:9200 opaleye@10.77.3.10 (scripts/elastic-tunnel.sh).
+api_ctl: "https://127.0.0.1:{{ lookup('ansible.builtin.env', 'ELASTIC_TUNNEL_PORT') | default('19200', true) }}"

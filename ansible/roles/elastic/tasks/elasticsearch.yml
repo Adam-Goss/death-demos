@@ -57,7 +57,7 @@
 
 - name: Wait for Elasticsearch over TLS
   ansible.builtin.uri:
-    url: "{{ api }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    url: "{{ api_ctl }}/_cluster/health?wait_for_status=yellow&timeout=60s"
     user: elastic
     password: "{{ elastic_password }}"
     force_basic_auth: true
@@ -73,7 +73,7 @@
 
 - name: kibana_system password
   ansible.builtin.uri:
-    url: "{{ api }}/_security/user/kibana_system/_password"
+    url: "{{ api_ctl }}/_security/user/kibana_system/_password"
     method: POST
     user: elastic
     password: "{{ elastic_password }}"

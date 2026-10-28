@@ -140,6 +140,7 @@
     { "id": "p48", "src": "operator", "dst": "elastic", "proto": "tcp", "port": 9200, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p49", "src": "operator", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p50", "src": "t2", "dst": "elastic", "proto": "tcp", "port": 9200, "modes": { "exercise": "allow", "maintenance": "allow" } },
-    { "id": "p51", "src": "attacker", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "allow", "maintenance": "allow" } }
+    { "id": "p51", "src": "attacker", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p52", "src": "t2", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "allow", "maintenance": "allow" } }
   ]
 }
