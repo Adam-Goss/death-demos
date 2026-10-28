@@ -83,6 +83,7 @@ if [ "${1:-}" = failclosed ]; then
 ' "$src" "$dst" "$port" "$actual"
     [ "$actual" = deny ] || fail=1
   done <<<"$rows"
+  echo; echo "phase=failclosed rows=$(echo "$rows" | grep -c .) $([ $fail = 0 ] && echo PASS || echo FAIL)"
   exit $fail
 fi
 
