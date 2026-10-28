@@ -9,6 +9,7 @@
 #      BRIDGES (space-separated lab bridges to allow VM NICs on, set once M2 creates them)
 #      ROTATE=1 re-issues each stack token (use if a secret was lost)
 set -eu
+export PATH="$PATH:/usr/sbin:/sbin"  # pveum lives in /usr/sbin; not on every root shell PATH
 STORAGE=${STORAGE:-iso-files}
 BRIDGES=${BRIDGES:-}
 ROTATE=${ROTATE:-0}
