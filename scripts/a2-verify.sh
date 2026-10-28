@@ -33,7 +33,9 @@ probe_tcp() { # src src_ip dst_ip port
     *) echo deny ;;
   esac
 }
-probe_dns() { run "$1" "$2" "dig +time=2 +tries=1 +short @$3 example.com >/dev/null 2>&1; echo rc=\$?" | grep -q 'rc=0$' && echo allow || echo deny; }
+probe_dns() { # python3 only: probe guests have no dig and no Internet to install it. Any reply counts as reachable.
+  run "$1" "$2" "python3 -c \"import socket;s=socket.socket(2,2);s.settimeout(2);s.sendto(bytes.fromhex('123401000001000000000000076578616d706c6503636f6d0000010001'),('$3',53));s.recvfrom(512)\" >/dev/null 2>&1; echo rc=\$?" | grep -q 'rc=0$' && echo allow || echo deny
+}
 probe_ntp() {
   run "$1" "$2" "python3 -c \"import socket,sys;s=socket.socket(2,2);s.settimeout(2);s.sendto(b'\\x1b'+47*b'\\0',('$3',123));s.recvfrom(64)\" >/dev/null 2>&1; echo rc=\$?" | grep -q 'rc=0$' && echo allow || echo deny
 }
