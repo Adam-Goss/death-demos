@@ -91,17 +91,14 @@ class SeedTest(unittest.TestCase):
 
     def test_invariants_catch_regressions(self):
         cases = {
-            "<filter/>": ("</opnsense>", "<filter><rule/></filter></opnsense>"),
+            "rules": ("</opnsense>", "<filter><rule/></filter></opnsense>"),
             "blockpriv": ("<enable>1</enable>", "<enable>1</enable><blockpriv>1</blockpriv>"),
             "page-all": ("page-filter-api", "page-all"),
-            "ipv6": ("<webgui>", "<ipv6allow>1</ipv6allow><webgui>"),
+            "ipv6": ("<system>", "<system><ipv6allow>1</ipv6allow>"),
             "antilockout": ("<noantilockout>1</noantilockout>", ""),
         }
         for label, (old, new) in cases.items():
-            mutated = self.tpl.replace(old, new, 1)
-            if label == "ipv6":
-                mutated = self.tpl.replace("<system>", "<system><ipv6allow>1</ipv6allow>", 1)
-            self.assertTrue(seed.problems(mutated), label)
+            self.assertTrue(seed.problems(self.tpl.replace(old, new, 1)), label)
 
     def test_render_file_is_owner_only(self):
         with tempfile.TemporaryDirectory() as d:
