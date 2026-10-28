@@ -23,9 +23,12 @@ class Client:
         self.ctx = ssl._create_unverified_context() if insecure else None
 
     def call(self, path, body=None, method="POST"):
-        req = urllib.request.Request(self.url + "/api/" + path, method=method,
-                                     data=None if method == "GET" else json.dumps(body if body is not None else {}).encode(),
-                                     headers={"Authorization": self.auth, "Content-Type": "application/json"})
+        headers = {"Authorization": self.auth}
+        data = None
+        if method != "GET":  # a GET with a body or JSON content type is a 400 on OPNsense
+            data = json.dumps(body if body is not None else {}).encode()
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(self.url + "/api/" + path, method=method, data=data, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=20, context=self.ctx) as r:
                 return json.load(r)

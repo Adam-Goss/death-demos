@@ -75,7 +75,8 @@ class Fake:
 
             def _do(self):
                 n = int(self.headers.get("Content-Length") or 0)
-                if self.command == "GET" and n:  # real OPNsense answers 400 to a GET carrying a body
+                json_ct = "json" in (self.headers.get("Content-Type") or "")
+                if self.command == "GET" and (n or json_ct):  # real OPNsense answers 400 to a GET with a body or JSON content type
                     self.send_response(400)
                     self.end_headers()
                     return
