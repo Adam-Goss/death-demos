@@ -1,0 +1,15 @@
+plan: "{{ lookup('ansible.builtin.file', playbook_dir + '/../../network/plan.json') | from_json }}"
+ts: "{{ plan.target_stack }}"
+el: "{{ plan.elastic }}"
+el_ip: "{{ plan.hosts.elastic.ip }}"
+target_ip: "{{ plan.hosts[target].ip }}"
+target_gw: "{{ target_ip.split('.')[:3] | join('.') }}.1"
+target_hostname: "opaleye-{{ target }}"
+agent_policy: "{{ ts.agent_policy_prefix }}{{ target }}"
+agent_pkg: "{{ el.packages['elastic-agent'] }}"
+secrets_dir: "{{ playbook_dir }}/../../secrets/elastic"
+# Same controller cache as the Elastic role: one verified copy of the Agent tarball.
+cache_dir: "{{ playbook_dir }}/../../.state/elastic-packages"
+fleetctl: "{{ playbook_dir }}/../../scripts/fleetctl.py"
+dvwa_dir: /opt/dvwa
+apache_log_dir: /var/log/dvwa/apache2

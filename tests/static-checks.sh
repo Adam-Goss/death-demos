@@ -56,4 +56,12 @@ check "elastic packages pinned by sha512" python3 -c "import json,re,sys;e=json.
 check "no Elastic secrets in ansible/tofu (generated under secrets/)" bash -c "! grep -REn 'password: *[\"'\''][A-Za-z0-9]{8,}' ansible tofu/stacks/elastic"
 check "elastic playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/elastic.yml --syntax-check)"
 
+# M4 (issue #23): target VM guards.
+check "target images pinned by digest in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['target_stack']['dvwa']['images'];sys.exit(0 if all(re.fullmatch('sha256:[0-9a-f]{64}',v['digest']) for v in i.values()) else 1)"
+check "integration zips pinned by sha256 in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['target_stack']['integrations'];sys.exit(0 if all(re.fullmatch('[0-9a-f]{64}',v['sha256']) for v in i.values()) else 1)"
+check "no enrolment token in the target role or template script" bash -c "! grep -RIniE 'enrol+ment[-_ ]?(token|key)|api_key' ansible/roles/target/templates ansible/roles/target/defaults scripts/make-target-template.sh"
+check "target stack has no prevent_destroy (rebuilt, never kept)" bash -c "! grep -q prevent_destroy tofu/stacks/targets/main.tf"
+check "target playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/target.yml --syntax-check -e target=t1 -e rebuild_generation=1 && ansible-playbook playbooks/elastic-evidence.yml --syntax-check)"
+check "fleetctl and target tests pass" python3 -m unittest tests.test_fleetctl tests.test_target_plan
+
 exit $fail

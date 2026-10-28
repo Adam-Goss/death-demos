@@ -1,0 +1,33 @@
+# M4 (issue #23): Elastic-side evidence setup, run from the workstation. Needs scripts/elastic-tunnel.sh (ES calls)
+# and the VPN (Kibana 5601). Re-runnable. Integrations are uploaded as zips: Elastic has no Internet.
+- name: Evidence sources for the targets
+  hosts: localhost
+  gather_facts: false
+  vars:
+    plan: "{{ lookup('ansible.builtin.file', playbook_dir + '/../../network/plan.json') | from_json }}"
+    fleetctl: "{{ playbook_dir }}/../../scripts/fleetctl.py"
+    targets: "{{ plan.targets | dict2items | selectattr('value.vm_id', 'defined') | map(attribute='key') | list }}"
+  tasks:
+    - name: Fetch integration packages (checksum enforced)
+      ansible.builtin.command: python3 {{ fleetctl }} fetch-packages
+      changed_when: false
+
+    - name: Upload integration packages
+      ansible.builtin.command: python3 {{ fleetctl }} upload-packages
+      register: up
+      changed_when: "'uploaded' in up.stdout"
+
+    - name: Lab stamp pipeline (create only)
+      ansible.builtin.command: python3 {{ fleetctl }} ensure-pipeline
+      register: pl
+      changed_when: "'created' in pl.stdout"
+
+    - name: Agent policy and package policies
+      ansible.builtin.command: python3 {{ fleetctl }} ensure-policy {{ item }}
+      register: pol
+      changed_when: "'created' in pol.stdout or 'added' in pol.stdout"
+      loop: "{{ targets }}"
+
+    - name: Ingest-lag rule
+      ansible.builtin.command: python3 {{ fleetctl }} lag-rule
+      changed_when: false
