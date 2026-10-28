@@ -45,7 +45,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 - **Manual first boot** (#31): interfaces, WireGuard, Unbound/NTP, API user, **Interfaces > WAN > Block private networks off** (it drops the workstation before the handshake allow), anti-lockout off, no default allow-any rules, hardware offload off, IPv6 off. Ping to the firewall is denied by design (only TCP 443 from the VPN); test with `curl -k https://10.77.9.1/`.
 - **No auto-revert on rule pushes** (#32): OPNsense core 26.7 has no `savepoint`/`cancelRollback` (`os-firewall` plugin only) and `apply` takes no revision. `labmode.py` refuses unless `OPNSENSE_NO_SAVEPOINT=true`; a bad push can then only be undone from the VM console (`pfctl -d`, or a config backup). Take **System > Configuration > Backups** before the first push.
-- IPv6 is checked from the lab vantages only (no global address, no default route, no reply to an all-routers ping); nothing probes IPv6 from the VPN or home side.
+- IPv6 is probed per side: lab vantages (no global address, no default route, no reply to an all-routers ping); VPN (the firewall's own WireGuard peer config routes no IPv6: `labmode.py wgv4only`); home (the firewall's WAN MAC from the Proxmox API must not answer a `ping -6 ff02::1`, with other neighbours answering as the control, else ERROR). The home probe needs `PROXMOX_VE_*`/`PVE_NODE` in the environment and a working IPv6 multicast path on the workstation. Not yet in a recorded run.
 - The `workstation -> fw:51820` allow row reads the firewall's own WireGuard status (`labmode.py wgpeer`: peer `workstation`, fresh handshake, endpoint `192.168.0.223`); needs the `VPN: WireGuard: Status` privilege on `opaleye-api`. Recorded in the `home` run below (7 rows, 0 skipped).
 - `attacker -> fw` is probed on 443/22 (p46, p47) in the `lab` phase only; the other phases' tables predate those rows.
 - `denylog` ignores rows already in the log when the verifier starts (digest baseline), so a stale block from an earlier run cannot satisfy a row; within one run, an identical earlier block for the same src/dst/port still would.
@@ -63,7 +63,7 @@ All from the workstation, tunnel up, `OPNSENSE_URL=https://10.77.9.1`, `OPNSENSE
 
 - `exercise lab`: `labmode.py select t1; a2-verify.sh exercise t1 lab`
 - `vpn`: Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 1.1.1.1/32` (restore afterwards), then `a2-verify.sh exercise t1 vpn`
-- `home`: `sudo ip addr add 192.168.0.50/32 dev <if>`, same for `203.0.113.55/32`, and `sudo ip route add <10.77.1.10|10.77.3.10|10.77.11.10>/32 via 192.168.0.82`, then `a2-verify.sh exercise t1 home`; remove them afterwards
+- `home` (also `PVE_NODE=ludus` and the `PROXMOX_VE_*` variables, for the firewall WAN MAC): `sudo ip addr add 192.168.0.50/32 dev <if>`, same for `203.0.113.55/32`, and `sudo ip route add <10.77.1.10|10.77.3.10|10.77.11.10>/32 via 192.168.0.82`, then `a2-verify.sh exercise t1 home`; remove them afterwards
 - `failclosed`: `PVE_NODE=ludus a2-verify.sh failclosed`
 - maintenance: `labmode.py maintenance --minutes 30 --reason ...`, `a2-verify.sh maintenance none lab`, then `labmode.py exercise`, `REVERIFY=1 a2-verify.sh exercise none lab`, `labmode.py select t1`
 - NIC audit: `PVE_NODE=ludus python3 scripts/nicaudit.py`

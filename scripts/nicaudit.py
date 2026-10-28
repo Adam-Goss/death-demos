@@ -6,7 +6,7 @@ Rules, from network/plan.json:
   - every other guest sits on exactly one lab bridge (two would bridge zones around the firewall);
   - no NIC on a bridge the plan doesn't know (e.g. a Ludus bridge).
 
-CLI: nicaudit.py   (env: PROXMOX_VE_ENDPOINT, PVE_NODE, PROXMOX_VE_API_TOKEN_{FIREWALL,ELASTIC,TARGETS},
+CLI: nicaudit.py [wanmac]   (wanmac prints the firewall WAN MAC for the home-side IPv6 probe; env: PROXMOX_VE_ENDPOINT, PVE_NODE, PROXMOX_VE_API_TOKEN_{FIREWALL,ELASTIC,TARGETS},
                     PROXMOX_VE_INSECURE=true). Read-only; uses each stack's own token over the API.
 """
 import json
@@ -60,18 +60,27 @@ def audit(plan, vms, require_firewall=False):
     return bad
 
 
+def wan_mac(plan, vms):
+    """MAC of the firewall VM's first NIC (the WAN, on the home bridge)."""
+    fw = next(v for v in vms if v["vmid"] == plan["firewall"]["vm_id"])
+    m = re.search(r"(?:^|,)[a-z0-9]+=([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})", fw["config"]["net0"])
+    return m.group(1)
+
+
 def _get(base, token, path, ctx):
     req = urllib.request.Request(base + "/api2/json" + path, headers={"Authorization": "PVEAPIToken=" + token})
     with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
         return json.load(r)["data"]
 
 
-def collect(plan):
+def collect(plan, stacks=None):
     base = os.environ["PROXMOX_VE_ENDPOINT"].rstrip("/")
     node = os.environ["PVE_NODE"]
     ctx = ssl._create_unverified_context() if os.environ.get("PROXMOX_VE_INSECURE") == "true" else None
     vms = []
     for stack, pool in POOLS.items():
+        if stacks and stack not in stacks:
+            continue
         token = os.environ["PROXMOX_VE_API_TOKEN_" + stack.upper()]
         for m in _get(base, token, "/pools/" + pool, ctx).get("members", []):
             if m.get("type") == "qemu":
@@ -82,6 +91,9 @@ def collect(plan):
 
 def main():
     plan = netpolicy.load_plan(os.environ.get("LAB_PLAN", netpolicy.DEFAULT_PLAN))
+    if sys.argv[1:] == ["wanmac"]:
+        print(wan_mac(plan, collect(plan, ("firewall",))))
+        return 0
     for k in ("PROXMOX_VE_ENDPOINT", "PVE_NODE"):
         if not os.environ.get(k):
             raise SystemExit("set " + k)

@@ -52,9 +52,9 @@ class MatrixShape(unittest.TestCase):
         for k in ("id", "src", "dst", "proto", "port", "mode", "expected", "enforcement", "family"):
             self.assertIn(k, row)
 
-    def test_ipv6_is_probed_from_every_lab_zone_and_expected_absent(self):
+    def test_ipv6_is_probed_from_every_zone_and_expected_absent(self):
         v6 = [r for r in netpolicy.matrix(PLAN, "exercise", "t1") if r["family"] == "inet6"]
-        self.assertEqual({r["src"] for r in v6}, {"attacker", "elastic", "t1", "t2"})
+        self.assertEqual({r["src"] for r in v6}, {"attacker", "elastic", "t1", "t2", "operator", "workstation"})
         self.assertTrue(all(r["expected"] == "deny" and r["kind"] == "no-ipv6" for r in v6))
 
 

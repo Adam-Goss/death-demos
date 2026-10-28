@@ -161,6 +161,14 @@ class LabMode(unittest.TestCase):
         self.fw.log.append(dict(old, __digest__="bbb"))
         self.assertEqual(self.run_cli("denylog", "10.77.11.10", "10.77.12.10", "80", LABMODE_LOG_BASELINE=base).returncode, 0)
 
+    def test_wgv4only_passes_only_when_the_peer_routes_no_ipv6(self):
+        peer = {"type": "peer", "name": "workstation", "endpoint": "192.168.0.223:51490", "allowed-ips": "10.77.9.2/32"}
+        self.assertNotEqual(self.run_cli("wgv4only", "workstation").returncode, 0)  # no such peer
+        self.fw.wg_rows = [dict(peer)]
+        self.assertEqual(self.run_cli("wgv4only", "workstation").returncode, 0)
+        self.fw.wg_rows = [dict(peer, **{"allowed-ips": "10.77.9.2/32,fd00::2/128"})]
+        self.assertNotEqual(self.run_cli("wgv4only", "workstation").returncode, 0)
+
     def test_wgpeer_accepts_only_a_fresh_handshake_from_the_expected_source(self):
         peer = {"type": "peer", "name": "workstation", "endpoint": "192.168.0.223:51490", "latest-handshake-age": 112}
         args = ("wgpeer", "workstation", "192.168.0.223")

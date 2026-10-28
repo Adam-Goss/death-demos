@@ -14,7 +14,7 @@
 #         host first: `sudo ip addr add 192.168.0.50/32 dev <if>`, same for 203.0.113.55 (spoofed source, never leaves the LAN
 #         segment: it is routed to the firewall WAN by the host routes above).
 # Env: PROBE_SSH (default: ssh -o BatchMode=yes -o ConnectTimeout=5, user opaleye), REVERIFY=1 (after a clean exercise/lab pass, clear labmode's re-verify flag),
-#      and for `failclosed`: PROXMOX_VE_ENDPOINT, PROXMOX_VE_API_TOKEN_FIREWALL, PVE_NODE, PROXMOX_VE_INSECURE.
+#      and for `failclosed` and the `home` phase (firewall WAN MAC): PROXMOX_VE_ENDPOINT, PROXMOX_VE_API_TOKEN_FIREWALL, PVE_NODE, PROXMOX_VE_INSECURE.
 # Exit non-zero if any row differs from expected. Rows that cannot be sourced from here are listed as SKIP.
 set -u
 cd "$(dirname "$0")/.."
@@ -50,6 +50,18 @@ probe_wg() { # allowed iff the firewall itself reports a fresh handshake from th
 probe_noipv6() {
   # deny = no global IPv6 address, no IPv6 default route, and nothing answers an all-routers ping on the vantage link
   run "$1" "$2" "ip -6 addr show scope global | grep -q inet6 || ip -6 route show default | grep -q default || ping -6 -c1 -W2 -I \$(ls /sys/class/net | grep -v '^lo\$' | head -1) ff02::2 >/dev/null 2>&1; echo rc=\$?" | grep -Eq 'rc=[12]$' && echo deny || echo allow
+}
+
+probe_noipv6_vpn() { # the tunnel carries IPv6 only if the firewall's own peer config routes it
+  $PY scripts/labmode.py wgv4only workstation 2>/dev/null && echo deny || echo allow
+}
+probe_noipv6_home() { # the firewall must not answer an all-nodes ping on the home LAN; silence from everyone is ERROR, not a deny
+  local mac iface
+  mac=$($PY scripts/nicaudit.py wanmac 2>/dev/null) || { echo ERROR; return; }
+  iface=$(ip route get "$wan" 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p')
+  [ -n "$iface" ] || { echo ERROR; return; }
+  ping -6 -c2 -W2 -I "$iface" ff02::1 >/dev/null 2>&1
+  ip -6 neigh show dev "$iface" | $PY scripts/v6probe.py "$mac"
 }
 
 phase_of() { case $1 in attacker|elastic|t1|t2) echo lab ;; operator) echo vpn ;; workstation|home_other|public) echo home ;; *) echo none ;; esac; }
@@ -128,7 +140,7 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
   # A dead vantage would turn every deny row green: it must answer before its rows count.
   if [ "$(phase_of "$src")" != none ] && ! run "$src" "$sip" true >/dev/null 2>&1; then
     actual=ERROR
-  elif [ "$src" = operator ] && ! ip route get "$dip" 2>/dev/null | grep -q "src $sip"; then
+  elif [ "$src" = operator ] && [ "$kind" != no-ipv6 ] && ! ip route get "$dip" 2>/dev/null | grep -q "src $sip"; then
     actual=ERROR  # the route to this destination bypasses the tunnel: it never reaches the firewall's VPN interface
   elif { [ "$src" = home_other ] || [ "$src" = public ]; } && ! ip -4 addr show 2>/dev/null | grep -q "inet $sip/"; then
     actual=ERROR  # this host does not own the source address: add it as an alias first
@@ -140,7 +152,11 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
       dns)      actual=$(probe_dns "$src" "$sip" "$dip") ;;
       ntp)      actual=$(probe_ntp "$src" "$sip" "$dip") ;;
       wg)       if [ "$src" = home_other ]; then actual=$(probe_bound_udp "$sip" "$dip" "$port"); else actual=$(probe_wg "$sip"); fi ;;
-      no-ipv6)  actual=$(probe_noipv6 "$src" "$sip") ;;
+      no-ipv6)  case $(phase_of "$src") in
+                  vpn)  actual=$(probe_noipv6_vpn) ;;
+                  home) actual=$(probe_noipv6_home) ;;
+                  *)    actual=$(probe_noipv6 "$src" "$sip") ;;
+                esac ;;
     esac
   fi
   where=$enf

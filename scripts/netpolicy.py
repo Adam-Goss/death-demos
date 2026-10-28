@@ -19,7 +19,7 @@ import sys
 DEFAULT_PLAN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "network", "plan.json")
 # Networks the lab must never overlap: Ludus (10.1.0.0/16, 192.0.2.0/24, 198.51.100.0/24) and the home LAN.
 RESERVED = ["10.1.0.0/16", "192.0.2.0/24", "198.51.100.0/24", "192.168.0.0/24"]
-V6_ZONES = ("attacker", "elastic", "t1", "t2")
+V6_ZONES = ("attacker", "elastic", "t1", "t2", "operator", "workstation")
 UPDATE_ALIAS = "opaleye_update_sources"
 SELF = "(self)"
 
@@ -159,7 +159,7 @@ def matrix(plan, mode, selected):
     for z in V6_ZONES:
         rows.append(dict(id="v6-" + z, src=z, dst="fw", proto="any", port=0, mode=mode, selected=selected or "none",
                          expected="deny", family="inet6", kind="no-ipv6",
-                         enforcement="firewall:" + plan["zones"][z]["iface"],
+                         enforcement="firewall:" + plan["zones"][plan["hosts"][z]["zone"]]["iface"],
                          src_ip=plan["hosts"][z]["ip"], dst_ip="-"))
     return rows
 
