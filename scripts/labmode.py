@@ -183,8 +183,7 @@ def main(argv):
         elif a.cmd == "status":
             print(json.dumps(lab.st))
     except opnsense.ApiError as e:
-        print("firewall API error: %s
-(the change was not confirmed; with a savepoint the firewall reverts on its own, without one check the firewall state)" % e, file=sys.stderr)
+        print("firewall API error: %s (change not confirmed: with a savepoint the firewall reverts on its own, without one check the firewall state)" % e, file=sys.stderr)
         return 1
     return 0
 
