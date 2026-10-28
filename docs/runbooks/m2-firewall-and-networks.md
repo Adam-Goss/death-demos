@@ -129,6 +129,17 @@ Source is the workstation (192.168.0.223) entering through the firewall WAN: hos
 | workstation | attacker:22 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 | workstation | elastic:5601 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 
+### Firewall down (`a2-verify.sh failclosed`): PASS, 4/4
+
+Each flow the firewall normally allows was armed on its source guest, then VM 2000 was stopped for 60 s and restarted; results read back from the guests. Only a connect or an RST counts as a path; a timeout or "No route to host" counts as none. (An earlier run misclassified a fast "No route to host" as allow; the classifier was fixed and the run repeated.) After restart the tunnel, rules and probe SSH came back without changes.
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| attacker | elastic:9200 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t1 | elastic:9200 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t1 | elastic:8220 | firewall down | deny | deny | no forwarding path (VM stopped) |
+
 ### Still to record
 
-`failclosed`, maintenance mode and the post-maintenance exercise re-run, then remove the OPNsense anti-lockout rule and rerun.
+maintenance mode and the post-maintenance exercise re-run, then remove the OPNsense anti-lockout rule and rerun.
