@@ -39,6 +39,8 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 ## Known gaps
 
+- **First-boot OPNsense setting:** untick **Interfaces > WAN > Block private networks**; it drops the workstation (`192.168.0.0/16`) before the handshake allow rule. Ping to the firewall is denied by design (only TCP 443 is allowed); test with `curl -k https://10.77.9.1/`.
+
 - **No savepoint on OPNsense core 26.7.** `firewall/filter/savepoint` and `cancelRollback` belong to the `os-firewall` plugin (404 on core). Core `apply` takes no revision and nothing auto-reverts. `labmode.py` refuses unless `OPNSENSE_NO_SAVEPOINT=true`; a bad push can then only be undone from the Proxmox VM console (`pfctl -d`, or restore a config backup). Take a **System > Configuration > Backups** download before the first push.
 
 - **Step 4 is hand configuration**, against "re-runnable code only". The OPNsense interface-assignment and WireGuard APIs were incomplete on 26.1 ([research](../research/opnsense-vs-pfsense.md)); a `config.xml` seed would replace it but cannot be written blind. Decide after seeing the real VM.
@@ -99,6 +101,23 @@ Collected 2026-10-28 on node `ludus`, OPNsense 26.7 (VM 2000), probe guests clon
 
 Earlier runs of the same phase failed (filter was disabled; log client bugs); only this passing run is recorded.
 
+### Exercise mode, phase `vpn` (`a2-verify.sh exercise t1 vpn`): PASS, 8/8
+
+Run with the Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 203.0.113.10/32` so the proxmox and internet probes enter the tunnel (the verifier reports ERROR otherwise). Filter enabled.
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| operator | attacker:22 | exercise | allow | allow | firewall:opt4 |
+| operator | elastic:5601 | exercise | allow | allow | firewall:opt4 |
+| operator | t1:22 | exercise | allow | allow | firewall:opt4 |
+| operator | t1:80 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+| operator | fw:443 | exercise | allow | allow | firewall:opt4 |
+| operator | proxmox:8006 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+| operator | internet:443 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+| operator | elastic:22 | exercise | allow | allow | firewall:opt4 |
+
+VPN handshake with the filter on confirmed by capture: `192.168.0.223 -> 192.168.0.82:51820` initiation, response and keepalives, passed by `pass in quick on vtnet0 ... from 192.168.0.223 to (self) port 51820`.
+
 ### Still to record
 
-`vpn` and `home` phases, `failclosed`, maintenance mode and the post-maintenance exercise re-run, then remove the OPNsense anti-lockout rule and rerun.
+`home` phase (VPN down), `failclosed`, maintenance mode and the post-maintenance exercise re-run, then remove the OPNsense anti-lockout rule and rerun.
