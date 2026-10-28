@@ -45,7 +45,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 - **Manual first boot** (#31): interfaces, WireGuard, Unbound/NTP, API user, **Interfaces > WAN > Block private networks off** (it drops the workstation before the handshake allow), anti-lockout off, no default allow-any rules, hardware offload off, IPv6 off. Ping to the firewall is denied by design (only TCP 443 from the VPN); test with `curl -k https://10.77.9.1/`.
 - **No auto-revert on rule pushes** (#32): OPNsense core 26.7 has no `savepoint`/`cancelRollback` (`os-firewall` plugin only) and `apply` takes no revision. `labmode.py` refuses unless `OPNSENSE_NO_SAVEPOINT=true`; a bad push can then only be undone from the VM console (`pfctl -d`, or a config backup). Take **System > Configuration > Backups** before the first push.
-- IPv6 is probed per side: lab vantages (no global address, no default route, no reply to an all-routers ping); VPN (the firewall's own WireGuard peer config routes no IPv6: `labmode.py wgv4only`); home (the firewall's WAN MAC from the Proxmox API must not answer a `ping -6 ff02::1`, with other neighbours answering as the control, else ERROR). The home probe needs `PROXMOX_VE_*`/`PVE_NODE` in the environment and a working IPv6 multicast path on the workstation. Not yet in a recorded run.
+- IPv6 is probed per side: lab vantages (no global address, no default route, no reply to an all-routers ping); VPN (the firewall's own WireGuard peer config routes no IPv6: `labmode.py wgv4only`); home (the firewall's WAN MAC from the Proxmox API must not answer a `ping -6 ff02::1`, with other neighbours answering as the control, else ERROR). The home probe needs `PROXMOX_VE_*`/`PVE_NODE` in the environment and a working IPv6 multicast path on the workstation. Recorded in the `vpn` and `home` runs below.
 - The `workstation -> fw:51820` allow row reads the firewall's own WireGuard status (`labmode.py wgpeer`: peer `workstation`, fresh handshake, endpoint `192.168.0.223`); needs the `VPN: WireGuard: Status` privilege on `opaleye-api`. Recorded in the `home` run below (7 rows, 0 skipped).
 - `attacker -> fw` is probed on 443/22 (p46, p47) in the `lab` phase only; the other phases' tables predate those rows.
 - `denylog` ignores rows already in the log when the verifier starts (digest baseline), so a stale block from an earlier run cannot satisfy a row; within one run, an identical earlier block for the same src/dst/port still would.
@@ -120,7 +120,7 @@ phase=lab mode=exercise selected=t1 rows=36 skipped=0 PASS
 
 Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 1.1.1.1/32` so the proxmox and internet probes enter the tunnel (the verifier reports ERROR otherwise).
 
-phase=vpn mode=exercise selected=t1 rows=8 skipped=0 PASS
+phase=vpn mode=exercise selected=t1 rows=9 skipped=0 PASS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
@@ -132,6 +132,7 @@ phase=vpn mode=exercise selected=t1 rows=8 skipped=0 PASS
 | operator | proxmox:8006 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
 | operator | internet:443 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
 | operator | elastic:22 | exercise | allow | allow | firewall:opt4 |
+| operator | fw:0 | exercise | deny | deny | firewall:opt4 |
 
 VPN handshake with the filter on, by capture at the firewall: `192.168.0.223 -> 192.168.0.82:51820` initiation, response and keepalives, passed by `pass in quick on vtnet0 ... from 192.168.0.223 to (self) port 51820`.
 
@@ -139,7 +140,7 @@ VPN handshake with the filter on, by capture at the firewall: `192.168.0.223 -> 
 
 Source addresses on the workstation: `192.168.0.223`, plus aliases `192.168.0.50` (`home_other`) and `203.0.113.55` (`public`). Host routes `10.77.1.10/32`, `10.77.3.10/32`, `10.77.11.10/32` via `192.168.0.82` beat the tunnel's `/16`, so the probes enter through the firewall WAN; the tunnel stays up for the log check. The `home_other` UDP row has no reply to observe, so its verdict is the logged block. The `workstation -> fw:51820` allow is read from the firewall's WireGuard status.
 
-phase=home mode=exercise selected=t1 rows=7 skipped=0 PASS
+phase=home mode=exercise selected=t1 rows=8 skipped=0 PASS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
@@ -150,6 +151,7 @@ phase=home mode=exercise selected=t1 rows=7 skipped=0 PASS
 | workstation | elastic:5601 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 | home_other | fw:51820 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 | public | t1:80 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | fw:0 | exercise | deny | deny | firewall:wan |
 
 ### Firewall down (`a2-verify.sh failclosed`)
 
@@ -258,4 +260,4 @@ phase=lab mode=exercise selected=none rows=34 skipped=0 PASS
 
 ### Not covered
 
-See Known gaps. Not evidenced: IPv6 from the VPN and home side, `workstation -> fw:51820` allow (by capture only), Docker-published ports and per-target NICs (M4).
+See Known gaps. Not evidenced: Docker-published ports and per-target NICs (M4).
