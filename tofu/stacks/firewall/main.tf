@@ -27,9 +27,33 @@ variable "attach_installer" {
 }
 
 variable "seed_iso_file_id" {
-  description = "Config seed ISO (scripts/opnsense_seed.py iso, secrets injected from the operator environment, uploaded to the ISO store out of band), e.g. iso-files:iso/opaleye-fw-seed.iso. Attached in the cdrom slot once the installer is detached; the OPNsense config importer reads conf/config.xml from it. The id is not a secret; the ISO content is, so keep the store private."
+  description = "Config seed ISO already in the ISO store (scripts/opnsense_seed.py iso, uploaded out of band), e.g. iso-files:iso/opaleye-fw-seed.iso. Attached in the cdrom slot once the installer is detached; the OPNsense config importer reads conf/config.xml from it. Ignored when seeded. The id is not a secret; the ISO content is, so keep the store private."
   type        = string
   default     = ""
+}
+
+variable "seeded" {
+  description = "Rebuild from the pre-installed nano image plus the config seed (scripts/seed-build.sh): no installer, no console. false = installer ISO path."
+  type        = bool
+  default     = false
+}
+
+variable "nano_image_url" {
+  description = "OPNsense nano (pre-installed) image URL for the pinned version; used when seeded."
+  type        = string
+  default     = ""
+}
+
+variable "nano_image_sha256" {
+  description = "sha256 of the downloaded nano image, as published by OPNsense."
+  type        = string
+  default     = ""
+}
+
+variable "seed_iso_path" {
+  description = "Seed ISO built by scripts/seed-build.sh (holds the injected secrets; lives in encrypted state only). Used when seeded."
+  type        = string
+  default     = "../../../.state/opnsense-seed.iso"
 }
 
 variable "probe_vms" {
@@ -69,21 +93,44 @@ data "proxmox_virtual_environment_pool" "this" {
   pool_id = var.pool_id
 }
 
+resource "proxmox_virtual_environment_download_file" "nano" {
+  count                   = var.seeded ? 1 : 0
+  node_name               = var.node_name
+  datastore_id            = var.datastore_id
+  content_type            = "import"
+  url                     = var.nano_image_url
+  checksum                = var.nano_image_sha256
+  checksum_algorithm      = "sha256"
+  file_name               = "opnsense-nano.qcow2"
+  decompression_algorithm = "bz2"
+}
+
+resource "proxmox_virtual_environment_file" "seed" {
+  count        = var.seeded ? 1 : 0
+  node_name    = var.node_name
+  datastore_id = var.datastore_id
+  content_type = "iso"
+  source_file {
+    path      = "${path.module}/${var.seed_iso_path}"
+    file_name = "opnsense-seed.iso"
+  }
+}
+
 # The only lab guest with a NIC on the home bridge (first NIC = WAN). All other NICs are
 # isolated bridges with no host port, so every inter-zone path crosses this VM.
 # NIC order is fixed by plan.nic_order (vtnet0..n) and must match the OPNsense interface
 # assignment in plan.zones[*].iface.
 resource "proxmox_virtual_environment_vm" "firewall" {
-  name          = "opaleye-firewall"
-  node_name     = var.node_name
-  vm_id         = local.plan.firewall.vm_id
-  pool_id       = var.pool_id
-  description   = "Lab boundary firewall (OPNsense ${local.plan.firewall.version}); managed by OpenTofu"
-  machine       = "q35"
-  bios          = "seabios"
-  on_boot       = false
-  started       = true
-  tags          = ["opaleye", "firewall"]
+  name            = "opaleye-firewall"
+  node_name       = var.node_name
+  vm_id           = local.plan.firewall.vm_id
+  pool_id         = var.pool_id
+  description     = "Lab boundary firewall (OPNsense ${local.plan.firewall.version}); managed by OpenTofu"
+  machine         = "q35"
+  bios            = "seabios"
+  on_boot         = false
+  started         = true
+  tags            = ["opaleye", "firewall"]
   stop_on_destroy = true
 
   operating_system {
@@ -108,11 +155,15 @@ resource "proxmox_virtual_environment_vm" "firewall" {
     interface    = "virtio0"
     size         = 20
     file_format  = "raw"
+    import_from  = var.seeded ? proxmox_virtual_environment_download_file.nano[0].id : null
   }
 
+  # Seeded: the config seed. Otherwise the installer ISO (empty drive once installed).
   cdrom {
-    # installer first; after install the seed (if any) takes the slot; "none" = empty drive
-    file_id   = var.attach_installer ? var.installer_iso_file_id : (var.seed_iso_file_id != "" ? var.seed_iso_file_id : "none")
+    # seeded: the uploaded seed. Otherwise installer first; after install the out-of-band seed (if any); "none" = empty drive
+    file_id = (var.seeded ? proxmox_virtual_environment_file.seed[0].id
+      : var.attach_installer ? var.installer_iso_file_id
+    : var.seed_iso_file_id != "" ? var.seed_iso_file_id : "none")
     interface = "ide2"
   }
 

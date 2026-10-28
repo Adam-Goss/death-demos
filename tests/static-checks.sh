@@ -74,5 +74,7 @@ check "seed generator tests pass" python3 -m unittest tests.test_opnsense_seed
 check "no real secrets in any non-ignored XML (config.xml seeds)" bash -c "echo \"$files\" | grep -E '\.xml$' | xargs python3 scripts/opnsense_seed.py scan"
 check "no rendered seed or ISO outside gitignored paths" bash -c "! git ls-files | grep -Eq '(^|/)(opnsense-seed\.iso|config\.xml)$'"
 check "firewall stack takes the seed by file id only (no secret variables)" bash -c "grep -q seed_iso_file_id tofu/stacks/firewall/main.tf && ! grep -Eiq 'variable \"[a-z_]*(password|secret|private_key|api_key)' tofu/stacks/firewall/*.tf"
+check "seed ISO builder exists" test -x scripts/seed-build.sh
+check "seed ISO stays out of git" bash -c "git check-ignore -q .state/opnsense-seed.iso"
 
 exit $fail
