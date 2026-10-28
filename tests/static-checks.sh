@@ -64,4 +64,11 @@ check "target stack has no prevent_destroy (rebuilt, never kept)" bash -c "! gre
 check "target playbooks pass syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/target.yml --syntax-check -e target=t1 -e rebuild_generation=1 && ansible-playbook playbooks/elastic-evidence.yml --syntax-check)"
 check "fleetctl and target tests pass" python3 -m unittest tests.test_fleetctl tests.test_target_plan
 
+# M2 follow-up (issue #31): firewall config as code.
+check "firewall seed is current, secret-free, rule-free and passes invariants" python3 scripts/opnsense_seed.py check
+check "seed generator tests pass" python3 -m unittest tests.test_opnsense_seed
+check "no real secrets in any non-ignored XML (config.xml seeds)" bash -c "echo \"$files\" | grep -E '\.xml$' | xargs python3 scripts/opnsense_seed.py scan"
+check "no rendered seed or ISO outside gitignored paths" bash -c "! git ls-files | grep -Eq '(^|/)(opnsense-seed\.iso|config\.xml)$'"
+check "firewall stack takes the seed by file id only (no secret variables)" bash -c "grep -q seed_iso_file_id tofu/stacks/firewall/main.tf && ! grep -Eiq 'variable \"[a-z_]*(password|secret|private_key|api_key)' tofu/stacks/firewall/*.tf"
+
 exit $fail
