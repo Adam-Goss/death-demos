@@ -72,6 +72,8 @@ class ProbeAddresses(unittest.TestCase):
     def test_firewall_destination_is_the_gateway_of_the_source_zone(self):
         self.assertEqual(self.row("p24")["dst_ip"], "10.77.11.1")
         self.assertEqual(self.row("p35")["dst_ip"], "10.77.9.1")
+        self.assertEqual(self.row("p46")["dst_ip"], "10.77.1.1")
+        self.assertEqual(self.row("p47")["expected"], "deny")
 
     def test_firewall_destination_from_the_home_side_is_its_wan_address(self):
         self.assertEqual(self.row("p39")["dst_ip"], PLAN["firewall"]["wan_ip"])

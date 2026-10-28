@@ -93,6 +93,8 @@
     { "id": "p42", "src": "workstation", "dst": "elastic", "proto": "tcp", "port": 5601, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p43", "src": "home_other", "dst": "fw", "proto": "udp", "port": 51820, "kind": "wg", "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p45", "src": "operator", "dst": "elastic", "proto": "tcp", "port": 22, "modes": { "exercise": "allow", "maintenance": "allow" } },
-    { "id": "p44", "src": "public", "dst": "t1", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } }
+    { "id": "p44", "src": "public", "dst": "t1", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p46", "src": "attacker", "dst": "fw", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p47", "src": "attacker", "dst": "fw", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } }
   ]
 }
