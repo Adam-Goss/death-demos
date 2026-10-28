@@ -115,13 +115,15 @@ want=${3:-lab}
 $PY scripts/netpolicy.py lint "$mode" "$sel" || exit 1  # the rules we think we pushed must already satisfy the matrix
 
 wan=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']['wan_ip'])")
-upd=$(getent ahostsv4 "$($PY -c "import json;print(json.load(open('network/plan.json'))['update_sources'][0])")" 2>/dev/null | awk 'NR==1{print $1}')
+ufqdn=$($PY -c "import json;print(json.load(open('network/plan.json'))['update_sources'][0])")  # resolved on each vantage, through the firewall DNS
 echo "| source | destination/port | mode | expected | actual | enforcement point |"
 echo "| --- | --- | --- | --- | --- | --- |"
 fail=0; skipped=0; n=0
 while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip dip; do
   [ "$(phase_of "$src")" = "$want" ] || continue
-  [ "$dip" = UPDATE_SOURCE ] && dip=${upd:-}
+  if [ "$dip" = UPDATE_SOURCE ]; then  # the firewall alias resolves via its own DNS; resolve the same way a real update would
+    dip=$(run "$src" "$sip" "getent ahostsv4 $ufqdn | awk 'NR==1{print \$1}'" 2>/dev/null)
+  fi
   actual=SKIP
   # A dead vantage would turn every deny row green: it must answer before its rows count.
   if [ "$(phase_of "$src")" != none ] && ! run "$src" "$sip" true >/dev/null 2>&1; then
