@@ -23,7 +23,7 @@
     "elastic":     { "zone": "elastic",  "ip": "10.77.3.10" },
     "t1":          { "zone": "t1",       "ip": "10.77.11.10" },
     "t2":          { "zone": "t2",       "ip": "10.77.12.10" },
-    "workstation": { "zone": "home",     "ip": "192.168.0.162" },
+    "workstation": { "zone": "home",     "ip": "192.168.0.223" },
     "home_other":  { "zone": "home",     "ip": "192.168.0.50" },
     "home_router": { "zone": "home",     "ip": "192.168.0.1" },
     "proxmox":     { "zone": "home",     "ip": "192.168.0.161" },
