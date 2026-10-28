@@ -32,10 +32,10 @@ variable "probe_vms" {
   default     = false
 }
 
-variable "probe_image_file_id" {
-  description = "Cloud image for probe guests (Debian genericcloud, pinned)."
-  type        = string
-  default     = ""
+variable "probe_template_vm_id" {
+  description = "Probe template (scripts/make-probe-template.sh, in pool lab-firewall). Cloned over the API: importing an image would need node SSH."
+  type        = number
+  default     = 2100
 }
 
 variable "probe_ssh_public_key" {
@@ -140,9 +140,14 @@ resource "proxmox_virtual_environment_vm" "probe" {
     dedicated = 512
   }
 
+  clone {
+    vm_id        = var.probe_template_vm_id
+    datastore_id = var.datastore_id
+    full         = true
+  }
+
   disk {
     datastore_id = var.datastore_id
-    file_id      = var.probe_image_file_id
     interface    = "virtio0"
     size         = 4
   }

@@ -33,7 +33,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 3. Upload the OPNsense ISO to `iso-files`; `export TF_VAR_node_name=ludus TF_VAR_installer_iso_file_id=iso-files:iso/<file>`; `scripts/lab.sh apply firewall`.
 4. **Manual first boot (gap, see below):** install OPNsense, assign vtnet0..4 per `tofu output nic_zones` (wan, lan, opt1, opt2, opt3), set interface addresses (`.1` of each zone), create the WireGuard instance as `opt4`, enable Unbound DNS and NTP on the lab interfaces, remote syslog to Elastic (M3), disable hardware offload, create an API user, install `os-qemu-guest-agent`. Disable IPv6 on all interfaces.
 5. `export OPNSENSE_URL=https://<fw> OPNSENSE_API_KEY=... OPNSENSE_API_SECRET=... OPNSENSE_INSECURE=true`; `python3 scripts/labmode.py exercise t1`.
-6. Probe guests: `TF_VAR_probe_vms=true TF_VAR_probe_image_file_id=... TF_VAR_probe_ssh_public_key=... scripts/lab.sh apply firewall`. Then `scripts/a2-verify.sh exercise t1 lab`, `... vpn` (VPN up), `... home` (VPN down), `a2-verify.sh failclosed`.
+6. Probe guests: as root on the node, `scripts/make-probe-template.sh` (needs the Debian cloud `.img` on `iso-files`; builds template 2100 in pool lab-firewall). Then `TF_VAR_probe_vms=true TF_VAR_probe_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)" scripts/lab.sh apply firewall`. Then `scripts/a2-verify.sh exercise t1 lab`, `... vpn` (VPN up), `... home` (VPN down), `a2-verify.sh failclosed`.
 7. Maintenance: `labmode.py maintenance --minutes 30 --reason "..."`; run `labmode.py tick` every minute from a timer; after return, `REVERIFY=1 scripts/a2-verify.sh exercise t1 lab` clears the flag. `labmode.py select` refuses until then.
 8. Record the tables below; destroy probe guests; only then does M3 start.
 
