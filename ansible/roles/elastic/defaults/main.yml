@@ -1,0 +1,13 @@
+plan: "{{ lookup('ansible.builtin.file', playbook_dir + '/../../network/plan.json') | from_json }}"
+el: "{{ plan.elastic }}"
+el_ip: "{{ plan.hosts.elastic.ip }}"
+el_gw: "{{ el_ip.split('.')[:3] | join('.') }}.1"
+secrets_dir: "{{ playbook_dir }}/../../secrets/elastic"
+cache_dir: "{{ playbook_dir }}/../../.state/elastic-packages"
+# Generated once on the controller, reused after (never in the repo).
+elastic_password: "{{ lookup('ansible.builtin.password', secrets_dir + '/elastic.password length=32 chars=ascii_letters,digits') }}"
+kibana_system_password: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana_system.password length=32 chars=ascii_letters,digits') }}"
+kibana_key_saved: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana-saved-objects.key length=40 chars=hexdigits') }}"
+kibana_key_reporting: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana-reporting.key length=40 chars=hexdigits') }}"
+kibana_key_security: "{{ lookup('ansible.builtin.password', secrets_dir + '/kibana-security.key length=40 chars=hexdigits') }}"
+api: "https://{{ el_ip }}:9200"

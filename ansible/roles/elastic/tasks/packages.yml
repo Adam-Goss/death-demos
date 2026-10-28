@@ -1,0 +1,32 @@
+# Elastic has no Internet (not even in maintenance mode). Packages are downloaded on the controller,
+# verified against the sha512 pinned in network/plan.json, then copied over SSH.
+- name: Package cache (controller)
+  ansible.builtin.file:
+    path: "{{ cache_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+
+- name: Download pinned packages (controller, checksum enforced)
+  ansible.builtin.get_url:
+    url: "{{ item.value.url }}"
+    dest: "{{ cache_dir }}/{{ item.value.file }}"
+    checksum: "sha512:{{ item.value.sha512 }}"
+    mode: "0644"
+  loop: "{{ el.packages | dict2items }}"
+  delegate_to: localhost
+  become: false
+
+- name: Copy packages to the VM
+  ansible.builtin.copy:
+    src: "{{ cache_dir }}/{{ item.value.file }}"
+    dest: "/var/tmp/{{ item.value.file }}"
+    mode: "0644"
+  loop: "{{ el.packages | dict2items }}"
+
+- name: Install Elasticsearch and Kibana
+  ansible.builtin.apt:
+    deb: "/var/tmp/{{ el.packages[item].file }}"
+  loop: [elasticsearch, kibana]
+  notify: [Restart elasticsearch, Restart kibana]

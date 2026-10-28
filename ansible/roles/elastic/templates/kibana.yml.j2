@@ -1,0 +1,38 @@
+# Managed by Ansible (issue #22). Do not edit by hand. Secrets live in the Kibana keystore.
+server.host: {{ el_ip }}
+server.port: 5601
+server.publicBaseUrl: https://{{ el_ip }}:5601
+server.ssl:
+  enabled: true
+  certificate: /etc/lab-ca/server.crt
+  key: /etc/lab-ca/server.key
+elasticsearch.hosts: ["{{ api }}"]
+elasticsearch.username: kibana_system
+elasticsearch.ssl.certificateAuthorities: ["/etc/lab-ca/ca.crt"]
+telemetry.optIn: false
+telemetry.allowChangingOptInStatus: false
+newsfeed.enabled: false
+# No Internet: integrations arrive as uploaded packages (M4), never from the public registry.
+xpack.fleet.isAirGapped: true
+xpack.fleet.fleetServerHosts:
+  - id: lab-fleet-server
+    name: Lab Fleet Server
+    is_default: true
+    host_urls: ["https://{{ el_ip }}:8220"]
+xpack.fleet.outputs:
+  - id: lab-elasticsearch
+    name: Lab Elasticsearch
+    type: elasticsearch
+    is_default: true
+    is_default_monitoring: true
+    hosts: ["{{ api }}"]
+    ca_trusted_fingerprint: "{{ ca_fp.stdout }}"
+xpack.fleet.agentPolicies:
+  - id: fleet-server-policy
+    name: Fleet Server policy
+    namespace: default
+    is_default_fleet_server: true
+    is_managed: false
+    package_policies:
+      - name: fleet_server-1
+        package: { name: fleet_server }

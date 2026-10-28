@@ -1,0 +1,24 @@
+# Managed by Ansible (issue #22). Do not edit by hand.
+cluster.name: opaleye-lab
+node.name: elastic
+path.data: /var/lib/elasticsearch
+path.logs: /var/log/elasticsearch
+path.repo: ["/srv/es-snapshots"]
+network.host: {{ el_ip }}
+http.port: 9200
+discovery.type: single-node
+# Basic license, no phone-home, no external downloads (the VM has no Internet).
+xpack.license.self_generated.type: basic
+ingest.geoip.downloader.enabled: false
+xpack.security.enabled: true
+xpack.security.http.ssl:
+  enabled: true
+  key: /etc/lab-ca/server.key
+  certificate: /etc/lab-ca/server.crt
+  certificate_authorities: ["/etc/lab-ca/ca.crt"]
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: certificate
+  key: /etc/lab-ca/server.key
+  certificate: /etc/lab-ca/server.crt
+  certificate_authorities: ["/etc/lab-ca/ca.crt"]

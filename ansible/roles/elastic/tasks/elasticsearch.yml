@@ -1,0 +1,86 @@
+- name: Data and snapshot directories owned by elasticsearch
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: elasticsearch
+    group: elasticsearch
+    mode: "0750"
+  loop: [/var/lib/elasticsearch, /srv/es-snapshots]
+
+- name: Key readable by elasticsearch and kibana
+  ansible.builtin.file:
+    path: /etc/lab-ca/server.key
+    group: elasticsearch
+    mode: "0640"
+
+- name: Heap
+  ansible.builtin.copy:
+    dest: /etc/elasticsearch/jvm.options.d/heap.options
+    content: "-Xms{{ el.heap_gb }}g\n-Xmx{{ el.heap_gb }}g\n"
+    owner: root
+    group: elasticsearch
+    mode: "0660"
+  notify: Restart elasticsearch
+
+- name: elasticsearch.yml (single node, TLS with the lab CA, no phone-home)
+  ansible.builtin.template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    owner: root
+    group: elasticsearch
+    mode: "0660"
+  notify: Restart elasticsearch
+
+- name: Keystore bootstrap password
+  ansible.builtin.shell: |
+    set -e
+    if ! /usr/share/elasticsearch/bin/elasticsearch-keystore list 2>/dev/null | grep -qx bootstrap.password; then
+      /usr/share/elasticsearch/bin/elasticsearch-keystore create 2>/dev/null || true
+      printf '%s' "$PW" | /usr/share/elasticsearch/bin/elasticsearch-keystore add -x -f bootstrap.password
+      echo changed
+    fi
+  environment:
+    PW: "{{ elastic_password }}"
+  register: ks
+  changed_when: "'changed' in ks.stdout"
+  no_log: true
+  notify: Restart elasticsearch
+
+- name: Start elasticsearch
+  ansible.builtin.systemd:
+    name: elasticsearch
+    enabled: true
+    state: started
+
+- name: Apply pending restart now (later tasks call the API)
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Elasticsearch over TLS
+  ansible.builtin.uri:
+    url: "{{ api }}/_cluster/health?wait_for_status=yellow&timeout=60s"
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    validate_certs: true
+  delegate_to: localhost
+  become: false
+  register: health
+  until: health.status == 200
+  retries: 20
+  delay: 6
+  no_log: true
+
+- name: kibana_system password
+  ansible.builtin.uri:
+    url: "{{ api }}/_security/user/kibana_system/_password"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body: { password: "{{ kibana_system_password }}" }
+  delegate_to: localhost
+  become: false
+  no_log: true

@@ -32,6 +32,12 @@ variable "probe_vms" {
   default     = false
 }
 
+variable "probe_zones" {
+  description = "Zones that get a probe guest. Drop \"elastic\" (TF_VAR_probe_zones='[\"attacker\",\"t1\",\"t2\"]') once the real Elastic VM owns that address (A3)."
+  type        = list(string)
+  default     = ["attacker", "elastic", "t1", "t2"]
+}
+
 variable "probe_template_vm_id" {
   description = "Probe template (scripts/make-probe-template.sh, in pool lab-firewall). Cloned over the API: importing an image would need node SSH."
   type        = number
@@ -48,8 +54,8 @@ variable "probe_ssh_public_key" {
 locals {
   plan         = jsondecode(file("${path.module}/../../../network/plan.json"))
   zones        = local.plan.zones
-  probe_zones  = ["attacker", "elastic", "t1", "t2"]
-  probe_prefix = { for z in local.probe_zones : z => split("/", local.zones[z].cidr)[1] }
+  probe_zones  = var.probe_zones
+  probe_prefix = { for z in ["attacker", "elastic", "t1", "t2"] : z => split("/", local.zones[z].cidr)[1] }
 }
 
 # Proves the stack token can read its own pool, and nothing else.

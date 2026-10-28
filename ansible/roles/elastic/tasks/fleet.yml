@@ -1,0 +1,47 @@
+# Fleet Server runs as the Agent on this VM, enrolled to the preconfigured fleet-server-policy.
+- name: Is the Agent installed?
+  ansible.builtin.stat:
+    path: /opt/Elastic/Agent/elastic-agent
+  register: agent
+
+- name: Stage the Agent package
+  ansible.builtin.unarchive:
+    src: "/var/tmp/{{ el.packages['elastic-agent'].file }}"
+    dest: /var/tmp
+    remote_src: true
+    creates: "/var/tmp/elastic-agent-{{ el.version }}-linux-x86_64/elastic-agent"
+  when: not agent.stat.exists
+
+# Replace any earlier token of this name so a re-run after a failed install still works.
+- name: Fleet Server service token
+  ansible.builtin.shell: |
+    set -e
+    auth="-u elastic:$PW --cacert {{ secrets_dir }}/ca/ca.crt"
+    curl -sS -f $auth -X DELETE {{ api }}/_security/service/elastic/fleet-server/credential/token/lab-fleet >/dev/null 2>&1 || true
+    curl -sS -f $auth -X POST {{ api }}/_security/service/elastic/fleet-server/credential/token/lab-fleet | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"]["value"])'
+  environment:
+    PW: "{{ elastic_password }}"
+  register: svc_token
+  changed_when: false
+  no_log: true
+  delegate_to: localhost
+  become: false
+  when: not agent.stat.exists
+
+- name: Install Fleet Server
+  ansible.builtin.command:
+    argv:
+      - "/var/tmp/elastic-agent-{{ el.version }}-linux-x86_64/elastic-agent"
+      - install
+      - --non-interactive
+      - --url=https://{{ el_ip }}:8220
+      - --fleet-server-es={{ api }}
+      - --fleet-server-service-token={{ svc_token.stdout }}
+      - --fleet-server-policy=fleet-server-policy
+      - --fleet-server-es-ca=/etc/lab-ca/ca.crt
+      - --fleet-server-cert=/etc/lab-ca/server.crt
+      - --fleet-server-cert-key=/etc/lab-ca/server.key
+      - --certificate-authorities=/etc/lab-ca/ca.crt
+      - --fleet-server-port=8220
+  no_log: true
+  when: not agent.stat.exists
