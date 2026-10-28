@@ -99,8 +99,7 @@ resource "proxmox_virtual_environment_vm" "firewall" {
   }
 
   cdrom {
-    enabled   = var.attach_installer
-    file_id   = var.installer_iso_file_id
+    file_id   = var.attach_installer ? var.installer_iso_file_id : "none" # "none" = empty drive
     interface = "ide2"
   }
 
