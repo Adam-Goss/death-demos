@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # A2 evidence (issue #21): isolation and egress probe matrix, run against the live lab.
 #   a2-verify.sh <exercise|maintenance> [selected-target|none] [lab|vpn|home]
-#   a2-verify.sh homelog <exercise|maintenance> [selected-target|none]
 #   a2-verify.sh failclosed
 # Prints one row per probe: source | destination/port | mode | expected | actual | enforcement point.
 # Phases (each needs a different vantage; run all three for a full A2):
 #   lab   probe guests in attacker/elastic/t1/t2 (tofu -var probe_vms=true), reached over the VPN by SSH
 #   vpn   from this workstation with the VPN UP   (source = operator)
-#   home  from this workstation with the VPN DOWN (source = workstation; also proves VPN loss opens no route).
-#         Needs a route into the firewall WAN, e.g. `sudo ip route add 10.77.0.0/16 via <wan_ip>`, or the rows are ERROR.
-#         The API is unreachable from here, so run `homelog` afterwards (VPN UP, route removed) to check the logs.
+#   home  from this workstation entering through the firewall WAN (source = workstation). Needs host routes
+#         that beat the tunnel's /16, e.g. `sudo ip route add 10.77.11.10/32 via <wan_ip>` for each lab target
+#         (attacker 10.77.1.10, elastic 10.77.3.10, t1 10.77.11.10); otherwise the rows are ERROR. Keep the VPN up
+#         so the log check can reach the API. With the VPN down there is simply no route to the lab.
 # Env: PROBE_SSH (default: ssh -o BatchMode=yes -o ConnectTimeout=5, user opaleye), WG_IFACE (VPN interface name,
 #      for the handshake check), REVERIFY=1 (after a clean exercise/lab pass, clear labmode's re-verify flag),
 #      and for `failclosed`: PROXMOX_VE_ENDPOINT, PROXMOX_VE_API_TOKEN_FIREWALL, PVE_NODE, PROXMOX_VE_INSECURE.
@@ -80,19 +80,6 @@ if [ "${1:-}" = failclosed ]; then
   exit $fail
 fi
 
-if [ "${1:-}" = homelog ]; then
-  mode=${2:-exercise}; sel=${3:-none}; fail=0
-  echo "| source | destination/port | mode | expected | logged | enforcement point |"; echo "| --- | --- | --- | --- | --- | --- |"
-  while IFS=$'	' read -r id src dst proto port kind family mode_ expected enf sip dip; do
-    [ "$(phase_of "$src")" = home ] && [ "$expected" = deny ] && [ "$kind" = tcp ] || continue
-    [ "$dst" = fw ] || [ "$dst" = t1 ] || [ "$dst" = attacker ] || [ "$dst" = elastic ] || continue
-    if $PY scripts/labmode.py denylog "$sip" "$dip" "$port" 2>/dev/null; then got=yes; else got=no; fail=1; fi
-    printf '| %s | %s:%s | %s | deny | %s | %s |
-' "$src" "$dst" "$port" "$mode" "$got" "$enf"
-  done < <($PY scripts/netpolicy.py matrix "$mode" "$sel")
-  exit $fail
-fi
-
 mode=${1:?usage: a2-verify.sh <exercise|maintenance> [target|none] [lab|vpn|home] | failclosed}
 sel=${2:-none}
 want=${3:-lab}
@@ -124,9 +111,7 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
     esac
   fi
   where=$enf
-  if [ "$actual" = deny ] && [ "$expected" = deny ] && [ "$kind" = tcp ] && [ "$want" = home ]; then
-    where="$enf (log: run homelog)"
-  elif [ "$actual" = deny ] && [ "$expected" = deny ] && [ "$kind" = tcp ]; then
+  if [ "$actual" = deny ] && [ "$expected" = deny ] && [ "$kind" = tcp ]; then
     logged=no
     for _ in 1 2 3; do $PY scripts/labmode.py denylog "$sip" "$dip" "$port" 2>/dev/null && { logged=yes; break; }; sleep 1; done
     where="$enf (deny logged: $logged)"
