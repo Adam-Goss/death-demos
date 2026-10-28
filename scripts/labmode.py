@@ -7,7 +7,9 @@
                                              time-limited update allowlist; closes all attacker->target flows
   labmode.py tick                            run from a timer: leaves maintenance once it has expired
   labmode.py reverified                      record that exercise-mode denies were re-verified (a2-verify.sh)
-  labmode.py denylog SRC DST PORT            exit 0 if the firewall logged that block
+  labmode.py denylog SRC DST PORT            exit 0 if the firewall logged that block (only rows newer than
+                                             the LABMODE_LOG_BASELINE file, when that env var is set)
+  labmode.py logmark FILE                    write the digests of the current log rows to FILE (the baseline)
   labmode.py status
 
 Env: OPNSENSE_NO_SAVEPOINT=true (OPNsense core has no savepoint API: apply without auto-revert),
@@ -143,8 +145,19 @@ class Lab:
         self.st["reverify_required"] = False
         self.commit("reverified")
 
+    def logmark(self, path):
+        with open(path, "w") as f:
+            f.write("\n".join(r.get("__digest__", "") for r in self.client().firewall_log()) + "\n")
+
     def denylog(self, src, dst, port):
+        base = os.environ.get("LABMODE_LOG_BASELINE")
+        seen = set()
+        if base:
+            with open(base) as f:
+                seen = set(f.read().split())
         for row in self.client().firewall_log():
+            if row.get("__digest__", "") in seen:
+                continue
             if row.get("action") == "block" and row.get("src") == src and row.get("dst") == dst \
                     and str(row.get("dstport")) == str(port):
                 return 0
@@ -164,6 +177,7 @@ def main(argv):
         sub.add_parser(c)
     d = sub.add_parser("denylog")
     d.add_argument("src"), d.add_argument("dst"), d.add_argument("port")
+    sub.add_parser("logmark").add_argument("file")
     a = ap.parse_args(argv[1:])
 
     lab = Lab()
@@ -180,6 +194,8 @@ def main(argv):
             lab.reverified()
         elif a.cmd == "denylog":
             return lab.denylog(a.src, a.dst, a.port)
+        elif a.cmd == "logmark":
+            lab.logmark(a.file)
         elif a.cmd == "status":
             print(json.dumps(lab.st))
     except opnsense.ApiError as e:

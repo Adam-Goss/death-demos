@@ -48,7 +48,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - IPv6 is checked from the lab vantages only (no global address, no default route, no reply to an all-routers ping); nothing probes IPv6 from the VPN or home side.
 - The `workstation -> fw:51820` allow row is SKIP (`WG_IFACE` unset); the handshake is evidenced by packet capture.
 - `attacker -> fw` is probed on 443/22 (p46, p47) in the `lab` phase only; the other phases' tables predate those rows.
-- `denylog` matches any recent block row for src/dst/port within the last 100 log rows (no timestamp).
+- `denylog` ignores rows already in the log when the verifier starts (digest baseline), so a stale block from an earlier run cannot satisfy a row; within one run, an identical earlier block for the same src/dst/port still would.
 - `labmode.py tick` needs a timer: `scripts/install-tick-timer.sh` installs a per-minute user crontab line (WSL: `sudo service cron start`, VPN up); `--remove` uninstalls. Not yet exercised live.
 - Docker-published ports and per-target NICs need the M4 target; probe a published non-exercise port from outside the target before it powers on.
 - `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny.

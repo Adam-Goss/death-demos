@@ -112,6 +112,9 @@ fi
 mode=${1:?usage: a2-verify.sh <exercise|maintenance> [target|none] [lab|vpn|home] | failclosed}
 sel=${2:-none}
 want=${3:-lab}
+# Only blocks logged after this point count as evidence for this run (digests of the rows already in the log).
+LABMODE_LOG_BASELINE=$(mktemp); export LABMODE_LOG_BASELINE
+$PY scripts/labmode.py logmark "$LABMODE_LOG_BASELINE" || { echo "cannot read the firewall log" >&2; exit 1; }
 $PY scripts/netpolicy.py lint "$mode" "$sel" || exit 1  # the rules we think we pushed must already satisfy the matrix
 
 wan=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']['wan_ip'])")

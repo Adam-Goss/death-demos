@@ -152,6 +152,15 @@ class LabMode(unittest.TestCase):
         self.assertEqual(self.run_cli("denylog", "10.77.11.10", "10.77.12.10", "80").returncode, 0)
         self.assertNotEqual(self.run_cli("denylog", "10.77.11.10", "10.77.12.10", "22").returncode, 0)
 
+    def test_denylog_with_a_baseline_ignores_blocks_logged_before_the_mark(self):
+        base = os.path.join(self.state, "baseline")
+        old = {"action": "block", "src": "10.77.11.10", "dst": "10.77.12.10", "dstport": "80", "__digest__": "aaa"}
+        self.fw.log.append(old)
+        self.assertEqual(self.run_cli("logmark", base).returncode, 0)
+        self.assertNotEqual(self.run_cli("denylog", "10.77.11.10", "10.77.12.10", "80", LABMODE_LOG_BASELINE=base).returncode, 0)
+        self.fw.log.append(dict(old, __digest__="bbb"))
+        self.assertEqual(self.run_cli("denylog", "10.77.11.10", "10.77.12.10", "80", LABMODE_LOG_BASELINE=base).returncode, 0)
+
     def test_refuses_without_credentials(self):
         r = self.run_cli("exercise", "t1", creds=False)
         self.assertNotEqual(r.returncode, 0)
