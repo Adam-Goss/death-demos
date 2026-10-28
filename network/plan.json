@@ -81,12 +81,34 @@
     "ingest":    { "proto": "tcp", "ports": [9200, 8220] }
   },
   "targets": {
-    "t1": { "exercise_ports": [80] },
+    "t1": { "exercise_ports": [80], "vm_id": 2011, "template_vm_id": 2301, "catalogue": "dvwa", "vcpu": 2, "memory_mb": 4096, "disk_gb": 30 },
     "t2": { "exercise_ports": [80] }
+  },
+  "target_stack": {
+    "agent_policy_prefix": "lab-target-",
+    "stamp_pipeline": "lab-stamp",
+    "dvwa_dir": "/opt/dvwa",
+    "apache_log_dir": "/var/log/dvwa/apache2",
+    "ingest_lag_seconds": 120,
+    "dvwa": {
+      "security_level": "low",
+      "source": "https://github.com/digininja/DVWA/blob/a1978a2fed195acd093010af6395f86a281537ca/compose.yml",
+      "images": {
+        "app": { "ref": "ghcr.io/digininja/dvwa", "digest": "sha256:8029450682bd70e2e8cd1ffe8e46dd1885ff2a913296091cebfa8ba0a7d36498", "resolved": "2026-10-28" },
+        "db": { "ref": "docker.io/library/mariadb", "digest": "sha256:d769e37960821dfdcf096954f6e7ac89f747e116c1bba98e48edd265dfc7deae", "resolved": "2026-10-28" }
+      }
+    },
+    "integrations": {
+      "auditd_manager": { "version": "1.21.0", "file": "auditd_manager-1.21.0.zip", "url": "https://epr.elastic.co/epr/auditd_manager/auditd_manager-1.21.0.zip", "sha256": "3044c6b8e55c0004f1ec56a47f1c0cc680cecbadd3105e6b2c7a6a3526ce245d" },
+      "docker": { "version": "2.16.0", "file": "docker-2.16.0.zip", "url": "https://epr.elastic.co/epr/docker/docker-2.16.0.zip", "sha256": "c68099c709914bd8dd0c6be0e539a2a4cda186068fa47da9c2e7ce972342715c" },
+      "apache": { "version": "3.0.2", "file": "apache-3.0.2.zip", "url": "https://epr.elastic.co/epr/apache/apache-3.0.2.zip", "sha256": "4e678b62c3691c21dd5271dc9b765acbc9bc2bb906cc70609bbcfcce3782cba8" }
+    },
+    "bundled_integrations": ["endpoint", "system"]
   },
   "update_sources": [
     "deb.debian.org", "security.debian.org", "archive.ubuntu.com", "security.ubuntu.com",
-    "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com"
+    "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com",
+    "ghcr.io", "pkg-containers.githubusercontent.com"
   ],
   "maintenance": { "max_minutes": 120, "initiators": ["attacker", "t1", "t2"] },
   "probes": [
