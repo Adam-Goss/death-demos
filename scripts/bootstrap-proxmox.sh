@@ -7,11 +7,14 @@
 #
 # Env: STORAGE (default iso-files; never `local`, see docs/inventory/site-inventory.md)
 #      BRIDGES (space-separated lab bridges to allow VM NICs on, set once M2 creates them)
+#      HOME_BRIDGE (home-side bridge, e.g. vmbr0): granted to the firewall token ONLY, so no other
+#                  stack can attach a NIC to it
 #      ROTATE=1 re-issues each stack token (use if a secret was lost)
 set -eu
 export PATH="$PATH:/usr/sbin:/sbin"  # pveum lives in /usr/sbin; not on every root shell PATH
 STORAGE=${STORAGE:-iso-files}
 BRIDGES=${BRIDGES:-}
+HOME_BRIDGE=${HOME_BRIDGE:-}
 ROTATE=${ROTATE:-0}
 ROLE=OpaleyeDeploy
 # Deliberately no Sys.*, Permissions.*, Realm.* or User.* privileges.
@@ -45,6 +48,11 @@ for stack in firewall elastic targets; do
     for br in $BRIDGES; do
       pveum acl modify "/sdn/zones/localnetwork/$br" $who --roles "$NET_ROLE"
     done
+    if [ "$stack" = firewall ]; then
+      for br in $HOME_BRIDGE; do
+        pveum acl modify "/sdn/zones/localnetwork/$br" $who --roles "$NET_ROLE"
+      done
+    fi
   done
 done
 echo "Done. Run scripts/a1-verify.sh from the workstation."
