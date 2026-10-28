@@ -14,7 +14,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 | Bridges | `vmbr2001` attacker, `vmbr2003` elastic, `vmbr2011`/`vmbr2012` targets. No host IP, no physical port. Per-target bridges because a shared L2 would let targets talk without crossing the firewall |
 | IPv6 | Disabled: block+log on every interface, and A2 checks no global address or default route on each vantage |
 | Maintenance | Controller-timed (`labmode.py tick` from a timer), max 120 min, reason required, initiators attacker/t1/t2, FQDN alias of Debian/Ubuntu/Docker sources, tcp 80/443. Elastic gets no egress |
-| Home placeholders | `hosts.workstation` `192.168.0.100` and `firewall.wan_ip` `192.168.0.82` are guesses: set real values in `network/plan.json` first |
+| Home placeholders | `hosts.workstation` `192.168.0.223` and `firewall.wan_ip` `192.168.0.82` are guesses: set real values in `network/plan.json` first |
 
 ## Layout
 
