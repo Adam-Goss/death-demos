@@ -47,7 +47,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - **No auto-revert on rule pushes** (#32): OPNsense core 26.7 has no `savepoint`/`cancelRollback` (`os-firewall` plugin only) and `apply` takes no revision. `labmode.py` refuses unless `OPNSENSE_NO_SAVEPOINT=true`; a bad push can then only be undone from the VM console (`pfctl -d`, or a config backup). Take **System > Configuration > Backups** before the first push.
 - IPv6 is checked from the lab vantages only (no global address, no default route, no reply to an all-routers ping); nothing probes IPv6 from the VPN or home side.
 - The `workstation -> fw:51820` allow row is SKIP (`WG_IFACE` unset); the handshake is evidenced by packet capture.
-- `attacker -> fw` 443/22 deny probes (p46, p47) were added after the evidence run: the evidence tables below are 34 lab rows, a rerun gives 36.
+- `attacker -> fw` is probed on 443/22 (p46, p47) in the `lab` phase only; the other phases' tables predate those rows.
 - `denylog` matches any recent block row for src/dst/port within the last 100 log rows (no timestamp).
 - `labmode.py tick` needs a timer: `scripts/install-tick-timer.sh` installs a per-minute user crontab line (WSL: `sudo service cron start`, VPN up); `--remove` uninstalls. Not yet exercised live.
 - Docker-published ports and per-target NICs need the M4 target; probe a published non-exercise port from outside the target before it powers on.
@@ -71,7 +71,7 @@ Collected 2026-10-28 on node `ludus`, OPNsense 26.7 (VM 2000), probe guests clon
 
 ### Exercise mode, t1 selected, phase `lab`
 
-phase=lab mode=exercise selected=t1 rows=34 skipped=0 PASS
+phase=lab mode=exercise selected=t1 rows=36 skipped=0 PASS
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
@@ -105,6 +105,8 @@ phase=lab mode=exercise selected=t1 rows=34 skipped=0 PASS
 | elastic | attacker:22 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
 | elastic | proxmox:8006 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
 | elastic | fw:123 | exercise | allow | allow | firewall:opt1 |
+| attacker | fw:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | fw:22 | exercise | deny | deny | firewall:lan (deny logged: yes) |
 | attacker | fw:0 | exercise | deny | deny | firewall:lan |
 | elastic | fw:0 | exercise | deny | deny | firewall:opt1 |
 | t1 | fw:0 | exercise | deny | deny | firewall:opt2 |
