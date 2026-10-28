@@ -87,4 +87,4 @@ class Client:
         return True
 
     def firewall_log(self):
-        return self.call("diagnostics/firewall/log?limit=2000", method="GET")
+        return self.call("diagnostics/firewall/log?limit=100", method="GET")
