@@ -568,3 +568,12 @@ VM 2000 (backup taken first) was then replaced by `TF_VAR_firewall_template_vm_i
 A2 `lab` phase on the rebuilt VM (`a2-verify.sh exercise t1 lab`): **39 rows, 0 skipped, PASS** (every deny logged). Run from a Windows workstation, where `netpolicy.py matrix` output carried CRLF and made 8 allow rows read `deny`; stripping CR (`PYTHON` wrapper `python3 "$@" | tr -d '\r'`) gave the PASS. Run it from WSL/Linux to avoid this.
 
 **Not yet evidenced (needs a Linux workstation with the VPN):** phases `vpn`, `home`, `failclosed`, and `maintenance`. Until they pass on this VM, keep #41 and #31 open.
+
+### Maintenance and exercise re-run on the rebuilt VM (#41, 2026-10-29)
+
+Run from the Windows workstation with the CR-stripping wrapper. Findings:
+
+- The real Elastic VM (M3) now owns `10.77.3.10`; the throwaway elastic probe duplicated its address and was destroyed (`probe_zones` without `elastic`). `a2-verify.sh` cannot source elastic rows without that probe, so they report ERROR and the script exits non-zero; they belong to the A3 run against the real VM (`ONLY_DST`). **Consequence:** `REVERIFY=1 a2-verify.sh exercise none lab` can no longer clear labmode's re-verify flag by itself. After this run the controller is in exercise mode, selected `none`, with `reverify_required: true`; clear it with `labmode.py reverified` only after reading a clean non-elastic table.
+- `maintenance` (lab): 37 of 39 non-elastic-sourced rows matched. `t1 -> update_source:443` and `attacker -> update_source:443` read `deny`: the verifier probes whichever address `deb.debian.org` resolves to on that call, and Fastly returns different addresses over time, so it can pick one the firewall's FQDN alias did not hold. From the t1 probe, `199.232.54.132` (current answer) connected and `1.1.1.1` did not. Treat those two rows as unproven until the verifier resolves the alias the same way the firewall does.
+- `exercise none` (lab): every non-elastic row matched, including every deny. `exercise t1` (lab): all non-elastic rows matched in the earlier clean run (39 rows PASS before the elastic probe was removed).
+- Not run: `vpn`, `home` (need Linux `ip route`), `failclosed` (arms elastic rows too).
