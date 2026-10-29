@@ -1,0 +1,75 @@
+<unboundplus version="1.0.15">
+  <general>
+    <enabled>1</enabled>
+    <port>53</port>
+    <stats>0</stats>
+    <active_interface>lan,opt1,opt2,opt3</active_interface>
+    <dnssec>0</dnssec>
+    <dns64>0</dns64>
+    <dns64prefix />
+    <noarecords>0</noarecords>
+    <regdhcp>0</regdhcp>
+    <regdhcpdomain />
+    <regdhcpstatic>0</regdhcpstatic>
+    <noreglladdr6>0</noreglladdr6>
+    <noregrecords>0</noregrecords>
+    <txtsupport>0</txtsupport>
+    <cacheflush>0</cacheflush>
+    <safesearch>0</safesearch>
+    <local_zone_type>transparent</local_zone_type>
+    <outgoing_interface />
+    <enable_wpad>0</enable_wpad>
+  </general>
+  <advanced>
+    <hideidentity>0</hideidentity>
+    <hideversion>0</hideversion>
+    <prefetch>0</prefetch>
+    <prefetchkey>0</prefetchkey>
+    <dnssecstripped>0</dnssecstripped>
+    <belownxdomain>1</belownxdomain>
+    <aggressivensec>1</aggressivensec>
+    <serveexpired>0</serveexpired>
+    <serveexpiredreplyttl />
+    <serveexpiredttl />
+    <serveexpiredttlreset>0</serveexpiredttlreset>
+    <serveexpiredclienttimeout />
+    <qnameminstrict>0</qnameminstrict>
+    <extendedstatistics>0</extendedstatistics>
+    <logqueries>0</logqueries>
+    <logreplies>0</logreplies>
+    <logtagqueryreply>0</logtagqueryreply>
+    <logservfail>0</logservfail>
+    <loglocalactions>0</loglocalactions>
+    <logverbosity>1</logverbosity>
+    <valloglevel>0</valloglevel>
+    <privatedomain />
+    <privateaddress>0.0.0.0/8,10.0.0.0/8,100.64.0.0/10,169.254.0.0/16,172.16.0.0/12,192.0.2.0/24,192.168.0.0/16,198.18.0.0/15,198.51.100.0/24,203.0.113.0/24,233.252.0.0/24,::1/128,2001:db8::/32,fc00::/8,fd00::/8,fe80::/10</privateaddress>
+    <insecuredomain />
+    <msgcachesize />
+    <rrsetcachesize />
+    <outgoingnumtcp />
+    <incomingnumtcp />
+    <numqueriesperthread />
+    <outgoingrange />
+    <jostletimeout />
+    <discardtimeout />
+    <cachemaxttl />
+    <cachemaxnegativettl />
+    <cacheminttl />
+    <infrahostttl />
+    <infrakeepprobing>0</infrakeepprobing>
+    <infracachenumhosts />
+    <unwantedreplythreshold />
+  </advanced>
+  <acls>
+    <default_action>allow</default_action>
+  </acls>
+  <dnsbl />
+  <forwarding>
+    <enabled>0</enabled>
+  </forwarding>
+  <dots />
+  <hosts />
+  <aliases />
+</unboundplus>
+  

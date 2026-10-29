@@ -18,13 +18,16 @@ HOME_BRIDGE=${HOME_BRIDGE:-}
 ROTATE=${ROTATE:-0}
 ROLE=OpaleyeDeploy
 # Deliberately no Sys.*, Permissions.*, Realm.* or User.* privileges.
-PRIVS="VM.Allocate VM.Audit VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt Datastore.AllocateSpace Datastore.Audit Pool.Audit"
+PRIVS="VM.Allocate VM.Audit VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt Datastore.AllocateSpace Datastore.AllocateTemplate Datastore.Audit Pool.Audit"
 NET_ROLE=OpaleyeNet   # SDN.Use only, for lab bridges (M2)
 
 [ "$(id -u)" = 0 ] || { echo "run as root on the node" >&2; exit 1; }
 
 role_exists() { pveum role list --output-format json | tr -d ' ' | grep -q "\"roleid\":\"$1\""; }
-role_exists "$ROLE" || pveum role add "$ROLE" --privs "$(echo $PRIVS | tr ' ' ',')"
+# AllocateTemplate: the firewall stack uploads the config seed ISO and the nano image (#31).
+# modify on rerun so an existing role picks up added privileges.
+if role_exists "$ROLE"; then pveum role modify "$ROLE" --privs "$(echo $PRIVS | tr ' ' ',')"
+else pveum role add "$ROLE" --privs "$(echo $PRIVS | tr ' ' ',')"; fi
 role_exists "$NET_ROLE" || pveum role add "$NET_ROLE" --privs SDN.Use
 
 for stack in firewall elastic targets attacker; do

@@ -9,16 +9,18 @@
 Secrets come from the operator environment only (never the repo or Tofu state):
   OPNSENSE_ROOT_PASSWORD, OPNSENSE_API_KEY, OPNSENSE_API_SECRET,
   OPNSENSE_WG_PRIVATE_KEY, OPNSENSE_WG_PUBLIC_KEY (the firewall's), OPNSENSE_WG_PEER_PUBLIC_KEY (workstation's).
-Passwords and the API secret are written as SHA-512 crypt hashes, as OPNsense stores them.
+User passwords are written as bcrypt ($2y$) and the API secret as a SHA-512 crypt hash, as 26.7 stores them
+(a SHA-512 user password is not accepted at login).
 
 Filter rules: only a bootstrap set, so the API is reachable on a rebuilt firewall (default deny otherwise):
 the workstation's WireGuard handshake and the VPN's TCP 443 to the firewall, plus the v6 block and deny-all on
 those two interfaces. They are the exact payloads labmode.py would push (same descriptions), so its first sync
 adopts them in place; labmode.py and netpolicy.py own everything else.
 
-UNVERIFIED on 26.7 (no firewall access when written; compare with a real export once the VPN is up):
-element names under <OPNsense>, the non-`page-filter-api` privilege names, and that the importer accepts
-an ISO (cd9660 is its documented fallback). `page-filter-api` is "Firewall: Rules [new]" in core's ACL.xml.
+Compared with a real export from VM 2000 on 26.7 (2026-10-29): privilege names, the gateway (OPNsense/Gateways),
+offload and IPv6 switches (OPNsense/Interfaces/settings), the "key|hash" apikeys text and the bootstrap rule
+location (OPNsense/Firewall/Filter/rules) follow that export. Still unproven: that the nano image or importer
+accepts this seed on first boot (cd9660 is the importer's documented fallback).
 """
 import argparse
 import ipaddress
@@ -38,6 +40,7 @@ import labmode  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAN = os.path.join(ROOT, "network", "plan.json")
 SEED = os.path.join(ROOT, "network", "opnsense-seed.xml")
+UNBOUND_BASE = os.path.join(ROOT, "network", "opnsense-unbound-base.xml")  # default unboundplus subtree (no secrets)
 
 SECRET_ENV = {
     "root_password": "OPNSENSE_ROOT_PASSWORD",
@@ -50,9 +53,15 @@ SECRET_ENV = {
 PLACEHOLDER = re.compile(r"@@[A-Z_]+@@")
 WG_KEY = re.compile(r"^[A-Za-z0-9+/]{43}=$")
 
+NTP_PREFER = "0.opnsense.pool.ntp.org"
+NTP_POOL = " ".join("%d.opnsense.pool.ntp.org" % i for i in range(4))
+OFFLOAD_TAGS = ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading")
+WG_NAME = "lab"  # instance name as exported from the working firewall; WG_IF is the interface it creates
 API_USER = "opaleye-api"
 # Not an administrator: rules (filter API), aliases, firewall log, WireGuard status. Never page-all.
-API_PRIVS = ["page-filter-api", "page-firewall-alias", "page-diagnostics-log-firewall", "page-vpn-wireguard-status"]
+API_PRIVS = ["page-diagnostics-logs-firewall-dynamic", "page-diagnostics-logs-firewall-plain",
+             "page-diagnostics-logs-firewall-summary", "page-firewall-alias-edit", "page-firewall-aliases",
+             "page-filter-api", "page-firewall-rules-edit", "page-wireguard-diagnostics"]  # as exported from VM 2000
 WG_IF = "wg0"
 WG_PORT = 51820
 PEER_NAME = "workstation"
@@ -103,24 +112,30 @@ def build(plan, vals):
 
     root = ET.Element("opnsense")
     _sub(root, "theme", "opnsense")
+    opn = _sub(root, "OPNsense")
 
     system = _sub(root, "system")
     _sub(system, "hostname", "opaleye-firewall")
     _sub(system, "domain", "lab.internal")
     _sub(system, "timezone", "Etc/UTC")
-    _sub(system, "disablechecksumoffloading", 1)       # hardware offload off
-    _sub(system, "disablesegmentationoffloading", 1)
-    _sub(system, "disablelargereceiveoffloading", 1)
+    _sub(system, "timeservers", NTP_POOL)                # ntpd_enabled() is just isset(system/timeservers)
     _sub(system, "dnsserver", gw)
     web = _sub(system, "webgui")
     _sub(web, "protocol", "https")
     _sub(web, "noantilockout", 1)                       # anti-lockout off: only 443 from the VPN reaches it
     # no <ipv6allow>: IPv6 stays off
+    grp = _sub(system, "group")                         # without it root has no GUI privileges (login refused)
+    _sub(grp, "gid", 1999)
+    _sub(grp, "name", "admins")
+    _sub(grp, "scope", "system")
+    _sub(grp, "description", "System Administrators")
+    _sub(grp, "priv", "page-all")
+    _sub(grp, "member", 0)
     u = _sub(system, "user")
     _sub(u, "name", "root")
     _sub(u, "scope", "system")
     _sub(u, "uid", 0)
-    _sub(u, "groupname", "admins")
+    _sub(u, "descr", "System Administrator")
     _sub(u, "password", vals["root_password"])
     a = _sub(system, "user")
     _sub(a, "name", API_USER)
@@ -130,9 +145,7 @@ def build(plan, vals):
     _sub(a, "password", "*")                            # API only; no console or GUI login
     for p in API_PRIVS:
         _sub(a, "priv", p)
-    item = _sub(_sub(a, "apikeys"), "item")
-    _sub(item, "key", vals["api_key"])
-    _sub(item, "secret", vals["api_secret"])
+    _sub(a, "apikeys", "%s|%s" % (vals["api_key"], vals["api_secret"]))  # 26.7 stores "key|crypt-hash"
 
     ifs = _sub(root, "interfaces")
     for z in plan["nic_order"]:
@@ -156,28 +169,38 @@ def build(plan, vals):
     _sub(e, "descr", "vpn")
     _sub(e, "enable", 1)
 
-    gws = _sub(root, "gateways")
-    g = _sub(gws, "gateway_item")
+    g = _sub(_sub(opn, "Gateways", version="1.0.0"), "gateway_item")
     _sub(g, "name", "WAN_GW")
     _sub(g, "interface", home["iface"])
     _sub(g, "gateway", gw)
     _sub(g, "defaultgw", 1)
     _sub(g, "ipprotocol", "inet")
 
-    opn = _sub(root, "OPNsense")
-    unbound = _sub(_sub(opn, "unboundplus"), "general")
-    _sub(unbound, "enabled", 1)
-    _sub(unbound, "active_interface", ",".join(lab_ifaces))
+    # Container versions as exported from 26.7: without them the model migrations run on the seed and reset
+    # unboundplus/general/enabled to 0 (seen on the first rebuild).
+    # The whole subtree is seeded, not just general: configd renders unbound.conf from config.xml directly
+    # ('acls' missing -> template error -> no rc.conf.d, no Unbound). Defaults come from a 26.7 export.
+    unbound = ET.parse(UNBOUND_BASE).getroot()
+    opn.append(unbound)
+    general = unbound.find("general")
+    general.find("enabled").text = "1"
+    general.find("active_interface").text = ",".join(lab_ifaces)
+    iset = _sub(_sub(opn, "Interfaces"), "settings", version="1.0.0")
+    for tag in OFFLOAD_TAGS:
+        _sub(iset, tag, 1)                              # hardware offload off
+    _sub(iset, "disableipv6", 1)
     ntp = _sub(root, "ntpd")
+    _sub(ntp, "prefer", NTP_PREFER)
+    _sub(ntp, "ispool", NTP_POOL)
     _sub(ntp, "interface", ",".join(lab_ifaces))
 
     wg = _sub(opn, "wireguard")
-    _sub(_sub(wg, "general"), "enabled", 1)
+    _sub(_sub(wg, "general", version="0.0.1"), "enabled", 1)
     peer_id = _uuid("wg-peer-" + PEER_NAME)
-    server = _sub(_sub(wg, "server"), "servers")
+    server = _sub(_sub(wg, "server", version="1.0.1"), "servers")
     s = _sub(server, "server", uuid=_uuid("wg-instance-" + WG_IF))
     _sub(s, "enabled", 1)
-    _sub(s, "name", WG_IF)
+    _sub(s, "name", WG_NAME)
     _sub(s, "instance", 0)
     _sub(s, "pubkey", vals["wg_public"])
     _sub(s, "privkey", vals["wg_private"])
@@ -185,14 +208,14 @@ def build(plan, vals):
     _sub(s, "tunneladdress", "%s/%d" % (ipaddress.ip_network(vpn["cidr"]).network_address + 1,
                                         ipaddress.ip_network(vpn["cidr"]).prefixlen))
     _sub(s, "peers", peer_id)
-    c = _sub(_sub(_sub(wg, "client"), "clients"), "client", uuid=peer_id)
+    c = _sub(_sub(_sub(wg, "client", version="1.0.0"), "clients"), "client", uuid=peer_id)
     _sub(c, "enabled", 1)
     _sub(c, "name", PEER_NAME)
     _sub(c, "pubkey", vals["wg_peer_public"])
     _sub(c, "tunneladdress", plan["hosts"]["operator"]["ip"] + "/32")  # IPv4 only (A2 wgv4only)
 
     # Bootstrap rules as the filter API stores them (MVC section); no legacy <filter> section.
-    rules = _sub(_sub(_sub(opn, "Firewall"), "Filter"), "rules")
+    rules = _sub(_sub(_sub(opn, "Firewall"), "Filter", version="1.0.5"), "rules")
     for desc, payload in bootstrap_rules(plan):
         r = _sub(rules, "rule", uuid=_uuid("rule-" + desc))
         for k, v in payload.items():
@@ -221,6 +244,14 @@ def sha512_crypt(secret):
     return h
 
 
+def bcrypt_hash(secret):
+    try:
+        import bcrypt
+    except ImportError:
+        raise SystemExit("the bcrypt module is needed to hash the root password (pip install bcrypt)")
+    return bcrypt.hashpw(secret.encode(), bcrypt.gensalt(10)).decode().replace("$2b$", "$2y$", 1)
+
+
 def secrets_from_env(env):
     missing = [n for n in SECRET_ENV.values() if not env.get(n)]
     if missing:
@@ -233,7 +264,7 @@ def secrets_from_env(env):
         raise SystemExit("OPNSENSE_ROOT_PASSWORD must be at least 12 characters")
     if len(v["api_key"]) < 20 or len(v["api_secret"]) < 20:
         raise SystemExit("OPNSENSE_API_KEY/SECRET must be at least 20 characters")
-    v["root_password"] = sha512_crypt(v["root_password"])
+    v["root_password"] = bcrypt_hash(v["root_password"])
     v["api_secret"] = sha512_crypt(v["api_secret"])
     return v
 
@@ -262,10 +293,10 @@ def problems(xml):
     for tag in ("blockpriv", "blockbogons"):
         if list(root.iter(tag)):
             out.append("%s set on an interface" % tag)
-    for tag in ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading"):
-        if root.findtext("system/" + tag) != "1":
+    for tag in OFFLOAD_TAGS:
+        if root.findtext("OPNsense/Interfaces/settings/" + tag) != "1":
             out.append("hardware offload not disabled (%s)" % tag)
-    for p in root.iter("priv"):
+    for p in root.iterfind("system/user/priv"):  # the admins group legitimately holds page-all
         if p.text in ("page-all", "user-shell-access"):
             out.append("API user has admin privilege " + p.text)
     for t in root.iter("tunneladdress"):
@@ -277,11 +308,12 @@ def problems(xml):
 def looks_secret(xml):
     """True if the document holds real secret material rather than placeholders or `*`."""
     root = ET.fromstring(xml)
-    fields = ["system/user/password", "system/user/apikeys/item/key", "system/user/apikeys/item/secret",
-              "OPNsense/wireguard/server/servers/server/privkey"]
+    fields = ["system/user/password", "system/user/apikeys", "OPNsense/wireguard/server/servers/server/privkey"]
     for path in fields:
         for e in root.findall(path):
-            if e.text and e.text != "*" and not PLACEHOLDER.fullmatch(e.text):
+            # apikeys is "key|hash": a placeholder pair (or "*") with the separator removed is empty, i.e. not a secret
+            left = PLACEHOLDER.sub("", e.text or "").replace("|", "")
+            if left and left != "*":
                 return True
     return False
 
@@ -295,12 +327,22 @@ def make_iso(src_dir, out):
         if shutil.which(tool):
             subprocess.run([tool] + args, check=True, stdout=subprocess.DEVNULL)
             return
-    raise SystemExit("need xorriso, genisoimage, mkisofs or hdiutil to build the seed ISO")
+    try:
+        import pycdlib  # pure-Python fallback, e.g. on Windows
+    except ImportError:
+        raise SystemExit("need xorriso, genisoimage, mkisofs, hdiutil or the pycdlib module to build the seed ISO")
+    iso = pycdlib.PyCdlib()
+    iso.new(interchange_level=3, joliet=3, rock_ridge="1.09", vol_ident="OPALEYE_SEED")
+    iso.add_directory("/CONF", rr_name="conf", joliet_path="/conf")
+    iso.add_file(os.path.join(src_dir, "conf", "config.xml"), "/CONF/CONFIG.XML;1",
+                 rr_name="config.xml", joliet_path="/conf/config.xml")
+    iso.write(out)
+    iso.close()
 
 
 def write_private(path, text):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", newline="\n", encoding="utf-8") as f:  # LF on every OS, as OPNsense writes it
         f.write(text)
 
 

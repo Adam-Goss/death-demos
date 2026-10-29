@@ -1,1 +1,4 @@
 *.sh text eol=lf
+# Files that run on the firewall or are loaded by it must be LF even on a Windows checkout (a CRLF shebang exits 127)
+scripts/firewall/* text eol=lf
+network/*.xml text eol=lf

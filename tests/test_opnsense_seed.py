@@ -83,15 +83,22 @@ class SeedTest(unittest.TestCase):
     def test_generation_is_deterministic(self):
         self.assertEqual(seed.template(self.plan), seed.template(self.plan))
 
+    def test_root_is_in_the_admins_group(self):
+        # without the group root has no GUI privileges and login is refused
+        g = self.root.find("system/group[name='admins']")
+        self.assertEqual(g.findtext("priv"), "page-all")
+        self.assertEqual(g.findtext("member"), "0")
+
     def test_render_injects_hashed_secrets(self):
         out = seed.render(ENV, self.plan)
         self.assertNotIn("@@", out)
         self.assertNotIn(ENV["OPNSENSE_ROOT_PASSWORD"], out)
         self.assertNotIn(ENV["OPNSENSE_API_SECRET"], out)
         r = ET.fromstring(out)
-        self.assertTrue(r.findtext("system/user/password").startswith("$6$"))
-        self.assertEqual(r.findtext("system/user/apikeys/item/key"), ENV["OPNSENSE_API_KEY"])
-        self.assertTrue(r.find("system/user[2]/apikeys/item/secret").text.startswith("$6$"))
+        self.assertTrue(r.findtext("system/user/password").startswith("$2y$"))
+        key, secret = r.find("system/user[2]/apikeys").text.split("|")
+        self.assertEqual(key, ENV["OPNSENSE_API_KEY"])
+        self.assertTrue(secret.startswith("$6$"))
         self.assertEqual(r.findtext("OPNsense/wireguard/server/servers/server/privkey"), ENV["OPNSENSE_WG_PRIVATE_KEY"])
         self.assertTrue(seed.looks_secret(out))
         self.assertEqual(seed.problems(out), [])
