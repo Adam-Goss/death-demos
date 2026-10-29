@@ -223,6 +223,7 @@
     <hostname>opaleye-firewall</hostname>
     <domain>lab.internal</domain>
     <timezone>Etc/UTC</timezone>
+    <timeservers>0.opnsense.pool.ntp.org 1.opnsense.pool.ntp.org 2.opnsense.pool.ntp.org 3.opnsense.pool.ntp.org</timeservers>
     <dnsserver>192.168.0.1</dnsserver>
     <webgui>
       <protocol>https</protocol>
@@ -304,6 +305,8 @@
     </opt4>
   </interfaces>
   <ntpd>
+    <prefer>0.opnsense.pool.ntp.org</prefer>
+    <ispool>0.opnsense.pool.ntp.org 1.opnsense.pool.ntp.org 2.opnsense.pool.ntp.org 3.opnsense.pool.ntp.org</ispool>
     <interface>lan,opt1,opt2,opt3</interface>
   </ntpd>
 </opnsense>

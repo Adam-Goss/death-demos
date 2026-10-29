@@ -53,6 +53,7 @@ SECRET_ENV = {
 PLACEHOLDER = re.compile(r"@@[A-Z_]+@@")
 WG_KEY = re.compile(r"^[A-Za-z0-9+/]{43}=$")
 
+NTP_POOL = "0.opnsense.pool.ntp.org 1.opnsense.pool.ntp.org 2.opnsense.pool.ntp.org 3.opnsense.pool.ntp.org"
 API_USER = "opaleye-api"
 # Not an administrator: rules (filter API), aliases, firewall log, WireGuard status. Never page-all.
 API_PRIVS = ["page-diagnostics-logs-firewall-dynamic", "page-diagnostics-logs-firewall-plain",
@@ -114,6 +115,7 @@ def build(plan, vals):
     _sub(system, "hostname", "opaleye-firewall")
     _sub(system, "domain", "lab.internal")
     _sub(system, "timezone", "Etc/UTC")
+    _sub(system, "timeservers", NTP_POOL)                # ntpd_enabled() is just isset(system/timeservers)
     _sub(system, "dnsserver", gw)
     web = _sub(system, "webgui")
     _sub(web, "protocol", "https")
@@ -185,6 +187,8 @@ def build(plan, vals):
         _sub(iset, tag, 1)                              # hardware offload off
     _sub(iset, "disableipv6", 1)
     ntp = _sub(root, "ntpd")
+    _sub(ntp, "prefer", NTP_POOL.split()[0])
+    _sub(ntp, "ispool", NTP_POOL)
     _sub(ntp, "interface", ",".join(lab_ifaces))
 
     wg = _sub(opn, "wireguard")
