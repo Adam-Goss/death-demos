@@ -4,6 +4,9 @@ import os
 import pathlib
 import re
 import subprocess
+import sys
+import tarfile
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -60,6 +63,38 @@ class DestroyGuard(unittest.TestCase):
         text = (ROOT / "tofu/stacks/elastic/main.tf").read_text()
         self.assertNotRegex(text, r"zones\.home|zones\[\"home\"\]")
         self.assertNotRegex(text, r"(?m)^\s*ssh\s*\{")
+
+
+class ConfigBackup(unittest.TestCase):
+    """A3 proves the config/secrets backup is restorable: keystores, certificates and configs are in it."""
+
+    def make(self, members):
+        d = tempfile.mkdtemp()
+        path = pathlib.Path(d) / "config-backup.tgz"
+        with tarfile.open(path, "w:gz") as t:
+            for m in members:
+                f = pathlib.Path(d) / "f"
+                f.write_text("x")
+                t.add(f, arcname=m)
+        return path
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import a3_verify
+        self.a3 = a3_verify
+
+    def test_complete_backup_has_nothing_missing(self):
+        path = self.make(self.a3.BACKUP_MEMBERS)
+        self.assertEqual(self.a3.missing_backup_members(path), [])
+
+    def test_missing_keystore_and_key_are_reported(self):
+        path = self.make([m for m in self.a3.BACKUP_MEMBERS if "keystore" not in m and not m.endswith("server.key")])
+        gone = self.a3.missing_backup_members(path)
+        self.assertTrue(any("elasticsearch.keystore" in m for m in gone))
+        self.assertTrue(any("server.key" in m for m in gone))
+
+    def test_absent_archive_reports_everything_missing(self):
+        self.assertEqual(self.a3.missing_backup_members(pathlib.Path("/nonexistent/x.tgz")), ["archive"])
 
 
 class Probes(unittest.TestCase):

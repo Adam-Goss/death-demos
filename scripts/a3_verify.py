@@ -14,6 +14,7 @@ import pathlib
 import ssl
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.error
 import urllib.request
@@ -159,6 +160,31 @@ def check_snapshots():
     req(f"{ES}/_snapshot/{s['repository']}/{snap}", "DELETE")
 
 
+# What elastic-config-backup.yml must capture: snapshots omit keystores and certificates.
+BACKUP = SECRETS / "config-backup.tgz"
+BACKUP_MEMBERS = [
+    "etc/elasticsearch/elasticsearch.yml", "etc/elasticsearch/elasticsearch.keystore",
+    "etc/kibana/kibana.yml", "etc/kibana/kibana.keystore",
+    "etc/lab-ca/ca.crt", "etc/lab-ca/server.crt", "etc/lab-ca/server.key",
+]
+
+
+def missing_backup_members(path):
+    """Required members absent from the backup archive; ["archive"] when it cannot be read."""
+    try:
+        with tarfile.open(path) as t:
+            have = {m.name.lstrip("./") for m in t.getmembers()}
+    except (OSError, tarfile.TarError):
+        return ["archive"]
+    return [m for m in BACKUP_MEMBERS if m not in have]
+
+
+def check_backup():
+    gone = missing_backup_members(BACKUP)
+    row("operator", "config backup (keystores, certs, configs)", "complete",
+        "complete" if not gone else "missing: " + ",".join(gone), "secrets/elastic/config-backup.tgz")
+
+
 def check_guard():
     env = dict(os.environ, OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij", PROXMOX_VE_ENDPOINT="https://invalid.example:8006/")
     r = subprocess.run(["bash", str(ROOT / "scripts/lab.sh"), "destroy", "elastic"], env=env, capture_output=True, text=True)
@@ -190,7 +216,7 @@ def main():
     if not CA.exists():
         print("no lab CA at secrets/elastic/ca/ca.crt: run the elastic playbook first", file=sys.stderr)
         return 2
-    for fn in (check_health, check_tls, check_lifecycle, check_snapshots, check_guard):
+    for fn in (check_health, check_tls, check_lifecycle, check_snapshots, check_backup, check_guard):
         try:
             fn()
         except Exception as e:  # noqa: BLE001

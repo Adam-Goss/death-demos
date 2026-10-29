@@ -25,7 +25,7 @@ Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks
 2. Workstation: `export TF_VAR_node_name=ludus TF_VAR_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)"`; `scripts/lab.sh apply elastic`. Re-apply is a no-op.
 3. VPN up. The firewall gives the operator only 5601 and 22 on Elastic (probes p32, p45, p48, p49), so API calls from the workstation go through an SSH tunnel: in another terminal `scripts/elastic-tunnel.sh` (forwards 19200/18220 to the VM's own 9200/8220; the VM must be reachable by SSH first). Then `cd ansible && ansible-galaxy collection install -r requirements.yml && ansible-playbook playbooks/elastic.yml`. Re-runnable; failures: re-run, then the manual path below.
 4. Operator opens `https://10.77.3.10:5601` (user `elastic`, password in `secrets/elastic/elastic.password`; trust `secrets/elastic/ca/ca.crt`).
-5. Evidence (destroy the elastic probe guest first, it holds the same address: `TF_VAR_probe_zones='["attacker","t1","t2"]'`, then `lab.sh apply firewall`): `scripts/a3-verify.sh services`; `labmode.py select t1`; `a3-verify.sh net lab`, `net vpn`, `net home` (vantage setup as in the [M2 runbook](m2-firewall-and-networks.md#how-to-rerun-a2)). Set `PROXMOX_VE_API_TOKEN_FIREWALL`, `_TARGETS`, `PVE_NODE` for the token-scope rows.
+5. Evidence (first `ansible-playbook playbooks/elastic-config-backup.yml`: `services` checks the archive holds the keystores, certificates and configs; destroy the elastic probe guest first, it holds the same address: `TF_VAR_probe_zones='["attacker","t1","t2"]'`, then `lab.sh apply firewall`): `scripts/a3-verify.sh services`; `labmode.py select t1`; `a3-verify.sh net lab`, `net vpn`, `net home` (vantage setup as in the [M2 runbook](m2-firewall-and-networks.md#how-to-rerun-a2)). Set `PROXMOX_VE_API_TOKEN_FIREWALL`, `_TARGETS`, `PVE_NODE` for the token-scope rows.
 
 ## Known gaps
 
@@ -80,12 +80,13 @@ Unedited output, re-run after the attacker was removed from the ingestion rules.
 | operator | snapshot repository lab-snapshots | exercise | verified | verified | elasticsearch snapshot repo |
 | operator | slm lab-daily | exercise | 0 30 2 * * ? / 14d | 0 30 2 * * ? / 14d | slm policy |
 | operator | snapshot restore test (3 docs) | exercise | 3 | 3 | snapshot repo |
+| operator | config backup (keystores, certs, configs) | exercise | complete | complete | secrets/elastic/config-backup.tgz |
 | operator | lab.sh destroy elastic | exercise | refused | refused | scripts/lab.sh guard |
 | operator | elastic VM prevent_destroy | exercise | set | set | tofu lifecycle |
 | firewall token | proxmox vm 2003 (elastic) | exercise | deny | deny | proxmox pool ACL |
 | targets token | proxmox vm 2003 (elastic) | exercise | deny | deny | proxmox pool ACL |
 
-phase=a3 rows=26 skipped=0 PASS
+phase=a3 rows=27 skipped=0 PASS
 
 ### `a3-verify.sh net vpn`
 
