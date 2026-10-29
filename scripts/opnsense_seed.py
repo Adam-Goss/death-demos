@@ -296,7 +296,17 @@ def make_iso(src_dir, out):
         if shutil.which(tool):
             subprocess.run([tool] + args, check=True, stdout=subprocess.DEVNULL)
             return
-    raise SystemExit("need xorriso, genisoimage, mkisofs or hdiutil to build the seed ISO")
+    try:
+        import pycdlib  # pure-Python fallback, e.g. on Windows
+    except ImportError:
+        raise SystemExit("need xorriso, genisoimage, mkisofs, hdiutil or the pycdlib module to build the seed ISO")
+    iso = pycdlib.PyCdlib()
+    iso.new(interchange_level=3, joliet=3, rock_ridge="1.09", vol_ident="OPALEYE_SEED")
+    iso.add_directory("/CONF", rr_name="conf", joliet_path="/conf")
+    iso.add_file(os.path.join(src_dir, "conf", "config.xml"), "/CONF/CONFIG.XML;1",
+                 rr_name="config.xml", joliet_path="/conf/config.xml")
+    iso.write(out)
+    iso.close()
 
 
 def write_private(path, text):
