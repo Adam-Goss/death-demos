@@ -11,7 +11,12 @@ import socket
 import sys
 import time
 
+LOGIN = b"login: "
+PASSWORD = b"Password:"
 MENU = b"Enter an option:"
+# The nano image ships root/opnsense until the seed replaces it (which is what we are importing).
+NANO_USER = "root"
+NANO_PASSWORD = "opnsense"
 PROMPT = b"# "
 IMPORTED = b"IMPORT-OK-42"
 VERIFIED = b"CONFIG-OK-42"
@@ -42,8 +47,13 @@ class UnixLink:
 
 
 def _expect(link, marker, timeout, seen):
+    """Wait for `marker` (or any of a tuple of markers); return the one that matched."""
+    markers = marker if isinstance(marker, tuple) else (marker,)
     deadline = time.monotonic() + timeout
-    while marker not in seen[0]:
+    while True:
+        for m in markers:
+            if m in seen[0]:
+                return m
         if time.monotonic() > deadline:
             raise ConsoleError("timed out waiting for %r; last output: %r" % (marker, seen[0][-200:]))
         chunk = link.read(4096)

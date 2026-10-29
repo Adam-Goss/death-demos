@@ -38,6 +38,13 @@ class ImportSeed(unittest.TestCase):
             b"\n", b"8\n", b"opnsense-importer cd0 && echo IMPORT-OK-$((6*7))\n",
             b"grep -q opaleye-api /conf/config.xml && echo CONFIG-OK-$((6*7))\n", b"poweroff\n"])
 
+    def test_logs_in_first_when_the_nano_image_shows_a_login_prompt(self):
+        banner = b"FreeBSD/amd64 (OPNsense.internal) (ttyu0)\r\n\r\nlogin: "
+        link = FakeLink(banner, [b"", b"Password:", MENU, SHELL, IMPORTED, VERIFIED, b"halting\r\n"])
+        firewall_console.import_seed(link, device="cd0", timeout=1)
+        self.assertEqual(link.sent[:5], [b"\n", b"root\n", b"opnsense\n", b"8\n",
+                                         b"opnsense-importer cd0 && echo IMPORT-OK-$((6*7))\n"])
+
     def test_importer_failure_is_an_error_not_a_hang(self):
         link = FakeLink(MENU, [b"", SHELL, b"No config found on cd0\r\n# "])
         with self.assertRaises(firewall_console.ConsoleError):
