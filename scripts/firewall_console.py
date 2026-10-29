@@ -61,6 +61,7 @@ def _send(link, line, seen):
 def import_seed(link, device="cd0", timeout=300):
     """Menu -> shell -> opnsense-importer -> check the config landed -> power off."""
     seen = [b""]
+    link.write(b"\n")  # the menu may already have been printed before we connected
     _expect(link, MENU, timeout, seen)
     _send(link, "8", seen)
     _expect(link, PROMPT, timeout, seen)

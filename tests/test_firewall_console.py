@@ -30,19 +30,16 @@ IMPORTED = b"importer chatter\r\nIMPORT-OK-42\r\n# "
 VERIFIED = b"CONFIG-OK-42\r\n# "
 
 
-# "
-
-
 class ImportSeed(unittest.TestCase):
     def test_drives_menu_shell_then_importer(self):
-        link = FakeLink(MENU, [SHELL, IMPORTED, VERIFIED, b"halting\r\n"])
+        link = FakeLink(MENU, [b"", SHELL, IMPORTED, VERIFIED, b"halting\r\n"])
         firewall_console.import_seed(link, device="cd0", timeout=1)
         self.assertEqual(link.sent, [
-            b"8\n", b"opnsense-importer cd0 && echo IMPORT-OK-$((6*7))\n",
+            b"\n", b"8\n", b"opnsense-importer cd0 && echo IMPORT-OK-$((6*7))\n",
             b"grep -q opaleye-api /conf/config.xml && echo CONFIG-OK-$((6*7))\n", b"poweroff\n"])
 
     def test_importer_failure_is_an_error_not_a_hang(self):
-        link = FakeLink(MENU, [SHELL, b"No config found on cd0\r\n# "])
+        link = FakeLink(MENU, [b"", SHELL, b"No config found on cd0\r\n# "])
         with self.assertRaises(firewall_console.ConsoleError):
             firewall_console.import_seed(link, device="cd0", timeout=0.2)
         self.assertNotIn(b"poweroff\n", link.sent)
@@ -51,7 +48,7 @@ class ImportSeed(unittest.TestCase):
         link = FakeLink(b"still booting", [])
         with self.assertRaises(firewall_console.ConsoleError):
             firewall_console.import_seed(link, device="cd0", timeout=0.2)
-        self.assertEqual(link.sent, [])
+        self.assertEqual(link.sent, [b"\n"])
 
 
 if __name__ == "__main__":
