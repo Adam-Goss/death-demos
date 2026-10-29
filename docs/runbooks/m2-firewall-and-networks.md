@@ -603,6 +603,12 @@ probe keys, so this audit adds no new network evidence and does not accept A2.
 The verifier now refuses to clear the maintenance re-verification flag after a
 skipped or destination-filtered run. It also fails empty runs, propagates matrix
 and re-verification write failures, and removes its temporary log baseline.
+Eleven CLI regression tests in `tests/test_a2_verify.py` exercise these paths with
+simulated probe tools under WSL; they do not establish live isolation.
+Offline validation: all 229 tests passed under WSL, along with
+`tests/static-checks.sh`, Bash syntax checking, Python compilation, and
+`git diff --check`. The skipped-source regression fails against the pre-fix
+verifier and passes with the fix. Standards and spec reviews found no new issues.
 The earlier WSL `REVERIFY=1` result with `SKIP_SOURCES=elastic` records historical
 behaviour that is no longer accepted: seven untested rows cannot establish a full
 exercise/lab pass. Do not use `labmode.py reverified` to bypass this missing evidence.
