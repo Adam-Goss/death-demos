@@ -2,7 +2,7 @@
 <opnsense>
   <theme>opnsense</theme>
   <OPNsense>
-    <Gateways>
+    <Gateways version="1.0.0">
       <gateway_item>
         <name>WAN_GW</name>
         <interface>wan</interface>
@@ -11,14 +11,14 @@
         <ipprotocol>inet</ipprotocol>
       </gateway_item>
     </Gateways>
-    <unboundplus>
+    <unboundplus version="1.0.15">
       <general>
         <enabled>1</enabled>
         <active_interface>lan,opt1,opt2,opt3</active_interface>
       </general>
     </unboundplus>
     <Interfaces>
-      <settings>
+      <settings version="1.0.0">
         <disablechecksumoffloading>1</disablechecksumoffloading>
         <disablesegmentationoffloading>1</disablesegmentationoffloading>
         <disablelargereceiveoffloading>1</disablelargereceiveoffloading>
@@ -26,10 +26,10 @@
       </settings>
     </Interfaces>
     <wireguard>
-      <general>
+      <general version="0.0.1">
         <enabled>1</enabled>
       </general>
-      <server>
+      <server version="1.0.1">
         <servers>
           <server uuid="1906e02c-a244-5045-abcb-53e8daba5394">
             <enabled>1</enabled>
@@ -43,7 +43,7 @@
           </server>
         </servers>
       </server>
-      <client>
+      <client version="1.0.0">
         <clients>
           <client uuid="cbeed826-06c0-57fb-bf16-dffcc8cbc83f">
             <enabled>1</enabled>
@@ -55,7 +55,7 @@
       </client>
     </wireguard>
     <Firewall>
-      <Filter>
+      <Filter version="1.0.5">
         <rules>
           <rule uuid="e95325f8-69e1-58a9-80ac-c1622a321da6">
             <enabled>1</enabled>

@@ -163,17 +163,19 @@ def build(plan, vals):
     _sub(e, "descr", "vpn")
     _sub(e, "enable", 1)
 
-    g = _sub(_sub(opn, "Gateways"), "gateway_item")
+    g = _sub(_sub(opn, "Gateways", version="1.0.0"), "gateway_item")
     _sub(g, "name", "WAN_GW")
     _sub(g, "interface", home["iface"])
     _sub(g, "gateway", gw)
     _sub(g, "defaultgw", 1)
     _sub(g, "ipprotocol", "inet")
 
-    unbound = _sub(_sub(opn, "unboundplus"), "general")
+    # Container versions as exported from 26.7: without them the model migrations run on the seed and reset
+    # unboundplus/general/enabled to 0 (seen on the first rebuild).
+    unbound = _sub(_sub(opn, "unboundplus", version="1.0.15"), "general")
     _sub(unbound, "enabled", 1)
     _sub(unbound, "active_interface", ",".join(lab_ifaces))
-    iset = _sub(_sub(opn, "Interfaces"), "settings")
+    iset = _sub(_sub(opn, "Interfaces"), "settings", version="1.0.0")
     for tag in ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading"):
         _sub(iset, tag, 1)                              # hardware offload off
     _sub(iset, "disableipv6", 1)
@@ -181,9 +183,9 @@ def build(plan, vals):
     _sub(ntp, "interface", ",".join(lab_ifaces))
 
     wg = _sub(opn, "wireguard")
-    _sub(_sub(wg, "general"), "enabled", 1)
+    _sub(_sub(wg, "general", version="0.0.1"), "enabled", 1)
     peer_id = _uuid("wg-peer-" + PEER_NAME)
-    server = _sub(_sub(wg, "server"), "servers")
+    server = _sub(_sub(wg, "server", version="1.0.1"), "servers")
     s = _sub(server, "server", uuid=_uuid("wg-instance-" + WG_IF))
     _sub(s, "enabled", 1)
     _sub(s, "name", "lab")
@@ -194,14 +196,14 @@ def build(plan, vals):
     _sub(s, "tunneladdress", "%s/%d" % (ipaddress.ip_network(vpn["cidr"]).network_address + 1,
                                         ipaddress.ip_network(vpn["cidr"]).prefixlen))
     _sub(s, "peers", peer_id)
-    c = _sub(_sub(_sub(wg, "client"), "clients"), "client", uuid=peer_id)
+    c = _sub(_sub(_sub(wg, "client", version="1.0.0"), "clients"), "client", uuid=peer_id)
     _sub(c, "enabled", 1)
     _sub(c, "name", PEER_NAME)
     _sub(c, "pubkey", vals["wg_peer_public"])
     _sub(c, "tunneladdress", plan["hosts"]["operator"]["ip"] + "/32")  # IPv4 only (A2 wgv4only)
 
     # Bootstrap rules as the filter API stores them (MVC section); no legacy <filter> section.
-    rules = _sub(_sub(_sub(opn, "Firewall"), "Filter"), "rules")
+    rules = _sub(_sub(_sub(opn, "Firewall"), "Filter", version="1.0.5"), "rules")
     for desc, payload in bootstrap_rules(plan):
         r = _sub(rules, "rule", uuid=_uuid("rule-" + desc))
         for k, v in payload.items():
