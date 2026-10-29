@@ -2,7 +2,7 @@
 
 Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). **A2 is a hard gate before any vulnerable target powers on.** Policy: [ADR 0001](../adr/0001-isolate-the-attack-lab-behind-a-firewall-vm.md) and the #6 flow contract.
 
-**Status: A2 evidence collected 2026-10-28 (see below); pending Adam's review before #21 closes.** The OPNsense API field names and the Tofu VM arguments held up on 26.7 with the fixes recorded in git history; first-boot OPNsense setup is now generated as a config seed but unproven on the firewall (Known gaps).
+**Status: A2 evidence collected 2026-10-28 (see below); pending Adam's review before #21 closes.** The OPNsense API field names and the Tofu VM arguments held up on 26.7 with the fixes recorded in git history; first-boot OPNsense setup is generated as a config seed and was proven by a rebuild with all A2 phases passing (2026-10-29), except that first boot still needs one console step (Known gaps).
 
 ## Decisions (defaults accepted 2026-10-28)
 
@@ -45,7 +45,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 
 ## Known gaps
 
-- **Config seed partly proven** (#31): on 2026-10-29 the seed was compared with a real export from VM 2000 (never commit the raw export) and fixed: privilege names, gateway under `OPNsense/Gateways`, offload and IPv6 under `OPNsense/Interfaces/settings`, `apikeys` as `key|hash` text; the bootstrap rules match the live ones field for field, and `opaleye-api` reaches the rule, alias, log and WireGuard APIs (403 on core, as designed). To close #31: (2) confirm the nano image picks up `conf/config.xml` from the seed cdrom on first boot (the installer path's importer waits for a keypress and the installer is interactive, which is why the nano path exists); (3) the seed carries a **bootstrap rule set** so the API is reachable on a rebuilt firewall: WireGuard handshake from the workstation (WAN), TCP 443 from the VPN, plus v6 block and deny-all on those two interfaces. They are the exact payloads `labmode.py` pushes in exercise mode (same descriptions), so its first sync adopts them with no change; (4) destroy and rebuild VM 2000, then run the A2 phases and record them. Still true after any rebuild: ping to the firewall is denied by design (only TCP 443 from the VPN); test with `curl -k https://10.77.9.1/`.
+- **Config seed proven except the hands-off first boot** (#31): VM 2000 was destroyed and rebuilt from the nano image plus the seed on 2026-10-29 and all A2 phases passed on it (evidence at the end; fixes found along the way in "What the rebuild taught us"). The bootstrap rules match what `labmode.py` pushes, and its first sync adopted them in place (same rule UUIDs). **Still open:** the nano image does not import the seed by itself, so a rebuild needs one console step (`opnsense-importer`, pick the cdrom) plus re-adding the dead-man cron job; the rebuild with the final seed was applied by `cp` of the cdrom `config.xml`, not a clean importer run from a fresh checkout. Close #31 only after one of the hands-off options (UFS write into the nano image, a cloned pre-seeded template disk, or Proxmox `sendkey`) is built and one rebuild from a fresh checkout needs no console. Remote syslog to Elastic (M3) and `os-qemu-guest-agent` are still by hand. Still true after any rebuild: ping to the firewall is denied by design (only TCP 443 from the VPN); test with `curl -k https://10.77.9.1/`.
 - **Dead-man switch** (#32, replaces the missing core savepoint; **implemented and tested offline, not yet proven on the firewall**): `scripts/install-deadman.sh <fw>` copies the job and a configd action; add a GUI cron job (System > Settings > Cron, every minute, "Opaleye dead-man switch"); then `labmode.py arm`. Each push sets alias `opaleye_pending` to a fresh token, applies, then sets `opaleye_confirmed` to the same token, which only works if the API is still reachable. The job keeps a copy of `config.xml` whenever the two match and, if they differ for 120 s, restores that copy and reloads the filter (worst case about 3 min). The restore also drops any other config change made since the last confirmed push. `labmode.py` refuses to push while unarmed or while a previous push is unconfirmed. Unverified on 26.7: the configd action file format and the `configctl filter reload` / `refresh_aliases` commands the job uses. Take **System > Configuration > Backups** before the first push anyway.
 - IPv6 is probed per side: lab vantages (no global address, no default route, no reply to an all-routers ping); VPN (the firewall's own WireGuard peer config routes no IPv6: `labmode.py wgv4only`); home (the firewall's WAN MAC from the Proxmox API must not answer a `ping -6 ff02::1`, with other neighbours answering as the control, else ERROR). The home probe needs `PROXMOX_VE_*`/`PVE_NODE` in the environment and a working IPv6 multicast path on the workstation. Recorded in the `vpn` and `home` runs below.
 - The `workstation -> fw:51820` allow row reads the firewall's own WireGuard status (`labmode.py wgpeer`: peer `workstation`, fresh handshake, endpoint `192.168.0.223`); needs the `VPN: WireGuard: Status` privilege on `opaleye-api`. Recorded in the `home` run below (7 rows, 0 skipped).
@@ -263,3 +263,158 @@ phase=lab mode=exercise selected=none rows=34 skipped=0 PASS
 ### Not covered
 
 See Known gaps. Not evidenced: Docker-published ports and per-target NICs (M4).
+
+## A2 evidence on the rebuilt firewall (#31, 2026-10-29)
+
+VM 2000 destroyed and recreated from the pre-installed OPNsense 26.7 nano image plus the config seed (`scripts/seed-build.sh`, Tofu `seeded=true`), then rules pushed with `labmode.py` (dead-man armed). Probe guests cloned from template 2100. Verifier output unedited; only the passing runs are recorded.
+
+### Exercise mode, t1 selected, phase `lab`
+
+phase=lab mode=exercise selected=t1 rows=39 skipped=0 PASS
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | exercise | allow | allow | firewall:lan |
+| attacker | t1:22 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t2:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t1 | t2:80 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t2 | t1:80 | exercise | deny | deny | firewall:opt3 (deny logged: yes) |
+| t1 | proxmox:8006 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | proxmox:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | home_router:80 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | internet:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | update_source:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| attacker | update_source:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| elastic | update_source:443 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| attacker | proxmox:8006 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | home_router:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | internet:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:5601 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:9200 | exercise | allow | allow | firewall:lan |
+| t1 | elastic:9200 | exercise | allow | allow | firewall:opt2 |
+| t1 | elastic:8220 | exercise | allow | allow | firewall:opt2 |
+| t1 | elastic:5601 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | elastic:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:53 | exercise | allow | allow | firewall:opt2 |
+| t1 | fw:123 | exercise | allow | allow | firewall:opt2 |
+| t1 | fw:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| elastic | internet:443 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | t1:80 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | attacker:22 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | proxmox:8006 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | fw:123 | exercise | allow | allow | firewall:opt1 |
+| attacker | fw:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | fw:22 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t2 | elastic:9200 | exercise | allow | allow | firewall:opt3 |
+| attacker | elastic:8220 | exercise | allow | allow | firewall:lan |
+| t2 | elastic:8220 | exercise | allow | allow | firewall:opt3 |
+| attacker | fw:0 | exercise | deny | deny | firewall:lan |
+| elastic | fw:0 | exercise | deny | deny | firewall:opt1 |
+| t1 | fw:0 | exercise | deny | deny | firewall:opt2 |
+| t2 | fw:0 | exercise | deny | deny | firewall:opt3 |
+
+### Exercise mode, phase `vpn`
+
+phase=vpn mode=exercise selected=t1 rows=11 skipped=0 PASS
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| operator | attacker:22 | exercise | allow | allow | firewall:opt4 |
+| operator | elastic:5601 | exercise | allow | allow | firewall:opt4 |
+| operator | t1:22 | exercise | allow | allow | firewall:opt4 |
+| operator | t1:80 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+| operator | fw:443 | exercise | allow | allow | firewall:opt4 |
+| operator | proxmox:8006 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+| operator | internet:443 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+| operator | elastic:22 | exercise | allow | allow | firewall:opt4 |
+| operator | elastic:9200 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+| operator | elastic:8220 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+| operator | fw:0 | exercise | deny | deny | firewall:opt4 |
+
+### Exercise mode, phase `home`
+
+phase=home mode=exercise selected=t1 rows=8 skipped=0 PASS
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| workstation | fw:51820 | exercise | allow | allow | firewall:wan |
+| workstation | fw:443 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | t1:80 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | attacker:22 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | elastic:5601 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| home_other | fw:51820 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| public | t1:80 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | fw:0 | exercise | deny | deny | firewall:wan |
+
+### Firewall down (`failclosed`)
+
+phase=failclosed rows=7 PASS
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| attacker | elastic:9200 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t1 | elastic:9200 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t1 | elastic:8220 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t2 | elastic:9200 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| attacker | elastic:8220 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t2 | elastic:8220 | firewall down | deny | deny | no forwarding path (VM stopped) |
+
+### Maintenance mode
+
+phase=lab mode=maintenance selected=none rows=39 skipped=0 PASS
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t1:22 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t2:80 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| t1 | t2:80 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t2 | t1:80 | maintenance | deny | deny | firewall:opt3 (deny logged: yes) |
+| t1 | proxmox:8006 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | proxmox:22 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | home_router:80 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | internet:443 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | update_source:443 | maintenance | allow | allow | firewall:opt2 |
+| attacker | update_source:443 | maintenance | allow | allow | firewall:lan |
+| elastic | update_source:443 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| attacker | proxmox:8006 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | home_router:80 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | internet:443 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:5601 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:9200 | maintenance | allow | allow | firewall:lan |
+| t1 | elastic:9200 | maintenance | allow | allow | firewall:opt2 |
+| t1 | elastic:8220 | maintenance | allow | allow | firewall:opt2 |
+| t1 | elastic:5601 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | elastic:22 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:53 | maintenance | allow | allow | firewall:opt2 |
+| t1 | fw:123 | maintenance | allow | allow | firewall:opt2 |
+| t1 | fw:443 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:22 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| elastic | internet:443 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | t1:80 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | attacker:22 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | proxmox:8006 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | fw:123 | maintenance | allow | allow | firewall:opt1 |
+| attacker | fw:443 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | fw:22 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| t2 | elastic:9200 | maintenance | allow | allow | firewall:opt3 |
+| attacker | elastic:8220 | maintenance | allow | allow | firewall:lan |
+| t2 | elastic:8220 | maintenance | allow | allow | firewall:opt3 |
+| attacker | fw:0 | maintenance | deny | deny | firewall:lan |
+| elastic | fw:0 | maintenance | deny | deny | firewall:opt1 |
+| t1 | fw:0 | maintenance | deny | deny | firewall:opt2 |
+| t2 | fw:0 | maintenance | deny | deny | firewall:opt3 |
+
+After maintenance: `labmode.py exercise`, `REVERIFY=1 a2-verify.sh exercise none lab` (39 rows PASS), `labmode.py select t1`. NIC audit (`nicaudit.py`): only VM 2000 touches the home bridge; every other guest is on one lab bridge.
+
+### What the rebuild taught us (seed and runbook fixes)
+
+- **The nano image does not import the seed by itself.** It ships a default `/conf/config.xml`, so the boot-time importer (which only runs when none exists) exits silently. Hands-off first boot is **not achieved**: the seed ISO is attached but a console step (`opnsense-importer`, pick the cdrom) is still needed. Options in the issue: a UFS write of `conf/config.xml` into the nano image on a host that can write UFS (not Windows or WSL), a cloned pre-seeded template disk, or Proxmox `sendkey` automation (needs `VM.Console`).
+- **Seed fixes found by diffing against a real export:** privilege names; `OPNsense/Gateways`; offload and IPv6 under `OPNsense/Interfaces/settings`; `apikeys` as `key|hash`; user passwords as **bcrypt** (`$2y$`, SHA-512 is rejected at login); an `admins` group with `page-all` (without it root cannot log in to the GUI); container `version` attributes (without them the migrations reset Unbound to disabled); the **whole** `unboundplus` subtree (configd renders `unbound.conf` from `config.xml` and fails on a missing `acls`); `system/timeservers` (it alone enables ntpd).
+- **Operator traps:** replacing the seed ISO under a running VM leaves the guest with stale media (mixed old and new blocks, I/O errors past the old size): eject and re-attach the cdrom after every upload (`ide2=none` then the ISO again). Tofu does not notice a changed local ISO and `-replace` needs `Datastore.Allocate` on the store, so upload through the API instead. A Windows checkout (`core.autocrlf`) turns scripts that run on the firewall into CRLF; `.gitattributes` now pins `scripts/firewall/*` and `network/*.xml` to LF (a CRLF shebang made the dead-man job exit 127).
+- **The nano image is fetched, checked and decompressed on the workstation** (`seed-build.sh`) and uploaded by Tofu: Proxmox's own download needs `Sys.Audit`, which the stack token deliberately lacks. The role gained `Datastore.AllocateTemplate` only.
+- **After a re-import the cron job is gone** (it lives in `config.xml`): add "Opaleye dead-man switch" every minute in System > Settings > Cron, then `labmode.py arm`. Seeding it is a follow-up.
+- **`failclosed` hard-stops the VM.** Run right after a push it can lose the last config write (the selected-target rule came back disabled while labmode said t1). Re-run `labmode.py exercise t1` after `failclosed` before verifying again.
+- **Maintenance update-source rows can flap**: the firewall's alias refresh and the probe's lookup can land on different Fastly answers (35 s TTL). A fresh `labmode.py maintenance` push followed immediately by the verifier passed.
