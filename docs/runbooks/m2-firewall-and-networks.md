@@ -2,7 +2,7 @@
 
 Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). **A2 is a hard gate before any vulnerable target powers on.** Policy: [ADR 0001](../adr/0001-isolate-the-attack-lab-behind-a-firewall-vm.md) and the #6 flow contract.
 
-**Status: A2 evidence collected 2026-10-28/29 (see below), with incomplete checks recorded in the issue #21 acceptance audit at the end. #21 remains open; A2 is not accepted by this audit.** The OPNsense API field names and the Tofu VM arguments held up on 26.7 with the fixes recorded in git history; first-boot OPNsense setup is generated as a config seed (#31) and rebuilt hands-off from a cloned seeded template (#41): clone + start, no console or GUI step, all A2 phases pass on it, and the dead-man switch is proven live (#32).
+**Status: fresh A2 closeout evidence recorded 2026-10-29 at the end of this runbook; pending Adam's review before #21 closes.** The OPNsense API field names and the Tofu VM arguments held up on 26.7 with the fixes recorded in git history; first-boot OPNsense setup is generated as a config seed (#31) and rebuilt hands-off from a cloned seeded template (#41): clone + start, no console or GUI step, all A2 phases pass on it, and the dead-man switch is proven live (#32).
 
 ## Decisions (defaults accepted 2026-10-28)
 
@@ -26,6 +26,8 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - `tofu/stacks/firewall`: firewall VM (only guest with the home bridge, WAN = first NIC) and optional throwaway probe guests.
 - `scripts/opnsense_seed.py`, `network/opnsense-seed.xml`: first-boot `config.xml` seed (#31); tests in `tests/test_opnsense_seed.py`.
 - `scripts/a2-verify.sh`: prints the A2 evidence table.
+- `scripts/opnsense_dns.py`: brings an existing seeded firewall to the local-only resolver/cache settings without widening the API user's privileges.
+- `scripts/a2-docker-probe.sh`: builds a safe static Docker HTTP control on the disposable t1 probe and checks its published ports through the normal A2 verifier.
 - Tests: `tests/test_netpolicy.py`, `tests/test_labmode.py` (against `tests/fake_opnsense.py`), guards in `tests/static-checks.sh`.
 
 ## Extra checks (run after A2)
@@ -38,7 +40,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 2. Node, as root: `scripts/bootstrap-bridges.sh`, then `HOME_BRIDGE=vmbr0 BRIDGES="vmbr2001 vmbr2003 vmbr2011 vmbr2012" scripts/bootstrap-proxmox.sh` (home bridge ACL goes to the firewall token only).
 3. Upload the OPNsense ISO to `iso-files`; `export TF_VAR_node_name=ludus TF_VAR_installer_iso_file_id=iso-files:iso/<file>`; `scripts/lab.sh apply firewall`.
 4. **Seeded first boot (#31, #41): clone a seeded template, no console.** The template is built once; every rebuild is clone + start. `network/opnsense-seed.xml` is the secret-free `config.xml` generated from `network/plan.json` (`python3 scripts/opnsense_seed.py template > network/opnsense-seed.xml` after any plan change; `tests/static-checks.sh` fails if stale or if it holds secrets). It sets the bootstrap rules above (`labmode.py exercise` then completes the ruleset), interfaces vtnet0..4, addresses, the WireGuard instance and peer, Unbound and NTP on the lab interfaces, the `opaleye-api` user and key, WAN "Block private networks" off, anti-lockout off, offload off, IPv6 off. Secrets come from the operator environment (`secrets/env.sh` is gitignored): `export OPNSENSE_ROOT_PASSWORD OPNSENSE_API_KEY OPNSENSE_API_SECRET OPNSENSE_WG_PRIVATE_KEY OPNSENSE_WG_PUBLIC_KEY OPNSENSE_WG_PEER_PUBLIC_KEY`; `export OPNSENSE_NANO_URL=... OPNSENSE_NANO_SHA256=...` (release checksums file); `scripts/seed-build.sh` fetches and verifies the nano image, bakes the dead-man files into `.state/opnsense-nano.raw` on a FreeBSD build host (below) and writes `.state/opnsense-seed.iso` (needs openssl, the `bcrypt` Python module, and xorriso/genisoimage/mkisofs/hdiutil or `pycdlib`). **Template build (once, or after a secret/seed/plan change):** copy `.state/opnsense-nano.raw` to the node, upload `.state/opnsense-seed.iso` to `iso-files` as `opnsense-seed.iso`, then as root on the node `NANO=/path/opnsense-nano.raw SEED_ISO=iso-files:iso/opnsense-seed.iso scripts/make-firewall-template.sh` (VM 2101, pool `lab-firewall`). It boots the disk with the seed, drives the importer over the serial socket (`scripts/firewall_console.py`; success is read from computed exit-status markers and a check that the `opaleye-api` user landed in `/conf/config.xml`), powers off, detaches and **deletes the seed ISO**, and converts the VM to a template. Then `TF_VAR_node_name=ludus TF_VAR_firewall_template_vm_id=2101 scripts/lab.sh apply firewall`: Tofu clones the template (the token already has `VM.Clone`), uploads nothing and never sees the seed. Rebuild VM 2000 = destroy it and apply again. **Secrets on the template:** the template disk holds the WireGuard private key, API secret hash and root hash. The template lives in the private `lab-firewall` pool (the firewall token clones it, nothing else is granted on it), the seed ISO exists in the store only between upload and the template build, and Tofu state holds only the template id. Rotating a secret or changing the seed/plan means destroying template 2101 and rebuilding it; existing clones keep the old secrets until rebuilt. This matches the existing trust in the node and does not change the ADR 0001 threat model. **Installer path (no template):** leave `firewall_template_vm_id` at 0, upload the installer ISO to `iso-files` and `TF_VAR_attach_installer=false TF_VAR_seed_iso_file_id=iso-files:iso/opnsense-seed.iso scripts/lab.sh apply firewall`; the importer takes `conf/config.xml` from it by hand. Still by hand: remote syslog to Elastic (M3) and `os-qemu-guest-agent`.
-5. `export OPNSENSE_URL=https://<fw> OPNSENSE_API_KEY=... OPNSENSE_API_SECRET=... OPNSENSE_INSECURE=true`; `python3 scripts/labmode.py arm`; wait for the first per-minute restore point, then `python3 scripts/labmode.py exercise t1`.
+5. `export OPNSENSE_URL=https://<fw> OPNSENSE_API_KEY=... OPNSENSE_API_SECRET=... OPNSENSE_INSECURE=true`; `python3 scripts/labmode.py arm`; wait for the first per-minute restore point. Run `python3 scripts/labmode.py exercise none`, then `python3 scripts/opnsense_dns.py --apply` (also needs `OPNSENSE_ROOT_PASSWORD` from step 4). A second DNS apply must report no changes. Then select `t1` after any required complete re-verification. This also converges clones of template 2101 built before the DNS fix; rebuild that template from the new seed when next rotating its secrets.
 6. Probe guests: as root on the node, `scripts/make-probe-template.sh` (needs the Debian cloud `.img` on `iso-files`; builds template 2100 in pool lab-firewall). Then `TF_VAR_probe_vms=true TF_VAR_probe_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)" scripts/lab.sh apply firewall`. Then `scripts/a2-verify.sh exercise t1 lab`, `... vpn` (VPN up), `... home` (VPN down), `a2-verify.sh failclosed`.
 7. Maintenance: `labmode.py maintenance --minutes 30 --reason "..."`; install `scripts/install-tick-timer.sh` on the controller (cron running, VPN up) so `labmode.py tick` runs every minute; after return, an unfiltered `REVERIFY=1 scripts/a2-verify.sh exercise none lab` with no skipped rows clears the flag. `labmode.py select` refuses until then.
 8. Record the tables below; destroy probe guests; only then does M3 start.
@@ -149,7 +151,7 @@ servers were stopped. The pre-rebuild VM backup remains private under
 - `attacker -> fw` is probed on 443/22 (p46, p47) in the `lab` phase only; the other phases' tables predate those rows.
 - `denylog` ignores rows already in the log when the verifier starts (digest baseline), so a stale block from an earlier run cannot satisfy a row; within one run, an identical earlier block for the same src/dst/port still would.
 - `labmode.py tick` needs a timer: `scripts/install-tick-timer.sh` installs a per-minute user crontab line (WSL: `sudo service cron start`, VPN up); `--remove` uninstalls. Credentials come from `secrets/env.sh` (cron sees only that file). Proven live 2026-10-28 by cron: a 1-minute maintenance window closed itself (`maintenance expired: back to exercise mode`, `reverify_required: true`); the first attempt failed for a missing variable and left maintenance open until fixed (the tick retries each minute).
-- Docker-published ports and per-target NICs need the M4 target; probe a published non-exercise port from outside the target before it powers on.
+- Docker-published ports and per-zone NIC isolation are now evidenced with safe disposable probes in the live closeout below. Audit each real target configuration before powering it on; a future extra NIC must not bypass the firewall.
 - `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny. Skipped or destination-filtered runs cannot clear the re-verification flag. Empty runs, matrix generation errors, invalid phases/modes, and failures to record re-verification exit non-zero. A diagnostic `PASS-WITH-SKIPS` is incomplete A2 evidence.
 
 ## API user scope
@@ -594,11 +596,14 @@ Run from the Windows workstation with the CR-stripping wrapper. Findings:
 Raw tables: `.state/a2-wsl-*.txt` (gitignored).
 
 
-## Issue #21 acceptance audit (2026-10-29)
+## Issue #21 acceptance audit (2026-10-29, before live access)
+
+Historical audit; superseded by the live closeout below.
 
 The existing evidence above covers the seeded rebuild, dead-man recovery, controller
-expiry timer, NIC audit, and A2 phases. This checkout has no live API credentials or
-probe keys, so this audit adds no new network evidence and does not accept A2.
+expiry timer, NIC audit, and A2 phases. At this point no live environment or probe key had been loaded, so the audit
+added no new network evidence. The later live closeout uses the operator-provided
+`../env.sh` in WSL and the existing WSL SSH key.
 
 The verifier now refuses to clear the maintenance re-verification flag after a
 skipped or destination-filtered run. It also fails empty runs, propagates matrix
@@ -621,3 +626,320 @@ checks are also still missing from the recorded evidence. They need an isolated,
 non-vulnerable test workload before a vulnerable target powers on, as A2 requires.
 Do not treat their deferral to M4, or the existing later-milestone code, as proof
 that the hard gate passed. No later milestone was started by this audit.
+
+
+## Issue #21 live closeout (2026-10-29, WSL)
+
+The operator supplied `../env.sh`; no credentials were copied into the repository.
+WSL's existing SSH key reached the real Elastic VM and three disposable Debian
+probe guests. A targeted, encrypted OpenTofu plan created only VM 120 (t1), 121
+(t2), and 122 (attacker), cloned from template 2100. No vulnerable target or later
+milestone was deployed. Elastic VM 2003 retained its address, so no duplicate
+Elastic probe was created and **no sources were skipped**.
+
+| Check | Recorded result |
+| --- | --- |
+| Exercise, t1 selected, after firewall restart | 39/39 PASS; all TCP denies logged |
+| Maintenance, no target selected | 39/39 PASS; update sources reachable, forbidden flows denied and logged |
+| Installed controller cron expiry | One-minute window expired automatically; selection refused until re-verification |
+| Return to exercise, no target selected | 39/39 PASS; re-verification flag cleared only after the full table |
+| Docker-published ports | Two local HTTP positive controls; 8/8 external flows match expected, all denies logged |
+| Home side, including direct routes and alternate source addresses | 8/8 PASS; all denies logged |
+| Firewall stopped | 5/5 normally allowed flows denied; firewall restarted successfully |
+| Full VPN phase | Earlier 11/11 PASS retained at the operator's explicit request; see the prior WSL evidence section |
+| NIC audit | Disposable t1/t2/attacker each on one lab bridge; firewall is the only lab guest on the home bridge |
+
+### DNS convergence and update timing
+
+Initial package downloads and maintenance tables exposed a resolver mismatch and
+CDN address rotation. The seed now uses only `127.0.0.1` for system DNS, disables
+WAN DNS override, and sets Unbound's minimum cache TTL to 600 seconds. The existing
+firewall was converged with `opnsense_dns.py --apply`; a second apply reported no
+changes. The API user's privileges were preserved. The update alias now resolves
+IPv4 only, matching the lab's disabled-IPv6 policy; its second rule push was also
+a no-op.
+
+[OPNsense's system DNS settings](https://docs.opnsense.org/manual/settingsmenu.html#general)
+describe local resolver selection; the [alias documentation](https://docs.opnsense.org/manual/aliases.html#hosts)
+documents the default 300-second hostname refresh. TTL600 reduces churn; an
+approved address can still be blocked conservatively between cache expiry and
+alias refresh. The verifier therefore retries expected update-source allows for
+at least a full default refresh interval (65 attempts, five-second waits plus
+probe time). Expected denies receive one pass. Package updates also need retries;
+the safe Docker setup uses bounded APT retries. These changes preserve default
+deny while the alias catches up. They do not guarantee uninterrupted CDN access.
+The failing maintenance tables remain in ignored `.state/live21/` alongside the
+successful final table below.
+
+Clones of the older template 2101 need the code-driven DNS convergence in Run
+step 5. Rebuilding the template from the current seed carries the same settings
+at first boot; this closeout did not rebuild that existing template.
+
+### Safe Docker workload and NIC control
+
+`a2-docker-probe.sh setup` refuses any t1 hostname other than
+`opaleye-probe-t1`, requires maintenance mode with no selected target, and installs
+`docker.io`, `docker-cli`, and `busybox-static` through the reviewed Debian update
+source. It builds `FROM scratch` using the static BusyBox binary, serves a fixed
+`A2-safe-static-control` response, and publishes host ports 80 and 8080 to container
+8080. It pulls no container image. The container has a read-only root filesystem,
+all capabilities dropped, and no-new-privileges. Re-running setup succeeded.
+
+Recorded packages: Docker daemon/CLI `26.1.5+dfsg1-9+deb13u1`, BusyBox static
+`1:1.37.0-6+b9`. The resulting local image was
+`sha256:2ae779e3f8f940a7be71b300219cf972987fbc580271d019fb0906bf31e81602`.
+The HTTP control checked both published ports from inside t1 before the external
+checks. External checks use the normal verifier with a supplemental, filtered
+plan and `REVERIFY=0`, so they cannot clear the maintenance gate.
+
+| guest | pool bridges |
+| --- | --- |
+| VM 120 (opaleye-probe-t1) | vmbr2011 |
+| VM 121 (opaleye-probe-t2) | vmbr2012 |
+| VM 122 (opaleye-probe-attacker) | vmbr2001 |
+| VM 2000 (opaleye-firewall) | vmbr0, vmbr2001, vmbr2003, vmbr2011, vmbr2012 |
+| VM 2100 (opaleye-probe-template) | vmbr2001 |
+| VM 2101 (opaleye-firewall-template) | none |
+| VM 2003 (opaleye-elastic) | vmbr2003 |
+| VM 2300 (opaleye-elastic-template) | vmbr2003 |
+
+ok: only the firewall VM touches the home bridge; every other guest is on one lab bridge
+
+### Maintenance, complete lab table
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t1:22 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t2:80 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| t1 | t2:80 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t2 | t1:80 | maintenance | deny | deny | firewall:opt3 (deny logged: yes) |
+| t1 | proxmox:8006 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | proxmox:22 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | home_router:80 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | internet:443 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | update_source:443 | maintenance | allow | allow | firewall:opt2 |
+| attacker | update_source:443 | maintenance | allow | allow | firewall:lan |
+| elastic | update_source:443 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| attacker | proxmox:8006 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | home_router:80 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | internet:443 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:5601 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:9200 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| t1 | elastic:9200 | maintenance | allow | allow | firewall:opt2 |
+| t1 | elastic:8220 | maintenance | allow | allow | firewall:opt2 |
+| t1 | elastic:5601 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | elastic:22 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:53 | maintenance | allow | allow | firewall:opt2 |
+| t1 | fw:123 | maintenance | allow | allow | firewall:opt2 |
+| t1 | fw:443 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:22 | maintenance | deny | deny | firewall:opt2 (deny logged: yes) |
+| elastic | internet:443 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | t1:80 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | attacker:22 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | proxmox:8006 | maintenance | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | fw:123 | maintenance | allow | allow | firewall:opt1 |
+| attacker | fw:443 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | fw:22 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| t2 | elastic:9200 | maintenance | allow | allow | firewall:opt3 |
+| attacker | elastic:8220 | maintenance | deny | deny | firewall:lan (deny logged: yes) |
+| t2 | elastic:8220 | maintenance | allow | allow | firewall:opt3 |
+| attacker | fw:0 | maintenance | deny | deny | firewall:lan |
+| elastic | fw:0 | maintenance | deny | deny | firewall:opt1 |
+| t1 | fw:0 | maintenance | deny | deny | firewall:opt2 |
+| t2 | fw:0 | maintenance | deny | deny | firewall:opt3 |
+
+
+`phase=lab mode=maintenance selected=none rows=39 skipped=0 PASS`
+
+### Return to exercise after automatic expiry
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t1:22 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t2:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t1 | t2:80 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t2 | t1:80 | exercise | deny | deny | firewall:opt3 (deny logged: yes) |
+| t1 | proxmox:8006 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | proxmox:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | home_router:80 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | internet:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | update_source:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| attacker | update_source:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| elastic | update_source:443 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| attacker | proxmox:8006 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | home_router:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | internet:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:5601 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:9200 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t1 | elastic:9200 | exercise | allow | allow | firewall:opt2 |
+| t1 | elastic:8220 | exercise | allow | allow | firewall:opt2 |
+| t1 | elastic:5601 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | elastic:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:53 | exercise | allow | allow | firewall:opt2 |
+| t1 | fw:123 | exercise | allow | allow | firewall:opt2 |
+| t1 | fw:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| elastic | internet:443 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | t1:80 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | attacker:22 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | proxmox:8006 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | fw:123 | exercise | allow | allow | firewall:opt1 |
+| attacker | fw:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | fw:22 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t2 | elastic:9200 | exercise | allow | allow | firewall:opt3 |
+| attacker | elastic:8220 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t2 | elastic:8220 | exercise | allow | allow | firewall:opt3 |
+| attacker | fw:0 | exercise | deny | deny | firewall:lan |
+| elastic | fw:0 | exercise | deny | deny | firewall:opt1 |
+| t1 | fw:0 | exercise | deny | deny | firewall:opt2 |
+| t2 | fw:0 | exercise | deny | deny | firewall:opt3 |
+
+labmode: exercise-mode denies re-verified
+
+
+
+`phase=lab mode=exercise selected=none rows=39 skipped=0 PASS`
+
+### Docker-published port evidence
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| t1 loopback | t1:80,8080 | exercise | HTTP control | HTTP control | Docker published ports |
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | exercise | allow | allow | firewall:lan |
+| attacker | t1:8080 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t2 | t1:80 | exercise | deny | deny | firewall:opt3 (deny logged: yes) |
+| t2 | t1:8080 | exercise | deny | deny | firewall:opt3 (deny logged: yes) |
+| elastic | t1:80 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | t1:8080 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+
+
+`phase=lab mode=exercise selected=t1 rows=6 skipped=0 PASS`
+
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| operator | t1:80 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+| operator | t1:8080 | exercise | deny | deny | firewall:opt4 (deny logged: yes) |
+
+
+`phase=vpn mode=exercise selected=t1 rows=2 skipped=0 PASS`
+
+### Home-side evidence
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| workstation | fw:51820 | exercise | allow | allow | firewall:wan |
+| workstation | fw:443 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | t1:80 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | attacker:22 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | elastic:5601 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| home_other | fw:51820 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| public | t1:80 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+| workstation | fw:0 | exercise | deny | deny | firewall:wan |
+
+
+`phase=home mode=exercise selected=t1 rows=8 skipped=0 PASS`
+
+### Firewall-down evidence
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t1 | elastic:9200 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t1 | elastic:8220 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t2 | elastic:9200 | firewall down | deny | deny | no forwarding path (VM stopped) |
+| t2 | elastic:8220 | firewall down | deny | deny | no forwarding path (VM stopped) |
+
+
+`phase=failclosed rows=5 PASS`
+
+### Final exercise table after firewall restart
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 | exercise | allow | allow | firewall:lan |
+| attacker | t1:22 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | t2:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t1 | t2:80 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t2 | t1:80 | exercise | deny | deny | firewall:opt3 (deny logged: yes) |
+| t1 | proxmox:8006 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | proxmox:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | home_router:80 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | internet:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | update_source:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| attacker | update_source:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| elastic | update_source:443 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| attacker | proxmox:8006 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | home_router:80 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | internet:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:5601 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | elastic:9200 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t1 | elastic:9200 | exercise | allow | allow | firewall:opt2 |
+| t1 | elastic:8220 | exercise | allow | allow | firewall:opt2 |
+| t1 | elastic:5601 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | elastic:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:53 | exercise | allow | allow | firewall:opt2 |
+| t1 | fw:123 | exercise | allow | allow | firewall:opt2 |
+| t1 | fw:443 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| t1 | fw:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
+| elastic | internet:443 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | t1:80 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | attacker:22 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | proxmox:8006 | exercise | deny | deny | firewall:opt1 (deny logged: yes) |
+| elastic | fw:123 | exercise | allow | allow | firewall:opt1 |
+| attacker | fw:443 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| attacker | fw:22 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t2 | elastic:9200 | exercise | allow | allow | firewall:opt3 |
+| attacker | elastic:8220 | exercise | deny | deny | firewall:lan (deny logged: yes) |
+| t2 | elastic:8220 | exercise | allow | allow | firewall:opt3 |
+| attacker | fw:0 | exercise | deny | deny | firewall:lan |
+| elastic | fw:0 | exercise | deny | deny | firewall:opt1 |
+| t1 | fw:0 | exercise | deny | deny | firewall:opt2 |
+| t2 | fw:0 | exercise | deny | deny | firewall:opt3 |
+
+
+`phase=lab mode=exercise selected=t1 rows=39 skipped=0 PASS`
+
+### Controller expiry and final state
+
+The existing WSL cron service was running. `install-tick-timer.sh` replaced the
+stale timer pointing at the removed `pencilfish` checkout with this workspace's
+per-minute job, reading the ignored `secrets/env.sh` environment hook.
+The one-minute maintenance window started at 20:50:01 UTC and expired at
+20:51:01; cron restored exercise mode by 20:52:05 UTC (minute scheduling plus API
+apply time). No manual `tick` was used for this proof. Target selection was then
+refused until the complete 39-row return table cleared the flag.
+
+```text
+2026-10-29 20:50:01 UTC
+maintenance (selected: none): applied
+{"mode": "maintenance", "selected": null, "expires": 1793307061, "reverify_required": true}
+2026-10-29 20:52:05 UTC
+{"mode": "exercise", "selected": null, "expires": null, "reverify_required": true}
+maintenance expired: back to exercise mode
+exercise-mode denies not re-verified since maintenance: run: REVERIFY=1 scripts/a2-verify.sh exercise none lab
+gate PASS: target selection refused before re-verification
+```
+
+The temporary WSL home-side addresses and host routes were removed. The
+full VPN phase reuses the previously recorded result at the operator's request;
+its two Docker port deny rows were freshly checked. The final selected-target
+table was collected after the firewall-down test and a confirming exercise push.
+
+The three disposable probe VMs were removed with a reviewed, targeted OpenTofu
+plan containing only their destruction. The firewall and Elastic remain running.
+The controller state is preserved at the normal `.state/labmode.json` path in
+exercise mode, t1 selected, with no expiry and no re-verification pending.
+The WSL timer remains installed, using the normal state path. Keep WSL, cron,
+and the VPN available for controller-timed maintenance expiry.
+
+Validation: **232 tests passed under WSL**, including 12 verifier CLI tests and
+17 seed tests. Static guards, Python compilation, Bash syntax, and diff whitespace
+checks passed. Standards and spec review found no outstanding findings after the
+retry-window correction. #21 remains open for Adam's acceptance review; no next
+milestone was started by this work.
