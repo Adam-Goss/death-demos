@@ -124,8 +124,14 @@ fi
 mode=${1:?usage: a2-verify.sh <exercise|maintenance> [target|none] [lab|vpn|home] | failclosed}
 sel=${2:-none}
 want=${3:-lab}
+case $mode in exercise|maintenance) ;; *) echo "invalid mode: $mode" >&2; exit 1 ;; esac
+case $want in lab|vpn|home) ;; *) echo "invalid phase: $want" >&2; exit 1 ;; esac
+# Capture once and check the producer's status: process substitution hides failures.
+matrix=$($PY scripts/netpolicy.py matrix "$mode" "$sel") || exit 1
 # Only blocks logged after this point count as evidence for this run (digests of the rows already in the log).
-LABMODE_LOG_BASELINE=$(mktemp); export LABMODE_LOG_BASELINE
+LABMODE_LOG_BASELINE=$(mktemp) || exit 1
+export LABMODE_LOG_BASELINE
+trap 'rm -f "$LABMODE_LOG_BASELINE"' EXIT
 $PY scripts/labmode.py logmark "$LABMODE_LOG_BASELINE" || { echo "cannot read the firewall log" >&2; exit 1; }
 $PY scripts/netpolicy.py lint "$mode" "$sel" || exit 1  # the rules we think we pushed must already satisfy the matrix
 
@@ -192,19 +198,30 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
   if [ "$kind" = wg ] && [ "$src" = home_other ] && [ "$actual" = deny ]; then where="$enf (deny logged: yes)"; fi
   if [ "$actual" = SKIP ]; then skipped=$((skipped+1)); else n=$((n+1)); [ "$actual" = "$expected" ] || fail=1; fi
   printf '| %s | %s:%s | %s | %s | %s | %s |\n' "$src" "$dst" "$port" "$mode" "$expected" "$actual" "$where"
-done < <($PY scripts/netpolicy.py matrix "$mode" "$sel")
+done <<<"$matrix"
 
-total=$($PY scripts/netpolicy.py matrix "$mode" "$sel" | awk -F'	' -v p="$want" -v only="${ONLY_DST:-}" '
+total=$(printf '%s\n' "$matrix" | awk -F'	' -v p="$want" -v only="${ONLY_DST:-}" '
   only != "" && $3 != only {next}
   p=="lab"  && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2") {c++}
   p=="vpn"  && $2=="operator" {c++}
   p=="home" && ($2=="workstation"||$2=="home_other"||$2=="public") {c++}
   END {print c+0}')
+if [ "$total" = 0 ]; then echo "NO PROBES: no rows matched this run"; fail=1; fi
 if [ $((n + skipped)) != "$total" ]; then echo "ROWS MISSING: ran $((n + skipped)) of $total"; fail=1; fi
+if [ "${REVERIFY:-}" = 1 ]; then
+  if [ "$mode" != exercise ] || [ "$want" != lab ] || [ "$skipped" != 0 ] || [ -n "${ONLY_DST:-}" ]; then
+    echo "cannot re-verify: requires an unfiltered exercise/lab run with no skipped rows" >&2
+    fail=1
+  elif [ $fail = 0 ]; then
+    if $PY scripts/labmode.py reverified; then
+      echo "labmode: exercise-mode denies re-verified"
+    else
+      echo "cannot record exercise-mode re-verification" >&2
+      fail=1
+    fi
+  fi
+fi
 echo
 verdict=FAIL; [ $fail = 0 ] && { verdict=PASS; [ $skipped = 0 ] || verdict="PASS-WITH-SKIPS"; }
 echo "phase=$want mode=$mode selected=$sel rows=$n skipped=$skipped $verdict"
-if [ $fail = 0 ] && [ "${REVERIFY:-}" = 1 ] && [ "$mode" = exercise ] && [ "$want" = lab ]; then
-  $PY scripts/labmode.py reverified && echo "labmode: exercise-mode denies re-verified"
-fi
 exit $fail

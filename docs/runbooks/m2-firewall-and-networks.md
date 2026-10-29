@@ -2,7 +2,7 @@
 
 Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). **A2 is a hard gate before any vulnerable target powers on.** Policy: [ADR 0001](../adr/0001-isolate-the-attack-lab-behind-a-firewall-vm.md) and the #6 flow contract.
 
-**Status: A2 evidence collected 2026-10-28 (see below); pending Adam's review before #21 closes.** The OPNsense API field names and the Tofu VM arguments held up on 26.7 with the fixes recorded in git history; first-boot OPNsense setup is generated as a config seed (#31) and rebuilt hands-off from a cloned seeded template (#41): clone + start, no console or GUI step, all A2 phases pass on it, and the dead-man switch is proven live (#32).
+**Status: A2 evidence collected 2026-10-28/29 (see below), with incomplete checks recorded in the issue #21 acceptance audit at the end. #21 remains open; A2 is not accepted by this audit.** The OPNsense API field names and the Tofu VM arguments held up on 26.7 with the fixes recorded in git history; first-boot OPNsense setup is generated as a config seed (#31) and rebuilt hands-off from a cloned seeded template (#41): clone + start, no console or GUI step, all A2 phases pass on it, and the dead-man switch is proven live (#32).
 
 ## Decisions (defaults accepted 2026-10-28)
 
@@ -40,7 +40,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 4. **Seeded first boot (#31, #41): clone a seeded template, no console.** The template is built once; every rebuild is clone + start. `network/opnsense-seed.xml` is the secret-free `config.xml` generated from `network/plan.json` (`python3 scripts/opnsense_seed.py template > network/opnsense-seed.xml` after any plan change; `tests/static-checks.sh` fails if stale or if it holds secrets). It sets the bootstrap rules above (`labmode.py exercise` then completes the ruleset), interfaces vtnet0..4, addresses, the WireGuard instance and peer, Unbound and NTP on the lab interfaces, the `opaleye-api` user and key, WAN "Block private networks" off, anti-lockout off, offload off, IPv6 off. Secrets come from the operator environment (`secrets/env.sh` is gitignored): `export OPNSENSE_ROOT_PASSWORD OPNSENSE_API_KEY OPNSENSE_API_SECRET OPNSENSE_WG_PRIVATE_KEY OPNSENSE_WG_PUBLIC_KEY OPNSENSE_WG_PEER_PUBLIC_KEY`; `export OPNSENSE_NANO_URL=... OPNSENSE_NANO_SHA256=...` (release checksums file); `scripts/seed-build.sh` fetches and verifies the nano image, bakes the dead-man files into `.state/opnsense-nano.raw` on a FreeBSD build host (below) and writes `.state/opnsense-seed.iso` (needs openssl, the `bcrypt` Python module, and xorriso/genisoimage/mkisofs/hdiutil or `pycdlib`). **Template build (once, or after a secret/seed/plan change):** copy `.state/opnsense-nano.raw` to the node, upload `.state/opnsense-seed.iso` to `iso-files` as `opnsense-seed.iso`, then as root on the node `NANO=/path/opnsense-nano.raw SEED_ISO=iso-files:iso/opnsense-seed.iso scripts/make-firewall-template.sh` (VM 2101, pool `lab-firewall`). It boots the disk with the seed, drives the importer over the serial socket (`scripts/firewall_console.py`; success is read from computed exit-status markers and a check that the `opaleye-api` user landed in `/conf/config.xml`), powers off, detaches and **deletes the seed ISO**, and converts the VM to a template. Then `TF_VAR_node_name=ludus TF_VAR_firewall_template_vm_id=2101 scripts/lab.sh apply firewall`: Tofu clones the template (the token already has `VM.Clone`), uploads nothing and never sees the seed. Rebuild VM 2000 = destroy it and apply again. **Secrets on the template:** the template disk holds the WireGuard private key, API secret hash and root hash. The template lives in the private `lab-firewall` pool (the firewall token clones it, nothing else is granted on it), the seed ISO exists in the store only between upload and the template build, and Tofu state holds only the template id. Rotating a secret or changing the seed/plan means destroying template 2101 and rebuilding it; existing clones keep the old secrets until rebuilt. This matches the existing trust in the node and does not change the ADR 0001 threat model. **Installer path (no template):** leave `firewall_template_vm_id` at 0, upload the installer ISO to `iso-files` and `TF_VAR_attach_installer=false TF_VAR_seed_iso_file_id=iso-files:iso/opnsense-seed.iso scripts/lab.sh apply firewall`; the importer takes `conf/config.xml` from it by hand. Still by hand: remote syslog to Elastic (M3) and `os-qemu-guest-agent`.
 5. `export OPNSENSE_URL=https://<fw> OPNSENSE_API_KEY=... OPNSENSE_API_SECRET=... OPNSENSE_INSECURE=true`; `python3 scripts/labmode.py arm`; wait for the first per-minute restore point, then `python3 scripts/labmode.py exercise t1`.
 6. Probe guests: as root on the node, `scripts/make-probe-template.sh` (needs the Debian cloud `.img` on `iso-files`; builds template 2100 in pool lab-firewall). Then `TF_VAR_probe_vms=true TF_VAR_probe_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)" scripts/lab.sh apply firewall`. Then `scripts/a2-verify.sh exercise t1 lab`, `... vpn` (VPN up), `... home` (VPN down), `a2-verify.sh failclosed`.
-7. Maintenance: `labmode.py maintenance --minutes 30 --reason "..."`; run `labmode.py tick` every minute from a timer; after return, `REVERIFY=1 scripts/a2-verify.sh exercise t1 lab` clears the flag. `labmode.py select` refuses until then.
+7. Maintenance: `labmode.py maintenance --minutes 30 --reason "..."`; install `scripts/install-tick-timer.sh` on the controller (cron running, VPN up) so `labmode.py tick` runs every minute; after return, an unfiltered `REVERIFY=1 scripts/a2-verify.sh exercise none lab` with no skipped rows clears the flag. `labmode.py select` refuses until then.
 8. Record the tables below; destroy probe guests; only then does M3 start.
 
 ## Prepare the dead-man disk (#42)
@@ -150,7 +150,7 @@ servers were stopped. The pre-rebuild VM backup remains private under
 - `denylog` ignores rows already in the log when the verifier starts (digest baseline), so a stale block from an earlier run cannot satisfy a row; within one run, an identical earlier block for the same src/dst/port still would.
 - `labmode.py tick` needs a timer: `scripts/install-tick-timer.sh` installs a per-minute user crontab line (WSL: `sudo service cron start`, VPN up); `--remove` uninstalls. Credentials come from `secrets/env.sh` (cron sees only that file). Proven live 2026-10-28 by cron: a 1-minute maintenance window closed itself (`maintenance expired: back to exercise mode`, `reverify_required: true`); the first attempt failed for a missing variable and left maintenance open until fixed (the tick retries each minute).
 - Docker-published ports and per-target NICs need the M4 target; probe a published non-exercise port from outside the target before it powers on.
-- `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny.
+- `a2-verify.sh` reports `PASS-WITH-SKIPS` when rows were skipped; a dead probe vantage yields `ERROR`, never a green deny. Skipped or destination-filtered runs cannot clear the re-verification flag. Empty runs, matrix generation errors, invalid phases/modes, and failures to record re-verification exit non-zero. A diagnostic `PASS-WITH-SKIPS` is incomplete A2 evidence.
 
 ## API user scope
 
@@ -592,3 +592,26 @@ Run from the Windows workstation with the CR-stripping wrapper. Findings:
 | `exercise t1 vpn` | 11 rows, 0 skipped: **PASS** (every deny logged). Run with the Windows tunnel `AllowedIPs` temporarily extended by `192.168.0.161/32, 1.1.1.1/32` (reverted afterwards) and matching temporary WSL host routes. |
 
 Raw tables: `.state/a2-wsl-*.txt` (gitignored).
+
+
+## Issue #21 acceptance audit (2026-10-29)
+
+The existing evidence above covers the seeded rebuild, dead-man recovery, controller
+expiry timer, NIC audit, and A2 phases. This checkout has no live API credentials or
+probe keys, so this audit adds no new network evidence and does not accept A2.
+
+The verifier now refuses to clear the maintenance re-verification flag after a
+skipped or destination-filtered run. It also fails empty runs, propagates matrix
+and re-verification write failures, and removes its temporary log baseline.
+The earlier WSL `REVERIFY=1` result with `SKIP_SOURCES=elastic` records historical
+behaviour that is no longer accepted: seven untested rows cannot establish a full
+exercise/lab pass. Do not use `labmode.py reverified` to bypass this missing evidence.
+Run all lab sources from dedicated safe probe guests, or arrange an authenticated
+vantage on the real Elastic VM, without assigning a duplicate address. Then rerun
+an unfiltered exercise/lab table after maintenance and record the full table.
+
+Issue #21 remains pending acceptance. The Docker-published-port and per-target NIC
+checks are also still missing from the recorded evidence. They need an isolated,
+non-vulnerable test workload before a vulnerable target powers on, as A2 requires.
+Do not treat their deferral to M4, or the existing later-milestone code, as proof
+that the hard gate passed. No later milestone was started by this audit.
