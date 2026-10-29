@@ -2,7 +2,7 @@
 
 Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Inputs: [telemetry contracts](../decisions/telemetry-contracts-and-budgets.md), [lifecycle](../decisions/deployment-and-reset-lifecycle.md).
 
-**Status: VM built, play converges (re-run changes nothing). A3 `services`, `net vpn`, `net lab` and `net home` PASS (2026-10-29). `net lab` PASS (9 rows). `net home` PASS (1 row).** All A3 tables below are filled in (re-run 2026-10-29 after the attacker ingestion rule was removed).
+**Status: VM built, play converges (re-run changes nothing). A3 `services`, `net vpn`, `net lab` and `net home` all PASS (2026-10-29).** All A3 tables below are filled in (re-run 2026-10-29 after the attacker ingestion rule was removed).
 
 ## Decisions
 

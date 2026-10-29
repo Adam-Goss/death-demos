@@ -173,7 +173,7 @@ def missing_backup_members(path):
     """Required members absent from the backup archive; ["archive"] when it cannot be read."""
     try:
         with tarfile.open(path) as t:
-            have = {m.name.lstrip("./") for m in t.getmembers()}
+            have = {m.name.removeprefix("./") for m in t.getmembers()}
     except (OSError, tarfile.TarError):
         return ["archive"]
     return [m for m in BACKUP_MEMBERS if m not in have]

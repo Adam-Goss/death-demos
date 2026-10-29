@@ -90,18 +90,21 @@
 # rolls over. Re-apply no replicas to every backing index and roll over any lab stream not yet on its lab policy.
 - name: Existing lab data streams adopt the lab policy
   ansible.builtin.shell: |
-    set -e
-    auth="-u elastic:$PW --cacert {{ secrets_dir }}/ca/ca.crt"
+    set -eo pipefail
     api={{ api_ctl }}
-    curl -sS -f $auth -X PUT -H 'Content-Type: application/json' -d '{"index.number_of_replicas":0}'       "$api/{{ item.name }}-*/_settings?expand_wildcards=all&ignore_unavailable=true&allow_no_indices=true" >/dev/null
-    curl -sS -f $auth "$api/_data_stream/{{ item.name }}-*?expand_wildcards=all" 2>/dev/null | python3 -c '
+    # The password goes to curl on stdin (-K -), never on its command line.
+    c() { printf 'user = "elastic:%s"\n' "$PW" | curl -sS -f --cacert {{ secrets_dir }}/ca/ca.crt -K - "$@"; }
+    c -X PUT -H 'Content-Type: application/json' -d '{"index.number_of_replicas":0}' \
+      "$api/{{ item.name }}-*/_settings?expand_wildcards=all&ignore_unavailable=true&allow_no_indices=true" >/dev/null
+    c "$api/_data_stream/{{ item.name }}-*?expand_wildcards=all" | python3 -c '
     import json,sys
-    d=json.load(sys.stdin)
-    for s in d.get("data_streams",[]):
+    for s in json.load(sys.stdin).get("data_streams",[]):
         if s.get("ilm_policy")!="{{ el.retention[item.class].policy }}": print(s["name"])
     ' | while read ds; do
-      curl -sS -f $auth -X POST "$api/$ds/_rollover" >/dev/null && echo "changed $ds"
+      c -X POST "$api/$ds/_rollover" >/dev/null && echo "changed $ds"
     done
+  args:
+    executable: /bin/bash
   environment:
     PW: "{{ elastic_password }}"
   register: adopt

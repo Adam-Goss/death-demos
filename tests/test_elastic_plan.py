@@ -69,17 +69,18 @@ class ConfigBackup(unittest.TestCase):
     """A3 proves the config/secrets backup is restorable: keystores, certificates and configs are in it."""
 
     def make(self, members):
-        d = tempfile.mkdtemp()
-        path = pathlib.Path(d) / "config-backup.tgz"
+        d = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        path = d / "config-backup.tgz"
+        f = d / "f"
+        f.write_text("x")
         with tarfile.open(path, "w:gz") as t:
             for m in members:
-                f = pathlib.Path(d) / "f"
-                f.write_text("x")
                 t.add(f, arcname=m)
         return path
 
     def setUp(self):
-        sys.path.insert(0, str(ROOT / "scripts"))
+        if str(ROOT / "scripts") not in sys.path:
+            sys.path.insert(0, str(ROOT / "scripts"))
         import a3_verify
         self.a3 = a3_verify
 

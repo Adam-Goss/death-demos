@@ -7,12 +7,12 @@
     - { dev: /dev/vdb, label: es-data }
     - { dev: /dev/vdc, label: es-snapshots }
 
-# Mode and owner are set on the mounted filesystem by the elasticsearch role; resetting them here would flip every run.
+# No mode or owner here: the elasticsearch role sets them on the mounted filesystem, and setting a different
+# mode on the (un)mounted directory would flip every run.
 - name: Mount points
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    mode: "{{ '0750' if ansible_facts['mounts'] | selectattr('mount', 'equalto', item) | list | length else '0755' }}"
   loop: [/var/lib/elasticsearch, /srv/es-snapshots]
 
 - name: Mount data and snapshot disks
