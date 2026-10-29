@@ -577,3 +577,18 @@ Run from the Windows workstation with the CR-stripping wrapper. Findings:
 - `maintenance` (lab): 37 of 39 non-elastic-sourced rows matched. `t1 -> update_source:443` and `attacker -> update_source:443` read `deny`: the verifier probes whichever address `deb.debian.org` resolves to on that call, and Fastly returns different addresses over time, so it can pick one the firewall's FQDN alias did not hold. From the t1 probe, `199.232.54.132` (current answer) connected and `1.1.1.1` did not. Treat those two rows as unproven until the verifier resolves the alias the same way the firewall does.
 - `exercise none` (lab): every non-elastic row matched, including every deny. `exercise t1` (lab): all non-elastic rows matched in the earlier clean run (39 rows PASS before the elastic probe was removed).
 - Not run: `vpn`, `home` (need Linux `ip route`), `failclosed` (arms elastic rows too).
+
+### A2 on the rebuilt firewall, run from WSL (#41, 2026-10-29)
+
+`a2-verify.sh` gained `SKIP_SOURCES` (sources with no probe guest report SKIP, not ERROR; an unlisted source that does not answer is still ERROR), CRLF tolerance for Windows Python, and an update-source check that tries every address the name resolves to and re-resolves a few times when an allow is expected (CDN answers rotate; the firewall alias holds what it resolved). Run with `SKIP_SOURCES=elastic` because the real Elastic VM owns `10.77.3.10`; its rows are A3's. WSL used a temporary 0600 copy of the probe key, `ip route`/`ip addr` entries added with `wsl -u root` (removed afterwards) and no change to the Windows tunnel.
+
+| Phase | Result |
+| --- | --- |
+| `exercise t1 lab` | 32 rows, 7 skipped (elastic source): **PASS-WITH-SKIPS** |
+| `maintenance none lab` | 32 rows, 7 skipped: **PASS-WITH-SKIPS** |
+| `REVERIFY=1 exercise none lab` | **PASS-WITH-SKIPS**, "exercise-mode denies re-verified", flag cleared |
+| `exercise t1 home` | 8 rows, 0 skipped: **PASS** (every deny logged) |
+| `failclosed` | 5 rows: **PASS** (VM 2000 stopped, restarted; firewall HTTPS back, mode still exercise/t1) |
+| `exercise t1 vpn` | 9 of 11 rows match; **`proxmox:8006` and `internet:443` unproven**: they read deny with "deny logged: no" because the Windows tunnel's `AllowedIPs` lacks `192.168.0.161/32` and `1.1.1.1/32`, so the packets never reach the firewall (prerequisite in the A2 rerun notes). Needs that one-off tunnel edit, which also reroutes Proxmox API traffic through the firewall while it is in place. |
+
+Raw tables: `.state/a2-wsl-*.txt` (gitignored).
