@@ -85,7 +85,7 @@
         <discardtimeout />
         <cachemaxttl />
         <cachemaxnegativettl />
-        <cacheminttl />
+        <cacheminttl>600</cacheminttl>
         <infrahostttl />
         <infrakeepprobing>0</infrakeepprobing>
         <infracachenumhosts />

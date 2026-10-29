@@ -200,6 +200,8 @@ def build(plan, vals):
     general = unbound.find("general")
     general.find("enabled").text = "1"
     general.find("active_interface").text = ",".join(lab_ifaces)
+    # Keep short-lived CDN answers stable across the 300-second alias refresh.
+    unbound.find("advanced/cacheminttl").text = "600"
     iset = _sub(_sub(opn, "Interfaces"), "settings", version="1.0.0")
     for tag in OFFLOAD_TAGS:
         _sub(iset, tag, 1)                              # hardware offload off
@@ -299,6 +301,8 @@ def problems(xml):
             or root.findtext("system/dnsallowoverride") != "0"
             or root.find("system/dnslocalhost") is not None):
         out.append("system DNS must use only local Unbound without WAN override")
+    if root.findtext("OPNsense/unboundplus/advanced/cacheminttl") != "600":
+        out.append("Unbound minimum cache TTL must cover the alias refresh interval")
     jobs = root.findall("OPNsense/cron/jobs/job[command='opaleye deadman']")
     if len(jobs) != 1:
         out.append("expected one dead-man cron job")

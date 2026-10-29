@@ -43,40 +43,26 @@ fi
 
 # A real HTTP response on each published port is the positive control, from inside t1.
 remote "$t1" "python3 -c \"import urllib.request; assert all(urllib.request.urlopen('http://127.0.0.1:'+p,timeout=3).read()==b'A2-safe-static-control\\n' for p in ['80','8080'])\""
-baseline=$(mktemp)
-trap 'rm -f "$baseline"' EXIT
-python3 scripts/labmode.py logmark "$baseline"
-export LABMODE_LOG_BASELINE=$baseline
+probe_plan=$(mktemp)
+trap 'rm -f "$probe_plan"' EXIT
+python3 - "$probe_plan" <<'PY'
+import json, sys
+with open('network/plan.json') as f:
+    plan = json.load(f)
+plan['probes'] = []
+for source in ('attacker', 't2', 'elastic', 'operator'):
+    for port in (80, 8080):
+        plan['probes'].append(dict(id='docker-%s-%d' % (source, port), src=source,
+                                  dst='t1', proto='tcp', port=port,
+                                  modes={'exercise': 'allow' if (source, port) == ('attacker', 80) else 'deny',
+                                         'maintenance': 'deny'}))
+with open(sys.argv[1], 'w') as f:
+    json.dump(plan, f)
+PY
 printf '| source | destination/port | mode | expected | actual | enforcement point |\n| --- | --- | --- | --- | --- | --- |\n'
 printf '| t1 loopback | t1:80,8080 | exercise | HTTP control | HTTP control | Docker published ports |\n'
-fail=0
-for source in attacker t2 elastic operator; do
-  sip=$(python3 -c 'import json,sys;print(json.load(open("network/plan.json"))["hosts"][sys.argv[1]]["ip"])' "$source")
-  for port in 80 8080; do
-    expected=deny
-    [ "$source:$port" != attacker:80 ] || expected=allow
-    command="timeout 3 bash -c 'echo >/dev/tcp/$t1/$port' 2>&1; echo rc=\$?"
-    if [ "$source" = operator ]; then
-      ip route get "$t1" | grep -q "src $sip" || exit 1
-      output=$(bash -c "$command")
-    else
-      remote "$sip" true
-      output=$(remote "$sip" "$command")
-    fi
-    actual=deny
-    case $output in *rc=0*|*refused*) actual=allow ;; esac
-    where=firewall
-    if [ "$actual:$expected" = deny:deny ]; then
-      logged=no
-      for _ in 1 2 3; do
-        if python3 scripts/labmode.py denylog "$sip" "$t1" "$port" 2>/dev/null; then logged=yes; break; fi
-        sleep 1
-      done
-      where="firewall (deny logged: $logged)"
-      [ "$logged" = yes ] || fail=1
-    fi
-    printf '| %s | t1:%s | exercise | %s | %s | %s |\n' "$source" "$port" "$expected" "$actual" "$where"
-    [ "$actual" = "$expected" ] || fail=1
-  done
+# Reuse the normal verifier's vantage checks, TCP classification and fresh-log
+# matching. The supplement is diagnostic evidence and cannot clear the gate.
+for phase in lab vpn; do
+  LAB_PLAN="$probe_plan" ONLY_DST=t1 REVERIFY=0 bash scripts/a2-verify.sh exercise t1 "$phase"
 done
-exit "$fail"

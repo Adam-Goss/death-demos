@@ -72,7 +72,7 @@ def main():
         with opener.open(req, timeout=60) as response:
             return response.read().decode()
 
-    login = Form(get("/" )).fields
+    login = Form(get("/")).fields
     login.update(usernamefld="root", passwordfld=password, login="1")
     post("/", login)
     general = Form(get("/system_general.php")).fields
@@ -89,7 +89,8 @@ def main():
     def matches(fields):
         return all(fields.get(k, "") == v for k, v in want.items()) and not any(fields.get(k) for k in ("dnsallowoverride", "dnslocalhost"))
 
-    if matches(general):
+    cache_matches = settings["advanced"]["cacheminttl"] == "600"
+    if matches(general) and cache_matches:
         print("system DNS already uses only local Unbound: no changes")
         return
     if not args.apply:
@@ -100,14 +101,24 @@ def main():
         raise SystemExit("dead-man switch must be armed with no unconfirmed push")
     marker = uuid.uuid4().hex
     client.set_marker(labmode.PENDING, marker)
-    general.update(want)
-    general.pop("dnsallowoverride", None)
-    general.pop("dnslocalhost", None)
-    for n in range(1, 9):
-        general["dns%dgw" % n] = "none"
-    post("/system_general.php", general)
+    if not matches(general):
+        general.update(want)
+        general.pop("dnsallowoverride", None)
+        general.pop("dnslocalhost", None)
+        for n in range(1, 9):
+            general["dns%dgw" % n] = "none"
+        post("/system_general.php", general)
     if not matches(Form(get("/system_general.php")).fields):
         raise SystemExit("DNS change did not persist; push left unconfirmed")
+    if not cache_matches:
+        result = json.loads(post("/api/unbound/settings/set", {"unbound": {"advanced": {"cacheminttl": "600"}}}, headers))
+        if result.get("result") != "saved":
+            raise SystemExit("Unbound cache setting rejected; push left unconfirmed")
+        result = json.loads(post("/api/unbound/service/reconfigure", {}, headers))
+        if result.get("status") != "ok":
+            raise SystemExit("Unbound reconfigure failed; push left unconfirmed")
+    if json.loads(get("/api/unbound/settings/get"))["unbound"]["advanced"]["cacheminttl"] != "600":
+        raise SystemExit("Unbound cache setting did not persist; push left unconfirmed")
     # General Settings reloads DNS and the filter; refresh alias tables too.
     result = json.loads(post("/api/firewall/alias/reconfigure", {}, headers))
     if result.get("status") != "ok":

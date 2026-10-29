@@ -69,6 +69,7 @@ class SeedTest(unittest.TestCase):
         self.assertEqual([e.text for e in root.findall("system/dnsserver")], ["127.0.0.1"])
         self.assertEqual(root.findtext("system/dnsallowoverride"), "0")
         self.assertIsNone(root.find("system/dnslocalhost"))
+        self.assertEqual(root.findtext("OPNsense/unboundplus/advanced/cacheminttl"), "600")
 
     def test_seed_invariants_reject_external_resolver_fallbacks(self):
         external = self.tpl.replace("<dnsserver>127.0.0.1</dnsserver>", "<dnsserver>192.168.0.1</dnsserver>")
