@@ -28,6 +28,14 @@ class RulesMatchProbeMatrix(unittest.TestCase):
         probe["dst"] = "t1"
         self.assertEqual(netpolicy.evaluate(PLAN, rules, probe), "deny")
 
+    def test_only_targets_reach_the_ingestion_ports_never_the_attacker(self):
+        for mode, sel in (("exercise", "t1"), ("maintenance", None)):
+            rules = netpolicy.render_rules(PLAN, mode, sel)
+            for port in (9200, 8220):
+                for src, want in (("t1", "allow"), ("t2", "allow"), ("attacker", "deny")):
+                    probe = {"src": src, "dst": "elastic", "proto": "tcp", "port": port}
+                    self.assertEqual(netpolicy.evaluate(PLAN, rules, probe), want, (mode, src, port))
+
     def test_exercise_with_no_target_selected_denies_attacker_to_every_target(self):
         self.assertEqual(netpolicy.lint(PLAN, "exercise", None), [])
         row = next(r for r in netpolicy.matrix(PLAN, "exercise", None) if r["id"] == "p01")

@@ -2,7 +2,7 @@
 
 Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Inputs: [telemetry contracts](../decisions/telemetry-contracts-and-budgets.md), [lifecycle](../decisions/deployment-and-reset-lifecycle.md).
 
-**Status: VM built, play converges (re-run changes nothing). A3 `services`, `net vpn`, `net lab` and `net home` PASS (2026-10-29). `net lab` PASS (9 rows). `net home` PASS (1 row).** All A3 tables below are filled in; open before sign-off: the attacker/t2 ingestion-port rule (Known gaps).
+**Status: VM built, play converges (re-run changes nothing). A3 `services`, `net vpn`, `net lab` and `net home` PASS (2026-10-29). `net lab` PASS (9 rows). `net home` PASS (1 row).** All A3 tables below are filled in (re-run 2026-10-29 after the attacker ingestion rule was removed).
 
 ## Decisions
 
@@ -29,7 +29,7 @@ Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks
 
 ## Known gaps
 
-- **Attacker and t2 reach ingestion ports** (p17, p50-p52): the M2 rules let all lab zones (attacker, t1, t2) send telemetry. #9 says "target to ingestion only"; narrowing attacker out is an M2 rule change, not done here. Raise before A3 sign-off.
+- **Attacker ingestion access removed (resolved at A3).** The M2 rules let the attacker reach 9200/8220; the adversary must not write to the evidence store, so `netpolicy.py` now allows only t1/t2 to ingest (probes p17, p51 now `deny`). Re-verified below. t2 keeps ingestion; no M4/M5 flow needs attacker telemetry.
 - **Fleet Server install is one-shot** (gated on the Agent being installed): a changed flag, cert or version needs a manual `elastic-agent uninstall` first. Not auto-reconverged.
 - **A3 shows config, not streams**: no evidence data streams exist until M4, so the per-stream lifecycle row only proves the `@custom` templates; A4 re-checks real streams. The restore test uses a throwaway index, not an SLM-made snapshot.
 - **Destroy guard** is proven by `lab.sh` refusal, the `prevent_destroy` setting and the token-scope rows (SKIP without Proxmox env), not by a live `tofu plan`.
@@ -52,7 +52,7 @@ Fixed in code, each found by the live run: timesyncd drop-in dir missing; `elast
 
 ## A3 evidence
 
-Unedited output. Operator vantage, exercise mode, target t1 selected.
+Unedited output, re-run after the attacker was removed from the ingestion rules. Operator vantage, exercise mode, target t1 selected.
 
 ### `a3-verify.sh services`
 
@@ -101,19 +101,19 @@ phase=vpn mode=exercise selected=t1 rows=4 skipped=0 PASS
 
 ### `a3-verify.sh net lab`
 
-Probe guests in attacker/t1/t2 (no elastic probe), created and destroyed afterwards.
+Probe guests in attacker/t1/t2 (no elastic probe), created and destroyed afterwards. attacker -> elastic:9200 and :8220 are now `deny` (blocks logged); t1/t2 still allowed.
 
 ok: rules match the probe matrix (exercise)
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
 | attacker | elastic:5601 | exercise | deny | deny | firewall:lan (deny logged: yes) |
-| attacker | elastic:9200 | exercise | allow | allow | firewall:lan |
+| attacker | elastic:9200 | exercise | deny | deny | firewall:lan (deny logged: yes) |
 | t1 | elastic:9200 | exercise | allow | allow | firewall:opt2 |
 | t1 | elastic:8220 | exercise | allow | allow | firewall:opt2 |
 | t1 | elastic:5601 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
 | t1 | elastic:22 | exercise | deny | deny | firewall:opt2 (deny logged: yes) |
 | t2 | elastic:9200 | exercise | allow | allow | firewall:opt3 |
-| attacker | elastic:8220 | exercise | allow | allow | firewall:lan |
+| attacker | elastic:8220 | exercise | deny | deny | firewall:lan (deny logged: yes) |
 | t2 | elastic:8220 | exercise | allow | allow | firewall:opt3 |
 
 phase=lab mode=exercise selected=t1 rows=9 skipped=0 PASS

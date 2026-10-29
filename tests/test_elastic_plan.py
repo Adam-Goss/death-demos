@@ -65,10 +65,12 @@ class DestroyGuard(unittest.TestCase):
 class Probes(unittest.TestCase):
     def test_every_ingest_and_kibana_source_is_probed(self):
         seen = {(p["src"], p["port"]): p["modes"]["exercise"] for p in PLAN["probes"] if p["dst"] == "elastic"}
-        for src in ("attacker", "t1", "t2"):
+        for src in ("t1", "t2"):
             self.assertEqual(seen[(src, 9200)], "allow")
-        for src in ("attacker", "t1"):
             self.assertEqual(seen[(src, 8220)], "allow")
+        # The attacker is the adversary: no write path to the evidence store (#9, A3).
+        for port in (9200, 8220):
+            self.assertEqual(seen[("attacker", port)], "deny")
         self.assertEqual(seen[("operator", 5601)], "allow")
         for port in (9200, 8220):
             self.assertEqual(seen[("operator", port)], "deny")
