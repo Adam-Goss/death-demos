@@ -89,7 +89,7 @@ class SeedTest(unittest.TestCase):
         self.assertNotIn(ENV["OPNSENSE_ROOT_PASSWORD"], out)
         self.assertNotIn(ENV["OPNSENSE_API_SECRET"], out)
         r = ET.fromstring(out)
-        self.assertTrue(r.findtext("system/user/password").startswith("$6$"))
+        self.assertTrue(r.findtext("system/user/password").startswith("$2y$"))
         key, secret = r.find("system/user[2]/apikeys").text.split("|")
         self.assertEqual(key, ENV["OPNSENSE_API_KEY"])
         self.assertTrue(secret.startswith("$6$"))

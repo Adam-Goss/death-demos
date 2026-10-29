@@ -9,7 +9,8 @@
 Secrets come from the operator environment only (never the repo or Tofu state):
   OPNSENSE_ROOT_PASSWORD, OPNSENSE_API_KEY, OPNSENSE_API_SECRET,
   OPNSENSE_WG_PRIVATE_KEY, OPNSENSE_WG_PUBLIC_KEY (the firewall's), OPNSENSE_WG_PEER_PUBLIC_KEY (workstation's).
-Passwords and the API secret are written as SHA-512 crypt hashes, as OPNsense stores them.
+User passwords are written as bcrypt ($2y$) and the API secret as a SHA-512 crypt hash, as 26.7 stores them
+(a SHA-512 user password is not accepted at login).
 
 Filter rules: only a bootstrap set, so the API is reachable on a rebuilt firewall (default deny otherwise):
 the workstation's WireGuard handshake and the VPN's TCP 443 to the firewall, plus the v6 block and deny-all on
@@ -222,6 +223,14 @@ def sha512_crypt(secret):
     return h
 
 
+def bcrypt_hash(secret):
+    try:
+        import bcrypt
+    except ImportError:
+        raise SystemExit("the bcrypt module is needed to hash the root password (pip install bcrypt)")
+    return bcrypt.hashpw(secret.encode(), bcrypt.gensalt(10)).decode().replace("$2b$", "$2y$", 1)
+
+
 def secrets_from_env(env):
     missing = [n for n in SECRET_ENV.values() if not env.get(n)]
     if missing:
@@ -234,7 +243,7 @@ def secrets_from_env(env):
         raise SystemExit("OPNSENSE_ROOT_PASSWORD must be at least 12 characters")
     if len(v["api_key"]) < 20 or len(v["api_secret"]) < 20:
         raise SystemExit("OPNSENSE_API_KEY/SECRET must be at least 20 characters")
-    v["root_password"] = sha512_crypt(v["root_password"])
+    v["root_password"] = bcrypt_hash(v["root_password"])
     v["api_secret"] = sha512_crypt(v["api_secret"])
     return v
 
