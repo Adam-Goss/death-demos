@@ -26,6 +26,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - `tofu/stacks/firewall`: firewall VM (only guest with the home bridge, WAN = first NIC) and optional throwaway probe guests.
 - `scripts/opnsense_seed.py`, `network/opnsense-seed.xml`: first-boot `config.xml` seed (#31); tests in `tests/test_opnsense_seed.py`.
 - `scripts/a2-verify.sh`: prints the A2 evidence table.
+- `scripts/a2-vpn-loss.sh`: interrupts the operator's WSL/Linux tunnel-facing interface while the firewall stays running, checks direct-WAN denial, and restores and compares the saved IPv4 routes.
 - `scripts/opnsense_dns.py`: brings an existing seeded firewall to the local-only resolver/cache settings without widening the API user's privileges.
 - `scripts/a2-docker-probe.sh`: builds a safe static Docker HTTP control on the disposable t1 probe and checks its published ports through the normal A2 verifier.
 - Tests: `tests/test_netpolicy.py`, `tests/test_labmode.py` (against `tests/fake_opnsense.py`), guards in `tests/static-checks.sh`.
@@ -164,6 +165,7 @@ All from the workstation, tunnel up, `OPNSENSE_URL=https://10.77.9.1`; probe gue
 
 - `exercise lab`: `labmode.py select t1; a2-verify.sh exercise t1 lab`
 - `vpn`: Windows tunnel `AllowedIPs = 10.77.0.0/16, 192.168.0.161/32, 1.1.1.1/32` (restore afterwards), then `a2-verify.sh exercise t1 vpn`
+- VPN path loss, from root in WSL/Linux with the usual environment loaded and exercise mode active: `bash scripts/a2-vpn-loss.sh`. It derives the interfaces from the current routes, saves the tunnel interface's IPv4 routes, and verifies full restoration.
 - `home` (also `PVE_NODE=ludus` and the `PROXMOX_VE_*` variables, for the firewall WAN MAC): `sudo ip addr add 192.168.0.50/32 dev <if>`, same for `203.0.113.55/32`, and `sudo ip route add <10.77.1.10|10.77.3.10|10.77.11.10>/32 via 192.168.0.82`, then `a2-verify.sh exercise t1 home`; remove them afterwards
 - `failclosed`: `PVE_NODE=ludus a2-verify.sh failclosed`
 - maintenance: `labmode.py maintenance --minutes 30 --reason ...`, `a2-verify.sh maintenance none lab`, then `labmode.py exercise`, `REVERIFY=1 a2-verify.sh exercise none lab`, `labmode.py select t1`
@@ -640,13 +642,14 @@ Elastic probe was created and **no sources were skipped**.
 | Check | Recorded result |
 | --- | --- |
 | Exercise, t1 selected, after firewall restart | 39/39 PASS; all TCP denies logged |
-| Maintenance, no target selected | 39/39 PASS; update sources reachable, forbidden flows denied and logged |
+| Maintenance, no target selected | 39/39 PASS; update sources reachable, forbidden flows denied; TCP denies logged |
 | Installed controller cron expiry | One-minute window expired automatically; selection refused until re-verification |
 | Return to exercise, no target selected | 39/39 PASS; re-verification flag cleared only after the full table |
 | Docker-published ports | Two local HTTP positive controls; 8/8 external flows match expected, all denies logged |
-| Home side, including direct routes and alternate source addresses | 8/8 PASS; all denies logged |
+| Home side, including direct routes and alternate source addresses | 8/8 PASS; TCP and WireGuard denies logged |
 | Firewall stopped | 5/5 normally allowed flows denied; firewall restarted successfully |
 | Full VPN phase | Earlier 11/11 PASS retained at the operator's explicit request; see the prior WSL evidence section |
+| Operator VPN path loss with firewall running | 6/6 fresh checks PASS; direct-WAN deny logged; tunnel interface and all saved IPv4 routes restored |
 | NIC audit | Disposable t1/t2/attacker each on one lab bridge; firewall is the only lab guest on the home bridge |
 
 ### DNS convergence and update timing
@@ -845,6 +848,32 @@ labmode: exercise-mode denies re-verified
 
 `phase=home mode=exercise selected=t1 rows=8 skipped=0 PASS`
 
+### Operator VPN path loss while the firewall remains running
+
+`scripts/a2-vpn-loss.sh` ran from root in WSL at 21:15:13 UTC. It lowered WSL's
+`eth5` tunnel-facing interface while the Windows WireGuard configuration remained
+unchanged. Proxmox independently confirmed that firewall VM 2000 and Elastic VM
+2003 remained running. The home-LAN positive control stayed reachable. A direct
+home-side route into the firewall WAN was also denied with a fresh firewall log
+match, and the restored VPN path passed its TCP positive control.
+
+The initial local runner exposed that WSL removes derived routes when this
+interface is lowered. The committed verifier saves and restores all IPv4 routes
+on that interface and asserts that the route JSON is identical after restoration.
+It also removes its temporary direct-WAN host route. This check observes loss of
+the operator's WSL VPN path independently of firewall failure.
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| operator | elastic:5601 | exercise | allow | allow | firewall VPN interface (positive control) |
+| workstation, VPN path down | fw:443 | exercise | deny | deny | operator tunnel-facing interface down |
+| workstation, VPN path down | elastic:5601 | exercise | deny | deny | operator tunnel-facing interface down |
+| workstation, VPN path down | proxmox:8006 | exercise | allow | allow | home LAN positive control |
+| workstation, direct WAN route with VPN path down | elastic:5601 | exercise | deny | deny | firewall WAN (fresh deny logged) |
+| operator | elastic:5601 | exercise | allow | allow | restored VPN path (positive control) |
+
+`VPN path loss PASS; firewall remained running; interface and routes restored`
+
 ### Firewall-down evidence
 
 | source | destination/port | mode | expected | actual | enforcement point |
@@ -928,7 +957,8 @@ gate PASS: target selection refused before re-verification
 
 The temporary WSL home-side addresses and host routes were removed. The
 full VPN phase reuses the previously recorded result at the operator's request;
-its two Docker port deny rows were freshly checked. The final selected-target
+its two Docker port deny rows and the separate VPN-path-loss check were freshly
+checked. The final selected-target
 table was collected after the firewall-down test and a confirming exercise push.
 
 The three disposable probe VMs were removed with a reviewed, targeted OpenTofu
