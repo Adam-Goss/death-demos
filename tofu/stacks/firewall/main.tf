@@ -16,8 +16,9 @@ variable "datastore_id" {
 }
 
 variable "installer_iso_file_id" {
-  description = "Pinned OPNsense installer ISO, e.g. iso-files:iso/OPNsense-26.1-dvd-amd64.iso; checksum recorded in the M2 runbook."
+  description = "Pinned OPNsense installer ISO, e.g. iso-files:iso/OPNsense-26.1-dvd-amd64.iso; checksum recorded in the M2 runbook. Unused when seeded."
   type        = string
+  default     = ""
 }
 
 variable "attach_installer" {
