@@ -22,8 +22,8 @@ if [ "$action" = setup ]; then
   $PROBE_SSH "opaleye@$t1" 'sudo -n bash -se' <<'SH'
 test "$(hostname)" = opaleye-probe-t1
 export DEBIAN_FRONTEND=noninteractive
-apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 update -qq
-apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 install -y -qq --no-install-recommends docker.io docker-cli busybox-static
+apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=10 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 update -qq
+apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=10 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 install -y -qq --no-install-recommends docker.io docker-cli busybox-static
 /bin/busybox --list | grep -qx httpd
 systemctl start docker
 work=$(mktemp -d)

@@ -170,11 +170,12 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
                 elif [ -n "$dips" ]; then  # update source: allowed if any address it resolves to is reachable
                   actual=deny
                   # CDN answers rotate and the alias only holds what the firewall resolved: when an allow is expected,
-                  # re-resolve and retry a few times before calling it a deny.
-                  for attempt in 1 2 3 4 5 6; do
+                  # Wait through the default 300-second alias refresh interval:
+                  # DNS cache expiry can fall just after the firewall's last poll.
+                  for attempt in {1..65}; do
                     for d in $dips; do [ "$(probe_tcp "$src" "$sip" "$d" "$port")" = allow ] && { actual=allow; break 2; }; done
                     [ "$expected" = allow ] || break
-                    sleep 3
+                    sleep 5
                     dips=$(run "$src" "$sip" "getent ahostsv4 $ufqdn | awk '{print \$1}' | sort -u" 2>/dev/null | tr -d '\r')
                   done
                 else actual=$(probe_tcp "$src" "$sip" "$dip" "$port"); fi ;;
