@@ -57,13 +57,14 @@ def desired(plan, mode, selected):
 
 
 def sync(client, plan, mode, selected):
-    client.ensure_alias(netpolicy.UPDATE_ALIAS, plan["update_sources"], "Opaleye maintenance update sources")
     want = desired(plan, mode, selected)
     have = client.rules(PREFIX)
     adds = [d for d in want if d not in have]
     sets = [d for d in want if d in have and any(str(have[d].get(k)) != v for k, v in want[d].items())]
     dels = [d for d in have if d not in want]
-    if not (adds or sets or dels):
+    alias_changed = client.ensure_alias(netpolicy.UPDATE_ALIAS, plan["update_sources"],
+                                        "Opaleye maintenance update sources", check_only=True)
+    if not (adds or sets or dels or alias_changed):
         return False
     pending, confirmed = client.marker(PENDING), client.marker(CONFIRMED)
     if pending is None or confirmed is None:
@@ -72,6 +73,7 @@ def sync(client, plan, mode, selected):
         raise SystemExit("previous push was never confirmed: wait for the dead-man job to revert it (about %d s), then retry" % GRACE)
     token = uuid.uuid4().hex
     client.set_marker(PENDING, token)
+    client.ensure_alias(netpolicy.UPDATE_ALIAS, plan["update_sources"], "Opaleye maintenance update sources")
     for d in adds:
         client.add_rule(want[d])
     for d in sets:

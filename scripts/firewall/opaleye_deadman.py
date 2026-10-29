@@ -31,6 +31,9 @@ def markers(config):
 def run(config, state, grace, now, reload_cmds):
     os.makedirs(state, exist_ok=True)
     good, since = os.path.join(state, "confirmed.xml"), os.path.join(state, "pending_since")
+    retry = os.path.join(state, "reload_required")
+    if os.path.exists(retry):
+        return restore(config, good, since, retry, reload_cmds)
     pending, confirmed = markers(config)
     if pending is None or confirmed is None:
         return "unarmed"
@@ -55,11 +58,20 @@ def run(config, state, grace, now, reload_cmds):
         return "pending"
     if not os.path.exists(good):
         return "no-backup"
+    with open(retry, "w") as f:
+        f.write("reload required\n")
+    return restore(config, good, since, retry, reload_cmds)
+
+
+def restore(config, good, since, retry, reload_cmds):
+    """Keep the retry marker until both the config restore and all reloads succeed."""
     shutil.copyfile(good, config + ".revert")
     os.replace(config + ".revert", config)
-    os.remove(since)
     for cmd in reload_cmds:
-        subprocess.run(cmd.split(), check=False)
+        subprocess.run(cmd.split(), check=True)
+    os.remove(retry)
+    if os.path.exists(since):
+        os.remove(since)
     return "reverted"
 
 
