@@ -16,9 +16,10 @@ the workstation's WireGuard handshake and the VPN's TCP 443 to the firewall, plu
 those two interfaces. They are the exact payloads labmode.py would push (same descriptions), so its first sync
 adopts them in place; labmode.py and netpolicy.py own everything else.
 
-UNVERIFIED on 26.7 (no firewall access when written; compare with a real export once the VPN is up):
-element names under <OPNsense>, the non-`page-filter-api` privilege names, and that the importer accepts
-an ISO (cd9660 is its documented fallback). `page-filter-api` is "Firewall: Rules [new]" in core's ACL.xml.
+Compared with a real export from VM 2000 on 26.7 (2026-10-29): privilege names, the gateway (OPNsense/Gateways),
+offload and IPv6 switches (OPNsense/Interfaces/settings), the "key|hash" apikeys text and the bootstrap rule
+location (OPNsense/Firewall/Filter/rules) follow that export. Still unproven: that the nano image or importer
+accepts this seed on first boot (cd9660 is the importer's documented fallback).
 """
 import argparse
 import ipaddress
@@ -52,7 +53,9 @@ WG_KEY = re.compile(r"^[A-Za-z0-9+/]{43}=$")
 
 API_USER = "opaleye-api"
 # Not an administrator: rules (filter API), aliases, firewall log, WireGuard status. Never page-all.
-API_PRIVS = ["page-filter-api", "page-firewall-alias", "page-diagnostics-log-firewall", "page-vpn-wireguard-status"]
+API_PRIVS = ["page-diagnostics-logs-firewall-dynamic", "page-diagnostics-logs-firewall-plain",
+             "page-diagnostics-logs-firewall-summary", "page-firewall-alias-edit", "page-firewall-aliases",
+             "page-filter-api", "page-firewall-rules-edit", "page-wireguard-diagnostics"]  # as exported from VM 2000
 WG_IF = "wg0"
 WG_PORT = 51820
 PEER_NAME = "workstation"
@@ -103,14 +106,12 @@ def build(plan, vals):
 
     root = ET.Element("opnsense")
     _sub(root, "theme", "opnsense")
+    opn = _sub(root, "OPNsense")
 
     system = _sub(root, "system")
     _sub(system, "hostname", "opaleye-firewall")
     _sub(system, "domain", "lab.internal")
     _sub(system, "timezone", "Etc/UTC")
-    _sub(system, "disablechecksumoffloading", 1)       # hardware offload off
-    _sub(system, "disablesegmentationoffloading", 1)
-    _sub(system, "disablelargereceiveoffloading", 1)
     _sub(system, "dnsserver", gw)
     web = _sub(system, "webgui")
     _sub(web, "protocol", "https")
@@ -130,9 +131,7 @@ def build(plan, vals):
     _sub(a, "password", "*")                            # API only; no console or GUI login
     for p in API_PRIVS:
         _sub(a, "priv", p)
-    item = _sub(_sub(a, "apikeys"), "item")
-    _sub(item, "key", vals["api_key"])
-    _sub(item, "secret", vals["api_secret"])
+    _sub(a, "apikeys", "%s|%s" % (vals["api_key"], vals["api_secret"]))  # 26.7 stores "key|crypt-hash"
 
     ifs = _sub(root, "interfaces")
     for z in plan["nic_order"]:
@@ -156,18 +155,20 @@ def build(plan, vals):
     _sub(e, "descr", "vpn")
     _sub(e, "enable", 1)
 
-    gws = _sub(root, "gateways")
-    g = _sub(gws, "gateway_item")
+    g = _sub(_sub(opn, "Gateways"), "gateway_item")
     _sub(g, "name", "WAN_GW")
     _sub(g, "interface", home["iface"])
     _sub(g, "gateway", gw)
     _sub(g, "defaultgw", 1)
     _sub(g, "ipprotocol", "inet")
 
-    opn = _sub(root, "OPNsense")
     unbound = _sub(_sub(opn, "unboundplus"), "general")
     _sub(unbound, "enabled", 1)
     _sub(unbound, "active_interface", ",".join(lab_ifaces))
+    iset = _sub(_sub(opn, "Interfaces"), "settings")
+    for tag in ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading"):
+        _sub(iset, tag, 1)                              # hardware offload off
+    _sub(iset, "disableipv6", 1)
     ntp = _sub(root, "ntpd")
     _sub(ntp, "interface", ",".join(lab_ifaces))
 
@@ -177,7 +178,7 @@ def build(plan, vals):
     server = _sub(_sub(wg, "server"), "servers")
     s = _sub(server, "server", uuid=_uuid("wg-instance-" + WG_IF))
     _sub(s, "enabled", 1)
-    _sub(s, "name", WG_IF)
+    _sub(s, "name", "lab")
     _sub(s, "instance", 0)
     _sub(s, "pubkey", vals["wg_public"])
     _sub(s, "privkey", vals["wg_private"])
@@ -263,7 +264,7 @@ def problems(xml):
         if list(root.iter(tag)):
             out.append("%s set on an interface" % tag)
     for tag in ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading"):
-        if root.findtext("system/" + tag) != "1":
+        if root.findtext("OPNsense/Interfaces/settings/" + tag) != "1":
             out.append("hardware offload not disabled (%s)" % tag)
     for p in root.iter("priv"):
         if p.text in ("page-all", "user-shell-access"):
@@ -277,11 +278,11 @@ def problems(xml):
 def looks_secret(xml):
     """True if the document holds real secret material rather than placeholders or `*`."""
     root = ET.fromstring(xml)
-    fields = ["system/user/password", "system/user/apikeys/item/key", "system/user/apikeys/item/secret",
-              "OPNsense/wireguard/server/servers/server/privkey"]
+    fields = ["system/user/password", "system/user/apikeys", "OPNsense/wireguard/server/servers/server/privkey"]
     for path in fields:
         for e in root.findall(path):
-            if e.text and e.text != "*" and not PLACEHOLDER.fullmatch(e.text):
+            left = PLACEHOLDER.sub("", e.text or "").replace("|", "")
+            if left and left != "*":
                 return True
     return False
 

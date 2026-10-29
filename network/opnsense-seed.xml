@@ -1,102 +1,30 @@
 <?xml version="1.0"?>
 <opnsense>
   <theme>opnsense</theme>
-  <system>
-    <hostname>opaleye-firewall</hostname>
-    <domain>lab.internal</domain>
-    <timezone>Etc/UTC</timezone>
-    <disablechecksumoffloading>1</disablechecksumoffloading>
-    <disablesegmentationoffloading>1</disablesegmentationoffloading>
-    <disablelargereceiveoffloading>1</disablelargereceiveoffloading>
-    <dnsserver>192.168.0.1</dnsserver>
-    <webgui>
-      <protocol>https</protocol>
-      <noantilockout>1</noantilockout>
-    </webgui>
-    <user>
-      <name>root</name>
-      <scope>system</scope>
-      <uid>0</uid>
-      <groupname>admins</groupname>
-      <password>@@ROOT_PASSWORD@@</password>
-    </user>
-    <user>
-      <name>opaleye-api</name>
-      <scope>user</scope>
-      <uid>2000</uid>
-      <descr>Opaleye labmode API user (rules, aliases, firewall log only)</descr>
-      <password>*</password>
-      <priv>page-filter-api</priv>
-      <priv>page-firewall-alias</priv>
-      <priv>page-diagnostics-log-firewall</priv>
-      <priv>page-vpn-wireguard-status</priv>
-      <apikeys>
-        <item>
-          <key>@@API_KEY@@</key>
-          <secret>@@API_SECRET@@</secret>
-        </item>
-      </apikeys>
-    </user>
-  </system>
-  <interfaces>
-    <wan>
-      <if>vtnet0</if>
-      <descr>home</descr>
-      <enable>1</enable>
-      <ipaddr>192.168.0.82</ipaddr>
-      <subnet>24</subnet>
-      <gateway>WAN_GW</gateway>
-    </wan>
-    <lan>
-      <if>vtnet1</if>
-      <descr>attacker</descr>
-      <enable>1</enable>
-      <ipaddr>10.77.1.1</ipaddr>
-      <subnet>24</subnet>
-    </lan>
-    <opt1>
-      <if>vtnet2</if>
-      <descr>elastic</descr>
-      <enable>1</enable>
-      <ipaddr>10.77.3.1</ipaddr>
-      <subnet>24</subnet>
-    </opt1>
-    <opt2>
-      <if>vtnet3</if>
-      <descr>t1</descr>
-      <enable>1</enable>
-      <ipaddr>10.77.11.1</ipaddr>
-      <subnet>24</subnet>
-    </opt2>
-    <opt3>
-      <if>vtnet4</if>
-      <descr>t2</descr>
-      <enable>1</enable>
-      <ipaddr>10.77.12.1</ipaddr>
-      <subnet>24</subnet>
-    </opt3>
-    <opt4>
-      <if>wg0</if>
-      <descr>vpn</descr>
-      <enable>1</enable>
-    </opt4>
-  </interfaces>
-  <gateways>
-    <gateway_item>
-      <name>WAN_GW</name>
-      <interface>wan</interface>
-      <gateway>192.168.0.1</gateway>
-      <defaultgw>1</defaultgw>
-      <ipprotocol>inet</ipprotocol>
-    </gateway_item>
-  </gateways>
   <OPNsense>
+    <Gateways>
+      <gateway_item>
+        <name>WAN_GW</name>
+        <interface>wan</interface>
+        <gateway>192.168.0.1</gateway>
+        <defaultgw>1</defaultgw>
+        <ipprotocol>inet</ipprotocol>
+      </gateway_item>
+    </Gateways>
     <unboundplus>
       <general>
         <enabled>1</enabled>
         <active_interface>lan,opt1,opt2,opt3</active_interface>
       </general>
     </unboundplus>
+    <Interfaces>
+      <settings>
+        <disablechecksumoffloading>1</disablechecksumoffloading>
+        <disablesegmentationoffloading>1</disablesegmentationoffloading>
+        <disablelargereceiveoffloading>1</disablelargereceiveoffloading>
+        <disableipv6>1</disableipv6>
+      </settings>
+    </Interfaces>
     <wireguard>
       <general>
         <enabled>1</enabled>
@@ -105,7 +33,7 @@
         <servers>
           <server uuid="1906e02c-a244-5045-abcb-53e8daba5394">
             <enabled>1</enabled>
-            <name>wg0</name>
+            <name>lab</name>
             <instance>0</instance>
             <pubkey>@@WG_PUBLIC_KEY@@</pubkey>
             <privkey>@@WG_PRIVATE_KEY@@</privkey>
@@ -223,6 +151,82 @@
       </Filter>
     </Firewall>
   </OPNsense>
+  <system>
+    <hostname>opaleye-firewall</hostname>
+    <domain>lab.internal</domain>
+    <timezone>Etc/UTC</timezone>
+    <dnsserver>192.168.0.1</dnsserver>
+    <webgui>
+      <protocol>https</protocol>
+      <noantilockout>1</noantilockout>
+    </webgui>
+    <user>
+      <name>root</name>
+      <scope>system</scope>
+      <uid>0</uid>
+      <groupname>admins</groupname>
+      <password>@@ROOT_PASSWORD@@</password>
+    </user>
+    <user>
+      <name>opaleye-api</name>
+      <scope>user</scope>
+      <uid>2000</uid>
+      <descr>Opaleye labmode API user (rules, aliases, firewall log only)</descr>
+      <password>*</password>
+      <priv>page-diagnostics-logs-firewall-dynamic</priv>
+      <priv>page-diagnostics-logs-firewall-plain</priv>
+      <priv>page-diagnostics-logs-firewall-summary</priv>
+      <priv>page-firewall-alias-edit</priv>
+      <priv>page-firewall-aliases</priv>
+      <priv>page-filter-api</priv>
+      <priv>page-firewall-rules-edit</priv>
+      <priv>page-wireguard-diagnostics</priv>
+      <apikeys>@@API_KEY@@|@@API_SECRET@@</apikeys>
+    </user>
+  </system>
+  <interfaces>
+    <wan>
+      <if>vtnet0</if>
+      <descr>home</descr>
+      <enable>1</enable>
+      <ipaddr>192.168.0.82</ipaddr>
+      <subnet>24</subnet>
+      <gateway>WAN_GW</gateway>
+    </wan>
+    <lan>
+      <if>vtnet1</if>
+      <descr>attacker</descr>
+      <enable>1</enable>
+      <ipaddr>10.77.1.1</ipaddr>
+      <subnet>24</subnet>
+    </lan>
+    <opt1>
+      <if>vtnet2</if>
+      <descr>elastic</descr>
+      <enable>1</enable>
+      <ipaddr>10.77.3.1</ipaddr>
+      <subnet>24</subnet>
+    </opt1>
+    <opt2>
+      <if>vtnet3</if>
+      <descr>t1</descr>
+      <enable>1</enable>
+      <ipaddr>10.77.11.1</ipaddr>
+      <subnet>24</subnet>
+    </opt2>
+    <opt3>
+      <if>vtnet4</if>
+      <descr>t2</descr>
+      <enable>1</enable>
+      <ipaddr>10.77.12.1</ipaddr>
+      <subnet>24</subnet>
+    </opt3>
+    <opt4>
+      <if>wg0</if>
+      <descr>vpn</descr>
+      <enable>1</enable>
+    </opt4>
+  </interfaces>
   <ntpd>
     <interface>lan,opt1,opt2,opt3</interface>
   </ntpd>
