@@ -12,13 +12,67 @@
     creates: "/var/tmp/elastic-agent-{{ el.version }}-linux-x86_64/elastic-agent"
   when: not agent.stat.exists
 
+# Kibana creates the preconfigured policy but does not back-fill its package policy if the first setup
+# failed, and Fleet Server then waits forever for the fleet-server input. Ensure it exists (create only).
+- name: Fleet Server package policy present?
+  ansible.builtin.uri:
+    url: "https://{{ el_ip }}:5601/api/fleet/package_policies"
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+  delegate_to: localhost
+  become: false
+  register: fs_pp
+  no_log: true
+  when: not agent.stat.exists
+
+- name: Fleet Server package version
+  ansible.builtin.uri:
+    url: "https://{{ el_ip }}:5601/api/fleet/epm/packages/fleet_server"
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+  delegate_to: localhost
+  become: false
+  register: fs_pkg
+  no_log: true
+  when: not agent.stat.exists
+
+- name: Fleet Server package policy (create only)
+  ansible.builtin.uri:
+    url: "https://{{ el_ip }}:5601/api/fleet/package_policies"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    headers: { kbn-xsrf: lab }
+    body_format: json
+    body:
+      name: fleet_server-1
+      namespace: default
+      policy_ids: [fleet-server-policy]
+      package: { name: fleet_server, version: "{{ fs_pkg.json.item.version }}" }
+      inputs: {}
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when:
+    - not agent.stat.exists
+    - (fs_pp.json['items'] | selectattr('name', 'equalto', 'fleet_server-1') | list | length) == 0
+
 # Replace any earlier token of this name so a re-run after a failed install still works.
 - name: Fleet Server service token
   ansible.builtin.shell: |
-    set -e
-    auth="-u elastic:$PW --cacert {{ secrets_dir }}/ca/ca.crt"
-    curl -sS -f $auth -X DELETE {{ api_ctl }}/_security/service/elastic/fleet-server/credential/token/lab-fleet >/dev/null 2>&1 || true
-    curl -sS -f $auth -X POST {{ api_ctl }}/_security/service/elastic/fleet-server/credential/token/lab-fleet | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"]["value"])'
+    set -eo pipefail
+    # The password goes to curl on stdin (-K -), never on its command line.
+    c() { printf 'user = "elastic:%s"\n' "$PW" | curl -sS -f --cacert {{ secrets_dir }}/ca/ca.crt -K - "$@"; }
+    c -X DELETE {{ api_ctl }}/_security/service/elastic/fleet-server/credential/token/lab-fleet >/dev/null 2>&1 || true
+    c -X POST {{ api_ctl }}/_security/service/elastic/fleet-server/credential/token/lab-fleet | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"]["value"])'
+  args:
+    executable: /bin/bash
   environment:
     PW: "{{ elastic_password }}"
   register: svc_token

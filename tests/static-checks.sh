@@ -3,6 +3,8 @@
 # token scoped to lab pools. Needs no Proxmox, tofu or network.
 set -u
 cd "$(dirname "$0")/.."
+# Ansible ignores ansible.cfg in a world-writable directory (a checkout on /mnt/c in WSL): name it explicitly.
+export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
 fail=0
 ok()  { echo "ok   $*"; }
 bad() { echo "FAIL $*"; fail=1; }

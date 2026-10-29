@@ -78,8 +78,10 @@ class Playbooks(unittest.TestCase):
     def test_attacker_playbook_passes_syntax_check_when_ansible_is_installed(self):
         if subprocess.run(["which", "ansible-playbook"], capture_output=True).returncode != 0:
             self.skipTest("ansible not installed")
+        # Ansible ignores ansible.cfg in a world-writable directory (a checkout on /mnt/c in WSL): name it explicitly.
+        env = dict(os.environ, ANSIBLE_CONFIG=os.path.join(ROOT, "ansible", "ansible.cfg"))
         r = subprocess.run(["ansible-playbook", "playbooks/attacker.yml", "--syntax-check"],
-                           cwd=os.path.join(ROOT, "ansible"), capture_output=True, text=True)
+                           cwd=os.path.join(ROOT, "ansible"), capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
 
 

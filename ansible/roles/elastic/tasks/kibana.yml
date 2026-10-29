@@ -17,6 +17,7 @@
 - name: Kibana keystore (password and encryption keys)
   ansible.builtin.shell: |
     set -e
+    cd /usr/share/kibana  # the CLI searches upward from the cwd for package.json; the kibana user cannot read the login dir
     ks=/usr/share/kibana/bin/kibana-keystore
     [ -f /etc/kibana/kibana.keystore ] || sudo -u kibana $ks create
     $ks list | grep -qx "$KEY" || { printf '%s' "$VAL" | sudo -u kibana $ks add "$KEY" --stdin; echo changed; }

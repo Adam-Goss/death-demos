@@ -14,6 +14,7 @@ import pathlib
 import ssl
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.error
 import urllib.request
@@ -123,14 +124,14 @@ def check_lifecycle():
             if got != policy:
                 bad.append(n)
         row("operator", f"@custom templates ({cls}, {len(names)})", f"all use {policy}",
-            "all" if not bad else "missing/wrong: " + ",".join(bad), "component templates")
+            f"all use {policy}" if not bad else "missing/wrong: " + ",".join(bad), "component templates")
     # Every data stream that exists must carry a lab policy: no stream is left on a default.
     code, ds = req(ES + "/_data_stream/*?expand_wildcards=all")
     lab = {r["policy"] for r in EL["retention"].values()}
     bad = [d["name"] for d in ds.get("data_streams", [])
-           if not d["name"].startswith(".") and d.get("ilm_policy") not in lab]
+           if not d["name"].startswith(".") and not d.get("hidden") and d.get("ilm_policy") not in lab]
     row("operator", f"existing data streams ({len(ds.get('data_streams', []))})", "all on a lab policy",
-        "all" if not bad else "unmanaged: " + ",".join(bad), "ilm per data stream")
+        "all on a lab policy" if not bad else "unmanaged: " + ",".join(bad), "ilm per data stream")
 
 
 def check_snapshots():
@@ -157,6 +158,31 @@ def check_snapshots():
     row("operator", "snapshot restore test (3 docs)", "3", str(cnt.get("count", f"http {c1}/{c2}/{c3}")), "snapshot repo")
     req(f"{ES}/{idx}", "DELETE")
     req(f"{ES}/_snapshot/{s['repository']}/{snap}", "DELETE")
+
+
+# What elastic-config-backup.yml must capture: snapshots omit keystores and certificates.
+BACKUP = SECRETS / "config-backup.tgz"
+BACKUP_MEMBERS = [
+    "etc/elasticsearch/elasticsearch.yml", "etc/elasticsearch/elasticsearch.keystore",
+    "etc/kibana/kibana.yml", "etc/kibana/kibana.keystore",
+    "etc/lab-ca/ca.crt", "etc/lab-ca/server.crt", "etc/lab-ca/server.key",
+]
+
+
+def missing_backup_members(path):
+    """Required members absent from the backup archive; ["archive"] when it cannot be read."""
+    try:
+        with tarfile.open(path) as t:
+            have = {m.name.removeprefix("./") for m in t.getmembers()}
+    except (OSError, tarfile.TarError):
+        return ["archive"]
+    return [m for m in BACKUP_MEMBERS if m not in have]
+
+
+def check_backup():
+    gone = missing_backup_members(BACKUP)
+    row("operator", "config backup (keystores, certs, configs)", "complete",
+        "complete" if not gone else "missing: " + ",".join(gone), "secrets/elastic/config-backup.tgz")
 
 
 def check_guard():
@@ -190,7 +216,7 @@ def main():
     if not CA.exists():
         print("no lab CA at secrets/elastic/ca/ca.crt: run the elastic playbook first", file=sys.stderr)
         return 2
-    for fn in (check_health, check_tls, check_lifecycle, check_snapshots, check_guard):
+    for fn in (check_health, check_tls, check_lifecycle, check_snapshots, check_backup, check_guard):
         try:
             fn()
         except Exception as e:  # noqa: BLE001

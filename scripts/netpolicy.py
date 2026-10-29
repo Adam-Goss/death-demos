@@ -47,7 +47,8 @@ def flows(plan):
     add("vpn-handshake", ["host:workstation"], "fw", "wireguard")
     for s in ("dns", "ntp"):
         add("lab-" + s, labzones, "fw", s)
-    add("telemetry", ["zone:attacker", "zone:t1", "zone:t2"], "host:elastic", "ingest")
+    # The attacker is the adversary: it must never write to the evidence store. Targets only.
+    add("telemetry", ["zone:t1", "zone:t2"], "host:elastic", "ingest")
     add("op-fw-admin", ["zone:vpn"], "fw", "fw_admin")
     add("op-attacker-ssh", ["zone:vpn"], "host:attacker", "ssh")
     add("op-kibana", ["zone:vpn"], "host:elastic", "kibana")

@@ -4,6 +4,9 @@ import os
 import pathlib
 import re
 import subprocess
+import sys
+import tarfile
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -62,13 +65,48 @@ class DestroyGuard(unittest.TestCase):
         self.assertNotRegex(text, r"(?m)^\s*ssh\s*\{")
 
 
+class ConfigBackup(unittest.TestCase):
+    """A3 proves the config/secrets backup is restorable: keystores, certificates and configs are in it."""
+
+    def make(self, members):
+        d = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        path = d / "config-backup.tgz"
+        f = d / "f"
+        f.write_text("x")
+        with tarfile.open(path, "w:gz") as t:
+            for m in members:
+                t.add(f, arcname=m)
+        return path
+
+    def setUp(self):
+        if str(ROOT / "scripts") not in sys.path:
+            sys.path.insert(0, str(ROOT / "scripts"))
+        import a3_verify
+        self.a3 = a3_verify
+
+    def test_complete_backup_has_nothing_missing(self):
+        path = self.make(self.a3.BACKUP_MEMBERS)
+        self.assertEqual(self.a3.missing_backup_members(path), [])
+
+    def test_missing_keystore_and_key_are_reported(self):
+        path = self.make([m for m in self.a3.BACKUP_MEMBERS if "keystore" not in m and not m.endswith("server.key")])
+        gone = self.a3.missing_backup_members(path)
+        self.assertTrue(any("elasticsearch.keystore" in m for m in gone))
+        self.assertTrue(any("server.key" in m for m in gone))
+
+    def test_absent_archive_reports_everything_missing(self):
+        self.assertEqual(self.a3.missing_backup_members(pathlib.Path("/nonexistent/x.tgz")), ["archive"])
+
+
 class Probes(unittest.TestCase):
     def test_every_ingest_and_kibana_source_is_probed(self):
         seen = {(p["src"], p["port"]): p["modes"]["exercise"] for p in PLAN["probes"] if p["dst"] == "elastic"}
-        for src in ("attacker", "t1", "t2"):
+        for src in ("t1", "t2"):
             self.assertEqual(seen[(src, 9200)], "allow")
-        for src in ("attacker", "t1"):
             self.assertEqual(seen[(src, 8220)], "allow")
+        # The attacker is the adversary: no write path to the evidence store (#9, A3).
+        for port in (9200, 8220):
+            self.assertEqual(seen[("attacker", port)], "deny")
         self.assertEqual(seen[("operator", 5601)], "allow")
         for port in (9200, 8220):
             self.assertEqual(seen[("operator", port)], "deny")
