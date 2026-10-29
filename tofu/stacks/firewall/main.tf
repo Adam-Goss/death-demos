@@ -39,16 +39,10 @@ variable "seeded" {
   default     = false
 }
 
-variable "nano_image_url" {
-  description = "OPNsense nano (pre-installed) image URL for the pinned version; used when seeded."
+variable "nano_image_path" {
+  description = "Pre-installed OPNsense nano image, downloaded, sha256-checked and decompressed by scripts/seed-build.sh (a raw disk; uploaded like the seed, so the token needs no Sys.* privilege). Used when seeded."
   type        = string
-  default     = ""
-}
-
-variable "nano_image_sha256" {
-  description = "sha256 of the downloaded nano image, as published by OPNsense."
-  type        = string
-  default     = ""
+  default     = "../../../.state/opnsense-nano.raw"
 }
 
 variable "seed_iso_path" {
@@ -94,16 +88,15 @@ data "proxmox_virtual_environment_pool" "this" {
   pool_id = var.pool_id
 }
 
-resource "proxmox_virtual_environment_download_file" "nano" {
-  count                   = var.seeded ? 1 : 0
-  node_name               = var.node_name
-  datastore_id            = var.datastore_id
-  content_type            = "import"
-  url                     = var.nano_image_url
-  checksum                = var.nano_image_sha256
-  checksum_algorithm      = "sha256"
-  file_name               = "opnsense-nano.qcow2"
-  decompression_algorithm = "bz2"
+resource "proxmox_virtual_environment_file" "nano" {
+  count        = var.seeded ? 1 : 0
+  node_name    = var.node_name
+  datastore_id = var.datastore_id
+  content_type = "import"
+  source_file {
+    path      = "${path.module}/${var.nano_image_path}"
+    file_name = "opnsense-nano.raw"
+  }
 }
 
 resource "proxmox_virtual_environment_file" "seed" {
@@ -156,7 +149,7 @@ resource "proxmox_virtual_environment_vm" "firewall" {
     interface    = "virtio0"
     size         = 20
     file_format  = "raw"
-    import_from  = var.seeded ? proxmox_virtual_environment_download_file.nano[0].id : null
+    import_from  = var.seeded ? proxmox_virtual_environment_file.nano[0].id : null
   }
 
   # Seeded: the config seed. Otherwise the installer ISO (empty drive once installed).
