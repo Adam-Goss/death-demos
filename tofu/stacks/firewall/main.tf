@@ -40,7 +40,7 @@ variable "seeded" {
 }
 
 variable "nano_image_path" {
-  description = "Pre-installed OPNsense nano image, downloaded, sha256-checked and decompressed by scripts/seed-build.sh (a raw disk; uploaded like the seed, so the token needs no Sys.* privilege). Used when seeded."
+  description = "Prepared OPNsense nano disk: verified download plus dead-man files baked by scripts/bake-deadman.sh on a FreeBSD build host (see M2 runbook). Uploaded like the seed, so the token needs no Sys.* privilege. Used when seeded."
   type        = string
   default     = "../../../.state/opnsense-nano.raw"
 }
@@ -95,6 +95,7 @@ resource "proxmox_virtual_environment_file" "nano" {
   content_type = "import"
   source_file {
     path      = "${path.module}/${var.nano_image_path}"
+    checksum  = filesha256("${path.module}/${var.nano_image_path}")
     file_name = "opnsense-nano.raw"
   }
 }
@@ -106,6 +107,7 @@ resource "proxmox_virtual_environment_file" "seed" {
   content_type = "iso"
   source_file {
     path      = "${path.module}/${var.seed_iso_path}"
+    checksum  = filesha256("${path.module}/${var.seed_iso_path}")
     file_name = "opnsense-seed.iso"
   }
 }

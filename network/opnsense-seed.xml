@@ -2,6 +2,23 @@
 <opnsense>
   <theme>opnsense</theme>
   <OPNsense>
+    <cron version="1.0.4">
+      <jobs>
+        <job uuid="3fa6d4fb-a7ab-58f4-a8ad-09c00ec94c1b">
+          <origin>cron</origin>
+          <enabled>1</enabled>
+          <minutes>*</minutes>
+          <hours>*</hours>
+          <days>*</days>
+          <months>*</months>
+          <weekdays>*</weekdays>
+          <who>root</who>
+          <command>opaleye deadman</command>
+          <parameters />
+          <description>Opaleye dead-man switch</description>
+        </job>
+      </jobs>
+    </cron>
     <Gateways version="1.0.0">
       <gateway_item>
         <name>WAN_GW</name>

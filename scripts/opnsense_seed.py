@@ -114,6 +114,18 @@ def build(plan, vals):
     _sub(root, "theme", "opnsense")
     opn = _sub(root, "OPNsense")
 
+    # Matches the GUI export config-opaleye-firewall.lab.internal-20261029113405.xml
+    # (Cron 1.0.4); UUID is deterministic, persisted_at is intentionally omitted.
+    # configctl dispatches through configd as root;
+    # the generated GUI crontab itself belongs to nobody.
+    cron = _sub(opn, "cron", version="1.0.4")
+    job = _sub(_sub(cron, "jobs"), "job", uuid=_uuid("deadman-cron"))
+    for key, value in (("origin", "cron"), ("enabled", "1"), ("minutes", "*"),
+                       ("hours", "*"), ("days", "*"), ("months", "*"), ("weekdays", "*"),
+                       ("who", "root"), ("command", "opaleye deadman"), ("parameters", ""),
+                       ("description", "Opaleye dead-man switch")):
+        _sub(job, key, value)
+
     system = _sub(root, "system")
     _sub(system, "hostname", "opaleye-firewall")
     _sub(system, "domain", "lab.internal")
@@ -280,6 +292,15 @@ def problems(xml):
     """Static invariants for a seed (template or render). Empty list = pass."""
     out = []
     root = ET.fromstring(xml)
+    jobs = root.findall("OPNsense/cron/jobs/job[command='opaleye deadman']")
+    if len(jobs) != 1:
+        out.append("expected one dead-man cron job")
+    else:
+        job = jobs[0]
+        expected = {"enabled": "1", "minutes": "*", "hours": "*", "days": "*",
+                    "months": "*", "weekdays": "*", "parameters": ""}
+        if any(job.findtext(key) != value for key, value in expected.items()):
+            out.append("dead-man cron must be enabled every minute without parameters")
     if root.find("filter") is not None:
         out.append("legacy <filter> section present")
     for r in root.iterfind("OPNsense/Firewall/Filter/rules/rule"):
