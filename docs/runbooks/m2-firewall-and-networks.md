@@ -418,3 +418,8 @@ After maintenance: `labmode.py exercise`, `REVERIFY=1 a2-verify.sh exercise none
 - **After a re-import the cron job is gone** (it lives in `config.xml`): add "Opaleye dead-man switch" every minute in System > Settings > Cron, then `labmode.py arm`. Seeding it is a follow-up.
 - **`failclosed` hard-stops the VM.** Run right after a push it can lose the last config write (the selected-target rule came back disabled while labmode said t1). Re-run `labmode.py exercise t1` after `failclosed` before verifying again.
 - **Maintenance update-source rows can flap**: the firewall's alias refresh and the probe's lookup can land on different Fastly answers (35 s TTL). A fresh `labmode.py maintenance` push followed immediately by the verifier passed.
+
+### Repeat rebuild with the committed seed (2026-10-29)
+
+VM 2000 replaced with `tofu apply -replace=proxmox_virtual_environment_vm.firewall` (nano disk and seed ISO unchanged), then `opnsense-importer` on the console (cdrom), dead-man files fetched from the console and the cron job re-added by hand. `labmode.py arm` and `exercise t1` worked at once and adopted all six bootstrap rules in place (same UUIDs); the probe guests were recreated for one `lab` run: `phase=lab mode=exercise selected=t1 rows=39 skipped=0 PASS` (Unbound, ntpd and update-source rows included). Probes destroyed afterwards. Manual steps in this rebuild: the importer, the dead-man files and the cron job (#41, #42).
+
