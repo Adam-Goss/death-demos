@@ -27,6 +27,10 @@ xpack.fleet.outputs:
     is_default_monitoring: true
     hosts: ["{{ api }}"]
     ca_trusted_fingerprint: "{{ ca_fp.stdout }}"
+# Bundled with Kibana (no registry needed); `system` is not bundled and fails the registry lookup. The Fleet Server policy below needs fleet_server installed first.
+xpack.fleet.packages:
+  - name: fleet_server
+    version: latest
 xpack.fleet.agentPolicies:
   - id: fleet-server-policy
     name: Fleet Server policy

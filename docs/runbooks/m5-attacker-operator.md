@@ -45,7 +45,7 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 - `exercise end` needs Elastic; during an outage the exercise stays active (blocks shutdown, reset of that target and evidence deletion) until it returns.
 - Drain-marker lines are not removed by evidence deletion (they share the Apache access stream).
 - `lab.sh apply all` and `scripts/a1-verify.sh` now include the attacker stack (needs its token, pool and template first).
-- Attacker (and t2) can reach ingestion ports (M2 known gap, unchanged).
+- The attacker cannot reach the ingestion ports (closed at M3/A3; only t1 and t2 ingest).
 - Unverified live: Proxmox shutdown calls, the DVWA login/CSRF flow in `exercise1`, the `_cat/allocation` watermark proxy, marker template mappings, and the drain line passing the Apache pipeline.
 - Exercise 1's callback to the attacker (`/dev/tcp/10.77.1.10/4444`) is expected to be **blocked** by the firewall; the Defend network event records the attempt.
 

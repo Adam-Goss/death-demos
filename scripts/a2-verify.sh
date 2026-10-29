@@ -174,7 +174,8 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
   printf '| %s | %s:%s | %s | %s | %s | %s |\n' "$src" "$dst" "$port" "$mode" "$expected" "$actual" "$where"
 done < <($PY scripts/netpolicy.py matrix "$mode" "$sel")
 
-total=$($PY scripts/netpolicy.py matrix "$mode" "$sel" | awk -F'	' -v p="$want" '
+total=$($PY scripts/netpolicy.py matrix "$mode" "$sel" | awk -F'	' -v p="$want" -v only="${ONLY_DST:-}" '
+  only != "" && $3 != only {next}
   p=="lab"  && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2") {c++}
   p=="vpn"  && $2=="operator" {c++}
   p=="home" && ($2=="workstation"||$2=="home_other"||$2=="public") {c++}

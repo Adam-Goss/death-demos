@@ -1,4 +1,4 @@
-- name: Attacker tooling packages (maintenance mode only: no Internet otherwise)
+- name: "Attacker tooling packages (maintenance mode only: no Internet otherwise)"
   ansible.builtin.apt:
     name: "{{ attacker_packages }}"
     state: present

@@ -40,7 +40,7 @@ A rebuild (after M5's drain check exists): `scripts/target.sh bump t1`, then ste
 
 - **Nothing ran live.** Unverified until the first run: Fleet API payload shapes in `fleetctl.py` (input keys such as `auditd-auditd`, `docker-filestream`, `apache-filestream`, stream var names, the Defend `integration_config` preset, ES\|QL rule params); the `<stream>@custom` and `index.final_pipeline` merge into Defend's templates; `elastic-agent install` flags on 9.5.5; Debian 13 `docker-compose` package providing Compose v2; DVWA `setup.php` token markup and the "Setup successful" text; DVWA's `latest` image matching the compose commit a1978a2 (it is whatever `latest` was on 2026-10-28; the digest is the pin).
 - Dataset names in `plan.json` are still expected, not observed (see M3). `a3-verify.sh services` fails on any data stream outside a lab policy, which is how a wrong name shows up.
-- **Attacker and t2 can reach ingestion ports** (M3 gap, unchanged). t2 has no VM.
+- **Attacker no longer reaches the ingestion ports** (closed at M3/A3; only t1 and t2 may ingest). t2 has no VM.
 - `elastic-tunnel.sh` is needed for ES calls from the workstation; Kibana (5601) is direct.
 - Image digests pin the images, not the packages Debian `apt` installs at provision time (Debian is the moving part; recorded in the evidence if it matters).
 - **Events before `register-agent` runs are unstamped** (the pipeline maps `agent.id`, known only after enrolment). Backfill is not built; A4 uses events after registration.

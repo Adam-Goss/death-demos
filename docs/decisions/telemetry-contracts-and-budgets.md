@@ -25,9 +25,9 @@ Supports [Decide telemetry contracts, retention, and resource budgets](https://g
 | Evidence class | Retention |
 | --- | --- |
 | Endpoint (Defend), auditd, Apache/app logs, firewall flow logs | **90 days** |
-| Agent/system metrics | **14 days** |
+| Agent/system metrics, including the Agent's own monitoring streams (`*-elastic_agent.*`, e.g. `status_change` and `filebeat_input` observed on the Fleet Server at A3) | **14 days** |
 
-Lifecycle set per data stream; it is a minimum, not an exact expiry. Disk watermark (below) is the real limit. Revisit after measuring GB per exercise.
+The per-stream list is `network/plan.json` `elastic.datasets` (expected names, confirmed against real data at A4); a stream not on it is flagged by `a3-verify.sh services`. Lifecycle set per data stream; it is a minimum, not an exact expiry. Disk watermark (below) is the real limit. Revisit after measuring GB per exercise.
 
 ## Outage, buffering and loss
 

@@ -1,4 +1,6 @@
 *.sh text eol=lf
+# Python scripts run directly by their shebang; a CRLF shebang fails with 'python3\r: No such file'
+*.py text eol=lf
 # Files that run on the firewall or are loaded by it must be LF even on a Windows checkout (a CRLF shebang exits 127)
 scripts/firewall/* text eol=lf
 network/*.xml text eol=lf
