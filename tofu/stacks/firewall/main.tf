@@ -16,7 +16,7 @@ variable "datastore_id" {
 }
 
 variable "installer_iso_file_id" {
-  description = "Pinned OPNsense installer ISO, e.g. iso-files:iso/OPNsense-26.1-dvd-amd64.iso; checksum recorded in the M2 runbook. Unused when seeded."
+  description = "Pinned OPNsense installer ISO, e.g. iso-files:iso/OPNsense-26.1-dvd-amd64.iso; checksum recorded in the M2 runbook. Unused when cloning the template."
   type        = string
   default     = ""
 }
@@ -28,27 +28,15 @@ variable "attach_installer" {
 }
 
 variable "seed_iso_file_id" {
-  description = "Config seed ISO already in the ISO store (scripts/opnsense_seed.py iso, uploaded out of band), e.g. iso-files:iso/opaleye-fw-seed.iso. Attached in the cdrom slot once the installer is detached; the OPNsense config importer reads conf/config.xml from it. Ignored when seeded. The id is not a secret; the ISO content is, so keep the store private."
+  description = "Config seed ISO already in the ISO store (scripts/opnsense_seed.py iso, uploaded out of band), e.g. iso-files:iso/opaleye-fw-seed.iso. Attached in the cdrom slot once the installer is detached; the OPNsense config importer reads conf/config.xml from it. Ignored when cloning the template. The id is not a secret; the ISO content is, so keep the store private."
   type        = string
   default     = ""
 }
 
-variable "seeded" {
-  description = "Rebuild from the pre-installed nano image plus the config seed (scripts/seed-build.sh): no installer; the importer still needs one console step (see the M2 runbook). false = installer ISO path."
-  type        = bool
-  default     = false
-}
-
-variable "nano_image_path" {
-  description = "Prepared OPNsense nano disk: verified download plus dead-man files baked by scripts/bake-deadman.sh on a FreeBSD build host (see M2 runbook). Uploaded like the seed, so the token needs no Sys.* privilege. Used when seeded."
-  type        = string
-  default     = "../../../.state/opnsense-nano.raw"
-}
-
-variable "seed_iso_path" {
-  description = "Seed ISO built by scripts/seed-build.sh (holds the injected secrets; lives in encrypted state only). Used when seeded."
-  type        = string
-  default     = "../../../.state/opnsense-seed.iso"
+variable "firewall_template_vm_id" {
+  description = "Seeded OPNsense template (scripts/make-firewall-template.sh, in pool lab-firewall); 0 = build from the installer ISO instead. Cloned over the API, so a rebuild needs no importer and no console. The template disk holds the seed's secrets (WireGuard private key, API secret hash, root hash): keep its pool private, and rebuild the template to rotate a secret."
+  type        = number
+  default     = 0
 }
 
 variable "probe_vms" {
@@ -77,39 +65,16 @@ variable "probe_ssh_public_key" {
 
 # Single source of zones, bridges and addresses; the rules come from the same file.
 locals {
-  plan         = jsondecode(file("${path.module}/../../../network/plan.json"))
-  zones        = local.plan.zones
-  probe_zones  = var.probe_zones
-  probe_prefix = { for z in ["attacker", "elastic", "t1", "t2"] : z => split("/", local.zones[z].cidr)[1] }
+  plan          = jsondecode(file("${path.module}/../../../network/plan.json"))
+  from_template = var.firewall_template_vm_id > 0
+  zones         = local.plan.zones
+  probe_zones   = var.probe_zones
+  probe_prefix  = { for z in ["attacker", "elastic", "t1", "t2"] : z => split("/", local.zones[z].cidr)[1] }
 }
 
 # Proves the stack token can read its own pool, and nothing else.
 data "proxmox_virtual_environment_pool" "this" {
   pool_id = var.pool_id
-}
-
-resource "proxmox_virtual_environment_file" "nano" {
-  count        = var.seeded ? 1 : 0
-  node_name    = var.node_name
-  datastore_id = var.datastore_id
-  content_type = "import"
-  source_file {
-    path      = "${path.module}/${var.nano_image_path}"
-    checksum  = filesha256("${path.module}/${var.nano_image_path}")
-    file_name = "opnsense-nano.raw"
-  }
-}
-
-resource "proxmox_virtual_environment_file" "seed" {
-  count        = var.seeded ? 1 : 0
-  node_name    = var.node_name
-  datastore_id = var.datastore_id
-  content_type = "iso"
-  source_file {
-    path      = "${path.module}/${var.seed_iso_path}"
-    checksum  = filesha256("${path.module}/${var.seed_iso_path}")
-    file_name = "opnsense-seed.iso"
-  }
 }
 
 # The only lab guest with a NIC on the home bridge (first NIC = WAN). All other NICs are
@@ -146,21 +111,31 @@ resource "proxmox_virtual_environment_vm" "firewall" {
     dedicated = 4096
   }
 
+  dynamic "clone" {
+    for_each = local.from_template ? [1] : []
+    content {
+      vm_id        = var.firewall_template_vm_id
+      datastore_id = var.datastore_id
+      full         = true
+    }
+  }
+
   disk {
     datastore_id = var.datastore_id
     interface    = "virtio0"
     size         = 20
     file_format  = "raw"
-    import_from  = var.seeded ? proxmox_virtual_environment_file.nano[0].id : null
   }
 
-  # Seeded: the config seed. Otherwise the installer ISO (empty drive once installed).
-  cdrom {
-    # seeded: the uploaded seed. Otherwise installer first; after install the out-of-band seed (if any); "none" = empty drive
-    file_id = (var.seeded ? proxmox_virtual_environment_file.seed[0].id
-      : var.attach_installer ? var.installer_iso_file_id
-    : var.seed_iso_file_id != "" ? var.seed_iso_file_id : "none")
-    interface = "ide2"
+  # Templated: the clone carries the seeded disk, so no cdrom. Otherwise installer first; after
+  # install the out-of-band seed (if any); "none" = empty drive.
+  dynamic "cdrom" {
+    for_each = local.from_template ? [] : [1]
+    content {
+      file_id = (var.attach_installer ? var.installer_iso_file_id
+      : var.seed_iso_file_id != "" ? var.seed_iso_file_id : "none")
+      interface = "ide2"
+    }
   }
 
   dynamic "network_device" {

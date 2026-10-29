@@ -16,6 +16,8 @@
 # Env: PROBE_SSH (default: ssh -o BatchMode=yes -o ConnectTimeout=5, user opaleye), REVERIFY=1 (after a clean exercise/lab pass, clear labmode's re-verify flag),
 #      and for `failclosed` and the `home` phase (firewall WAN MAC): PROXMOX_VE_ENDPOINT, PROXMOX_VE_API_TOKEN_FIREWALL, PVE_NODE, PROXMOX_VE_INSECURE.
 #      ONLY_DST=<host> keeps only the rows whose destination is that host (A3 reruns the elastic rows against the real VM).
+#      SKIP_SOURCES="elastic" lists sources that have no probe guest (e.g. the real Elastic VM owns that address): their rows are
+#      SKIP, not ERROR, and the verdict becomes PASS-WITH-SKIPS. A source that is not listed but does not answer is still ERROR.
 # Exit non-zero if any row differs from expected. Rows that cannot be sourced from here are listed as SKIP.
 set -u
 cd "$(dirname "$0")/.."
@@ -91,7 +93,7 @@ if [ "${1:-}" = failclosed ]; then
   : "${PROXMOX_VE_ENDPOINT:?}" "${PROXMOX_VE_API_TOKEN_FIREWALL:?}" "${PVE_NODE:?}"
   vmid=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']['vm_id'])")
   api() { curl -sS -o /dev/null -w '%{http_code}' ${PROXMOX_VE_INSECURE:+-k} -X POST -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN_FIREWALL" "${PROXMOX_VE_ENDPOINT%/}/api2/json/nodes/$PVE_NODE/qemu/$vmid/status/$1"; }
-  rows=$($PY scripts/netpolicy.py matrix exercise t1 | awk -F'	' '$9=="allow" && $6=="tcp" && $12!="UPDATE_SOURCE" && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2")')
+  rows=$($PY scripts/netpolicy.py matrix exercise t1 | awk -F'	' -v skip="${SKIP_SOURCES:-}" '$9=="allow" && $6=="tcp" && $12!="UPDATE_SOURCE" && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2") && index(" " skip " ", " " $2 " ")==0')
   while IFS=$'	' read -r id src dst proto port kind family mode expected enf sip dip; do
     [ -n "$id" ] || continue
     run "$src" "$sip" "rm -f /tmp/fc-$id; nohup sh -c 'sleep 40; out=\$(timeout 3 bash -c \"echo >/dev/tcp/$dip/$port\" 2>&1); echo \"\$? \$out\" >/tmp/fc-$id' >/dev/null 2>&1 &" || { echo "cannot arm $id on $src" >&2; exit 1; }
@@ -127,21 +129,28 @@ LABMODE_LOG_BASELINE=$(mktemp); export LABMODE_LOG_BASELINE
 $PY scripts/labmode.py logmark "$LABMODE_LOG_BASELINE" || { echo "cannot read the firewall log" >&2; exit 1; }
 $PY scripts/netpolicy.py lint "$mode" "$sel" || exit 1  # the rules we think we pushed must already satisfy the matrix
 
-wan=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']['wan_ip'])")
-ufqdn=$($PY -c "import json;print(json.load(open('network/plan.json'))['update_sources'][0])")  # resolved on each vantage, through the firewall DNS
+wan=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']['wan_ip'])"); wan=${wan%$'\r'}  # Windows python prints CRLF
+ufqdn=$($PY -c "import json;print(json.load(open('network/plan.json'))['update_sources'][0])"); ufqdn=${ufqdn%$'\r'}  # resolved on each vantage, through the firewall DNS
 echo "| source | destination/port | mode | expected | actual | enforcement point |"
 echo "| --- | --- | --- | --- | --- | --- |"
 fail=0; skipped=0; n=0
 while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip dip; do
+  dip=${dip%$'\r'}  # last column: Windows python prints CRLF
   [ "$(phase_of "$src")" = "$want" ] || continue
   [ -z "${ONLY_DST:-}" ] || [ "$dst" = "$ONLY_DST" ] || continue
+  dips=
+  case " ${SKIP_SOURCES:-} " in *" $src "*) dip=; kind=skip ;; esac  # no probe guest for this source
   if [ "$dip" = UPDATE_SOURCE ]; then  # the firewall alias resolves via its own DNS; resolve the same way a real update would
-    dip=$(run "$src" "$sip" "getent ahostsv4 $ufqdn | awk 'NR==1{print \$1}'" 2>/dev/null)
+    # Every address the name resolves to: CDN answers rotate, and the alias holds whichever the firewall saw.
+    dips=$(run "$src" "$sip" "getent ahostsv4 $ufqdn | awk '{print \$1}' | sort -u" 2>/dev/null | tr -d '\r')
+    dip=$(echo "$dips" | head -n1)
   fi
   actual=SKIP
-  [ -z "${dip:-}" ] && [ "$kind" != no-ipv6 ] && actual=ERROR  # the update-source name did not resolve on the vantage: that is a broken path, not a skipped row
+  [ -z "${dip:-}" ] && [ "$kind" != no-ipv6 ] && [ "$kind" != skip ] && actual=ERROR  # the update-source name did not resolve on the vantage: that is a broken path, not a skipped row
   # A dead vantage would turn every deny row green: it must answer before its rows count.
-  if [ "$(phase_of "$src")" != none ] && ! run "$src" "$sip" true >/dev/null 2>&1; then
+  if [ "$kind" = skip ]; then
+    :  # SKIP_SOURCES: no probe guest for this source; reported as SKIP
+  elif [ "$(phase_of "$src")" != none ] && ! run "$src" "$sip" true >/dev/null 2>&1; then
     actual=ERROR
   elif [ "$src" = operator ] && [ "$kind" != no-ipv6 ] && ! ip route get "$dip" 2>/dev/null | grep -q "src $sip"; then
     actual=ERROR  # the route to this destination bypasses the tunnel: it never reaches the firewall's VPN interface
@@ -151,7 +160,18 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
     actual=ERROR  # no route into the firewall WAN: the probe would die at the home router and prove nothing
   elif [ "$(phase_of "$src")" != none ] && { [ "$dip" != "" ] || [ "$kind" = no-ipv6 ]; }; then
     case $kind in
-      tcp)      if [ "$src" = home_other ] || [ "$src" = public ]; then actual=$(probe_bound_tcp "$sip" "$dip" "$port"); else actual=$(probe_tcp "$src" "$sip" "$dip" "$port"); fi ;;
+      tcp)      if [ "$src" = home_other ] || [ "$src" = public ]; then actual=$(probe_bound_tcp "$sip" "$dip" "$port")
+                elif [ -n "$dips" ]; then  # update source: allowed if any address it resolves to is reachable
+                  actual=deny
+                  # CDN answers rotate and the alias only holds what the firewall resolved: when an allow is expected,
+                  # re-resolve and retry a few times before calling it a deny.
+                  for attempt in 1 2 3 4 5 6; do
+                    for d in $dips; do [ "$(probe_tcp "$src" "$sip" "$d" "$port")" = allow ] && { actual=allow; break 2; }; done
+                    [ "$expected" = allow ] || break
+                    sleep 3
+                    dips=$(run "$src" "$sip" "getent ahostsv4 $ufqdn | awk '{print \$1}' | sort -u" 2>/dev/null | tr -d '\r')
+                  done
+                else actual=$(probe_tcp "$src" "$sip" "$dip" "$port"); fi ;;
       dns)      actual=$(probe_dns "$src" "$sip" "$dip") ;;
       ntp)      actual=$(probe_ntp "$src" "$sip" "$dip") ;;
       wg)       if [ "$src" = home_other ]; then actual=$(probe_bound_udp "$sip" "$dip" "$port"); else actual=$(probe_wg "$sip"); fi ;;
