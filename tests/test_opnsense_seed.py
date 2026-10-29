@@ -83,6 +83,12 @@ class SeedTest(unittest.TestCase):
     def test_generation_is_deterministic(self):
         self.assertEqual(seed.template(self.plan), seed.template(self.plan))
 
+    def test_root_is_in_the_admins_group(self):
+        # without the group root has no GUI privileges and login is refused
+        g = self.root.find("system/group[name='admins']")
+        self.assertEqual(g.findtext("priv"), "page-all")
+        self.assertEqual(g.findtext("member"), "0")
+
     def test_render_injects_hashed_secrets(self):
         out = seed.render(ENV, self.plan)
         self.assertNotIn("@@", out)

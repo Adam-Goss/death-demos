@@ -160,11 +160,19 @@
       <protocol>https</protocol>
       <noantilockout>1</noantilockout>
     </webgui>
+    <group>
+      <gid>1999</gid>
+      <name>admins</name>
+      <scope>system</scope>
+      <description>System Administrators</description>
+      <priv>page-all</priv>
+      <member>0</member>
+    </group>
     <user>
       <name>root</name>
       <scope>system</scope>
       <uid>0</uid>
-      <groupname>admins</groupname>
+      <descr>System Administrator</descr>
       <password>@@ROOT_PASSWORD@@</password>
     </user>
     <user>

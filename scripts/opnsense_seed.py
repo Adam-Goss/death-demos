@@ -118,11 +118,18 @@ def build(plan, vals):
     _sub(web, "protocol", "https")
     _sub(web, "noantilockout", 1)                       # anti-lockout off: only 443 from the VPN reaches it
     # no <ipv6allow>: IPv6 stays off
+    grp = _sub(system, "group")                         # without it root has no GUI privileges (login refused)
+    _sub(grp, "gid", 1999)
+    _sub(grp, "name", "admins")
+    _sub(grp, "scope", "system")
+    _sub(grp, "description", "System Administrators")
+    _sub(grp, "priv", "page-all")
+    _sub(grp, "member", 0)
     u = _sub(system, "user")
     _sub(u, "name", "root")
     _sub(u, "scope", "system")
     _sub(u, "uid", 0)
-    _sub(u, "groupname", "admins")
+    _sub(u, "descr", "System Administrator")
     _sub(u, "password", vals["root_password"])
     a = _sub(system, "user")
     _sub(a, "name", API_USER)
@@ -275,7 +282,7 @@ def problems(xml):
     for tag in ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading"):
         if root.findtext("OPNsense/Interfaces/settings/" + tag) != "1":
             out.append("hardware offload not disabled (%s)" % tag)
-    for p in root.iter("priv"):
+    for p in root.iterfind("system/user/priv"):  # the admins group legitimately holds page-all
         if p.text in ("page-all", "user-shell-access"):
             out.append("API user has admin privilege " + p.text)
     for t in root.iter("tunneladdress"):
