@@ -34,7 +34,7 @@ variable "seed_iso_file_id" {
 }
 
 variable "seeded" {
-  description = "Rebuild from the pre-installed nano image plus the config seed (scripts/seed-build.sh): no installer, no console. false = installer ISO path."
+  description = "Rebuild from the pre-installed nano image plus the config seed (scripts/seed-build.sh): no installer; the importer still needs one console step (see the M2 runbook). false = installer ISO path."
   type        = bool
   default     = false
 }
