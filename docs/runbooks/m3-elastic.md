@@ -2,7 +2,7 @@
 
 Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Inputs: [telemetry contracts](../decisions/telemetry-contracts-and-budgets.md), [lifecycle](../decisions/deployment-and-reset-lifecycle.md).
 
-**Status: VM built, play converges (re-run changes nothing). A3 `services`, `net vpn` and `net lab` PASS (2026-10-29). `net lab` PASS (9 rows). `net home` NOT yet run (needs admin host routes).** M4 does not start before all A3 tables below are filled in and reviewed.
+**Status: VM built, play converges (re-run changes nothing). A3 `services`, `net vpn`, `net lab` and `net home` PASS (2026-10-29). `net lab` PASS (9 rows). `net home` PASS (1 row).** All A3 tables below are filled in; open before sign-off: the attacker/t2 ingestion-port rule (Known gaps).
 
 ## Decisions
 
@@ -120,4 +120,11 @@ phase=lab mode=exercise selected=t1 rows=9 skipped=0 PASS
 
 ### `a3-verify.sh net home`
 
-Not collected. Needs source aliases `192.168.0.50` and `203.0.113.55` and host routes to `10.77.1.10`, `10.77.3.10`, `10.77.11.10` via the firewall WAN `192.168.0.82` (admin on the Windows workstation). The M2 matrix (`netpolicy.py lint`) already asserts these rules; only the live probe is missing.
+Source aliases `192.168.0.50`, `203.0.113.55` and host routes to the lab targets via the firewall WAN `192.168.0.82` were added in WSL as root (`ip addr add ... dev eth6`, `ip route add`) and removed afterwards. Do not use `New-NetIPAddress` on a DHCP Wi-Fi interface: it disables DHCP and drops the primary address.
+
+ok: rules match the probe matrix (exercise)
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| workstation | elastic:5601 | exercise | deny | deny | firewall:wan (deny logged: yes) |
+
+phase=home mode=exercise selected=t1 rows=1 skipped=0 PASS
