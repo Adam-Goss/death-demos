@@ -53,7 +53,10 @@ SECRET_ENV = {
 PLACEHOLDER = re.compile(r"@@[A-Z_]+@@")
 WG_KEY = re.compile(r"^[A-Za-z0-9+/]{43}=$")
 
-NTP_POOL = "0.opnsense.pool.ntp.org 1.opnsense.pool.ntp.org 2.opnsense.pool.ntp.org 3.opnsense.pool.ntp.org"
+NTP_PREFER = "0.opnsense.pool.ntp.org"
+NTP_POOL = " ".join("%d.opnsense.pool.ntp.org" % i for i in range(4))
+OFFLOAD_TAGS = ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading")
+WG_NAME = "lab"  # instance name as exported from the working firewall; WG_IF is the interface it creates
 API_USER = "opaleye-api"
 # Not an administrator: rules (filter API), aliases, firewall log, WireGuard status. Never page-all.
 API_PRIVS = ["page-diagnostics-logs-firewall-dynamic", "page-diagnostics-logs-firewall-plain",
@@ -183,11 +186,11 @@ def build(plan, vals):
     general.find("enabled").text = "1"
     general.find("active_interface").text = ",".join(lab_ifaces)
     iset = _sub(_sub(opn, "Interfaces"), "settings", version="1.0.0")
-    for tag in ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading"):
+    for tag in OFFLOAD_TAGS:
         _sub(iset, tag, 1)                              # hardware offload off
     _sub(iset, "disableipv6", 1)
     ntp = _sub(root, "ntpd")
-    _sub(ntp, "prefer", NTP_POOL.split()[0])
+    _sub(ntp, "prefer", NTP_PREFER)
     _sub(ntp, "ispool", NTP_POOL)
     _sub(ntp, "interface", ",".join(lab_ifaces))
 
@@ -197,7 +200,7 @@ def build(plan, vals):
     server = _sub(_sub(wg, "server", version="1.0.1"), "servers")
     s = _sub(server, "server", uuid=_uuid("wg-instance-" + WG_IF))
     _sub(s, "enabled", 1)
-    _sub(s, "name", "lab")
+    _sub(s, "name", WG_NAME)
     _sub(s, "instance", 0)
     _sub(s, "pubkey", vals["wg_public"])
     _sub(s, "privkey", vals["wg_private"])
@@ -290,7 +293,7 @@ def problems(xml):
     for tag in ("blockpriv", "blockbogons"):
         if list(root.iter(tag)):
             out.append("%s set on an interface" % tag)
-    for tag in ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading"):
+    for tag in OFFLOAD_TAGS:
         if root.findtext("OPNsense/Interfaces/settings/" + tag) != "1":
             out.append("hardware offload not disabled (%s)" % tag)
     for p in root.iterfind("system/user/priv"):  # the admins group legitimately holds page-all
@@ -308,6 +311,7 @@ def looks_secret(xml):
     fields = ["system/user/password", "system/user/apikeys", "OPNsense/wireguard/server/servers/server/privkey"]
     for path in fields:
         for e in root.findall(path):
+            # apikeys is "key|hash": a placeholder pair (or "*") with the separator removed is empty, i.e. not a secret
             left = PLACEHOLDER.sub("", e.text or "").replace("|", "")
             if left and left != "*":
                 return True

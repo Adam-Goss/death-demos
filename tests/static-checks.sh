@@ -76,5 +76,7 @@ check "no rendered seed or ISO outside gitignored paths" bash -c "! git ls-files
 check "firewall stack takes the seed by file id only (no secret variables)" bash -c "grep -q seed_iso_file_id tofu/stacks/firewall/main.tf && ! grep -Eiq 'variable \"[a-z_]*(password|secret|private_key|api_key)' tofu/stacks/firewall/*.tf"
 check "seed ISO builder exists" test -x scripts/seed-build.sh
 check "seed ISO stays out of git" bash -c "git check-ignore -q .state/opnsense-seed.iso"
+check "nano image fetcher exists and its tests pass" bash -c "test -f scripts/fetch_nano.py && python3 -m unittest tests.test_fetch_nano"
+check "fetched nano image stays out of git" bash -c "git check-ignore -q .state/opnsense-nano.raw"
 
 exit $fail
