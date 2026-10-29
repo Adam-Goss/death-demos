@@ -69,10 +69,14 @@ def _send(link, line, seen):
 
 
 def import_seed(link, device="cd0", timeout=300):
-    """Menu -> shell -> opnsense-importer -> check the config landed -> power off."""
+    """(login) -> menu -> shell -> opnsense-importer -> check the config landed -> power off."""
     seen = [b""]
-    link.write(b"\n")  # the menu may already have been printed before we connected
-    _expect(link, MENU, timeout, seen)
+    link.write(b"\n")  # the menu or login prompt may already have been printed before we connected
+    if _expect(link, (MENU, LOGIN), timeout, seen) == LOGIN:
+        _send(link, NANO_USER, seen)
+        _expect(link, PASSWORD, timeout, seen)
+        _send(link, NANO_PASSWORD, seen)
+        _expect(link, MENU, timeout, seen)
     _send(link, "8", seen)
     _expect(link, PROMPT, timeout, seen)
     _send(link, "opnsense-importer %s && echo IMPORT-OK-$((6*7))" % device, seen)
