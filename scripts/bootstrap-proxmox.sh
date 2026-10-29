@@ -24,7 +24,7 @@ NET_ROLE=OpaleyeNet   # SDN.Use only, for lab bridges (M2)
 [ "$(id -u)" = 0 ] || { echo "run as root on the node" >&2; exit 1; }
 
 role_exists() { pveum role list --output-format json | tr -d ' ' | grep -q "\"roleid\":\"$1\""; }
-# AllocateTemplate: the firewall stack uploads the config seed ISO and the nano image (#31).
+# AllocateTemplate: the stacks clone templates (#41); the firewall stack no longer uploads the seed or nano image.
 # modify on rerun so an existing role picks up added privileges.
 if role_exists "$ROLE"; then pveum role modify "$ROLE" --privs "$(echo $PRIVS | tr ' ' ',')"
 else pveum role add "$ROLE" --privs "$(echo $PRIVS | tr ' ' ',')"; fi

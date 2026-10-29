@@ -81,4 +81,11 @@ check "seed ISO stays out of git" bash -c "git check-ignore -q .state/opnsense-s
 check "nano image fetcher exists and its tests pass" bash -c "test -f scripts/fetch_nano.py && python3 -m unittest tests.test_fetch_nano"
 check "fetched nano image stays out of git" bash -c "git check-ignore -q .state/opnsense-nano.raw"
 
+# M2 follow-up (issue #41): hands-off first boot from a cloned seeded template.
+check "firewall template builder and console driver exist" test -f scripts/make-firewall-template.sh -a -f scripts/firewall_console.py
+check "console driver tests pass" python3 -m unittest tests.test_firewall_console
+check "template builder deletes the seed ISO (secrets leave the store)" grep -q 'pvesm free "\$SEED_ISO"' scripts/make-firewall-template.sh
+check "template builder puts the template in the private lab-firewall pool" grep -q -- '--pool lab-firewall' scripts/make-firewall-template.sh
+check "firewall stack clones the template and uploads no seed or nano disk (secrets stay off the API and state)" bash -c "grep -q firewall_template_vm_id tofu/stacks/firewall/main.tf && ! grep -q proxmox_virtual_environment_file tofu/stacks/firewall/main.tf"
+
 exit $fail

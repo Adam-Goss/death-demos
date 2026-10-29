@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build the OPNsense seed ISO (issue #31) that the firewall stack attaches when seeded.
+# Build the OPNsense seed ISO (issue #31) and baked nano disk (#42) that scripts/make-firewall-template.sh
+# turns into the seeded template (#41) on the node. The firewall stack clones that template; it uploads neither.
 # Thin wrapper over the generator: config comes from network/plan.json, secrets only from the
 # operator environment (see scripts/opnsense_seed.py). Output lands in .state/ (gitignored).
 set -eu
