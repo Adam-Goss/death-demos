@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import subprocess
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -61,6 +62,20 @@ class SeedTest(unittest.TestCase):
         want = "lan,opt1,opt2,opt3"
         self.assertEqual(self.root.findtext("OPNsense/unboundplus/general/active_interface"), want)
         self.assertEqual(self.root.findtext("ntpd/interface"), want)
+
+    def test_seed_cli_keeps_alias_resolution_on_the_same_resolver_as_lab_guests(self):
+        output = subprocess.check_output([sys.executable, os.path.join(seed.ROOT, "scripts", "opnsense_seed.py"), "template"])
+        root = ET.fromstring(output)
+        self.assertEqual([e.text for e in root.findall("system/dnsserver")], ["127.0.0.1"])
+        self.assertEqual(root.findtext("system/dnsallowoverride"), "0")
+        self.assertIsNone(root.find("system/dnslocalhost"))
+        self.assertEqual(root.findtext("OPNsense/unboundplus/advanced/cacheminttl"), "600")
+
+    def test_seed_invariants_reject_external_resolver_fallbacks(self):
+        external = self.tpl.replace("<dnsserver>127.0.0.1</dnsserver>", "<dnsserver>192.168.0.1</dnsserver>")
+        self.assertTrue(seed.problems(external))
+        override = self.tpl.replace("<dnsallowoverride>0</dnsallowoverride>", "<dnsallowoverride>1</dnsallowoverride>")
+        self.assertTrue(seed.problems(override))
 
     def test_wireguard_is_v4_only_and_matches_plan(self):
         s = self.root.find("OPNsense/wireguard/server/servers/server")

@@ -131,7 +131,10 @@ def build(plan, vals):
     _sub(system, "domain", "lab.internal")
     _sub(system, "timezone", "Etc/UTC")
     _sub(system, "timeservers", NTP_POOL)                # ntpd_enabled() is just isset(system/timeservers)
-    _sub(system, "dnsserver", gw)
+    # Alias resolution and guests must share Unbound's cache. A home-router
+    # fallback can return a different CDN address and block approved updates.
+    _sub(system, "dnsserver", "127.0.0.1")
+    _sub(system, "dnsallowoverride", "0")
     web = _sub(system, "webgui")
     _sub(web, "protocol", "https")
     _sub(web, "noantilockout", 1)                       # anti-lockout off: only 443 from the VPN reaches it
@@ -197,6 +200,8 @@ def build(plan, vals):
     general = unbound.find("general")
     general.find("enabled").text = "1"
     general.find("active_interface").text = ",".join(lab_ifaces)
+    # Keep short-lived CDN answers stable across the 300-second alias refresh.
+    unbound.find("advanced/cacheminttl").text = "600"
     iset = _sub(_sub(opn, "Interfaces"), "settings", version="1.0.0")
     for tag in OFFLOAD_TAGS:
         _sub(iset, tag, 1)                              # hardware offload off
@@ -292,6 +297,12 @@ def problems(xml):
     """Static invariants for a seed (template or render). Empty list = pass."""
     out = []
     root = ET.fromstring(xml)
+    if ([e.text for e in root.findall("system/dnsserver")] != ["127.0.0.1"]
+            or root.findtext("system/dnsallowoverride") != "0"
+            or root.find("system/dnslocalhost") is not None):
+        out.append("system DNS must use only local Unbound without WAN override")
+    if root.findtext("OPNsense/unboundplus/advanced/cacheminttl") != "600":
+        out.append("Unbound minimum cache TTL must cover the alias refresh interval")
     jobs = root.findall("OPNsense/cron/jobs/job[command='opaleye deadman']")
     if len(jobs) != 1:
         out.append("expected one dead-man cron job")

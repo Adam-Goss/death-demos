@@ -85,7 +85,7 @@
         <discardtimeout />
         <cachemaxttl />
         <cachemaxnegativettl />
-        <cacheminttl />
+        <cacheminttl>600</cacheminttl>
         <infrahostttl />
         <infrakeepprobing>0</infrakeepprobing>
         <infracachenumhosts />
@@ -241,7 +241,8 @@
     <domain>lab.internal</domain>
     <timezone>Etc/UTC</timezone>
     <timeservers>0.opnsense.pool.ntp.org 1.opnsense.pool.ntp.org 2.opnsense.pool.ntp.org 3.opnsense.pool.ntp.org</timeservers>
-    <dnsserver>192.168.0.1</dnsserver>
+    <dnsserver>127.0.0.1</dnsserver>
+    <dnsallowoverride>0</dnsallowoverride>
     <webgui>
       <protocol>https</protocol>
       <noantilockout>1</noantilockout>
