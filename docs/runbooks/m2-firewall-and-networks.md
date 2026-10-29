@@ -423,3 +423,21 @@ After maintenance: `labmode.py exercise`, `REVERIFY=1 a2-verify.sh exercise none
 
 VM 2000 replaced with `tofu apply -replace=proxmox_virtual_environment_vm.firewall` (nano disk and seed ISO unchanged), then `opnsense-importer` on the console (cdrom), dead-man files fetched from the console and the cron job re-added by hand. `labmode.py arm` and `exercise t1` worked at once and adopted all six bootstrap rules in place (same UUIDs); the probe guests were recreated for one `lab` run: `phase=lab mode=exercise selected=t1 rows=39 skipped=0 PASS` (Unbound, ntpd and update-source rows included). Probes destroyed afterwards. Manual steps in this rebuild: the importer, the dead-man files and the cron job (#41, #42).
 
+
+### Issue #32 follow-up validation (2026-10-29)
+
+The API was reachable from the workstation and the pending/confirmed markers matched. Issue #31 records rebuild/A2 success, but does not record a deliberately breaking push reverting. TCP 22 to the firewall timed out from this workstation, and the API key received HTTP 403 from `cron/settings/search_jobs`; the revised job has therefore not been installed or exercised live here. **Issue #32 remains open pending the recovery test below.**
+
+The controller now brackets update-source alias changes with the pending/confirmed markers, including alias-only pushes, and refuses unarmed changes before mutating aliases. The job treats a failed reload as an error and keeps a durable retry marker; subsequent runs restore the saved config again and retry reload before saving another restore point.
+
+To collect the remaining evidence after installing the revised job through an available admin route:
+
+1. Check the every-minute cron job is enabled, run `labmode.py arm`, and wait for a successful job run. On the firewall verify `/var/db/opaleye/confirmed.xml` exists and its two marker aliases match. Keep a separate configuration backup.
+2. Run a normal `labmode.py exercise` push with a changed selected target. Record the output, matching API markers, and verify the selected rules persist beyond three minutes.
+3. From the VPN admin path, set the pending alias description to a fresh token, disable the managed VPN-to-firewall TCP 443 allow rule, and apply. Do not set the confirmed marker. Use fresh HTTPS connections to verify access is lost (an existing PF state may still pass).
+4. Leave the scheduler running without console intervention. Within about three minutes verify a fresh authenticated API connection succeeds, the allow rule is restored, and the markers match the saved config. Record timestamps for push, failed connection, recovery and the scheduler's `reverted` result.
+5. Repeat a normal push and verify it persists. Reconcile workstation mode with the actual firewall using `labmode.py exercise` after a rollback; a failed push does not commit workstation state.
+
+Do not mark recovery proven based only on matching markers or offline tests: those do not establish that cron runs or that the installed reload commands restore the admin path.
+
+Offline validation: 208 tests passed under WSL (one skipped) after locally normalizing the existing `tests/stub_ssh.py` CRLF shebang to LF; that unrelated normalization is not committed. Targeted labmode (23) and dead-man (10) tests, Python compilation, and `git diff --check` also passed. Native Windows/Git Bash suite groups fail on POSIX tool/permission assumptions; static policy, seed consistency, and secret guards passed.

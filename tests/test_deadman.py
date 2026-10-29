@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "firewall"))
 import opaleye_deadman as dm  # noqa: E402
@@ -60,6 +61,19 @@ class Deadman(unittest.TestCase):
             dm.subprocess.run = orig
         self.assertEqual(self.marker(), "good")
         self.assertEqual(calls, [["configctl", "filter", "reload"]])
+
+    def test_failed_reload_is_retried_before_another_config_is_saved(self):
+        self.write("a", "a", "good")
+        self.run_at(1000)
+        self.write("b", "a", "bad")
+        self.run_at(1060)
+        with patch.object(dm.subprocess, "run", side_effect=dm.subprocess.CalledProcessError(1, "reload")):
+            with self.assertRaises(dm.subprocess.CalledProcessError):
+                dm.run(self.cfg, self.state, 120, 1180, ["configctl filter reload"])
+        with patch.object(dm.subprocess, "run") as reload:
+            self.assertEqual(dm.run(self.cfg, self.state, 120, 1240, ["configctl filter reload"]), "reverted")
+            reload.assert_called_once_with(["configctl", "filter", "reload"], check=True)
+        self.assertEqual(self.marker(), "good")
 
     def test_the_bad_config_never_becomes_the_restore_point(self):
         self.write("a", "a", "good")

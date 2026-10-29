@@ -73,6 +73,8 @@ class LabMode(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("not armed", r.stderr)
         self.assertEqual(self.fw.mutations(), [])
+        self.assertNotIn("addAlias", self.fw.names())
+        self.assertNotIn("reconfigureAlias", self.fw.names())
 
     def test_a_previous_unconfirmed_push_blocks_the_next_one(self):
         next(a for a in self.fw.aliases.values() if a["name"] == "opaleye_pending")["description"] = "stale"
@@ -109,6 +111,17 @@ class LabMode(unittest.TestCase):
         second = self.run_cli("exercise", "t1")
         self.assertIn("applied", first.stdout)
         self.assertIn("no changes", second.stdout)
+
+    def test_alias_only_change_is_applied_and_confirmed(self):
+        self.assertEqual(self.run_cli("exercise", "t1").returncode, 0)
+        alias = next(a for a in self.fw.aliases.values() if a["name"] == "opaleye_update_sources")
+        alias["content"] = "stale.example"
+        self.fw.calls.clear()
+        result = self.run_cli("exercise", "t1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("deb.debian.org", next(a for a in self.fw.aliases.values() if a["name"] == "opaleye_update_sources")["content"])
+        self.assertEqual(self.fw.names().count("apply"), 1)
+        self.assertEqual(self.fw.marker("opaleye_pending"), self.fw.marker("opaleye_confirmed"))
 
     def test_update_sources_alias_is_created_from_the_plan(self):
         self.run_cli("exercise", "t1")
