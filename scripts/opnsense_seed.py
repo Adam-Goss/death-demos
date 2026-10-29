@@ -40,6 +40,7 @@ import labmode  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAN = os.path.join(ROOT, "network", "plan.json")
 SEED = os.path.join(ROOT, "network", "opnsense-seed.xml")
+UNBOUND_BASE = os.path.join(ROOT, "network", "opnsense-unbound-base.xml")  # default unboundplus subtree (no secrets)
 
 SECRET_ENV = {
     "root_password": "OPNSENSE_ROOT_PASSWORD",
@@ -172,9 +173,13 @@ def build(plan, vals):
 
     # Container versions as exported from 26.7: without them the model migrations run on the seed and reset
     # unboundplus/general/enabled to 0 (seen on the first rebuild).
-    unbound = _sub(_sub(opn, "unboundplus", version="1.0.15"), "general")
-    _sub(unbound, "enabled", 1)
-    _sub(unbound, "active_interface", ",".join(lab_ifaces))
+    # The whole subtree is seeded, not just general: configd renders unbound.conf from config.xml directly
+    # ('acls' missing -> template error -> no rc.conf.d, no Unbound). Defaults come from a 26.7 export.
+    unbound = ET.parse(UNBOUND_BASE).getroot()
+    opn.append(unbound)
+    general = unbound.find("general")
+    general.find("enabled").text = "1"
+    general.find("active_interface").text = ",".join(lab_ifaces)
     iset = _sub(_sub(opn, "Interfaces"), "settings", version="1.0.0")
     for tag in ("disablechecksumoffloading", "disablesegmentationoffloading", "disablelargereceiveoffloading"):
         _sub(iset, tag, 1)                              # hardware offload off
