@@ -23,6 +23,12 @@
     state: started
 
 # Lab NTP is on the firewall VM (.1 of this zone).
+- name: Timesyncd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/timesyncd.conf.d
+    state: directory
+    mode: "0755"
+
 - name: Lab NTP
   ansible.builtin.copy:
     dest: /etc/systemd/timesyncd.conf.d/lab.conf

@@ -159,12 +159,12 @@ def package_policy(target, pkg, plan, version=None):
         base["inputs"] = [{"type": "endpoint", "enabled": True, "streams": [], "config": {"integration_config": {
             "value": {"type": "endpoint", "endpointConfig": {"preset": "DataCollection"}}}}}]
     elif pkg == "auditd_manager":
-        base["inputs"] = {"auditd-auditd": {"enabled": True, "streams": {"auditd_manager.auditd": {
-            "enabled": True, "vars": {"audit_rules": AUDIT_RULES, "resolve_ids": True, "failure_mode": "log"}}}}}
+        base["inputs"] = {"auditd-audit/auditd": {"enabled": True, "streams": {"auditd_manager.auditd": {
+            "enabled": True, "vars": {"audit_rules": AUDIT_RULES, "socket_type": "unicast", "resolve_ids": True, "failure_mode": "log"}}}}}
     elif pkg == "docker":
         base["inputs"] = {
             "docker-filestream": {"enabled": True, "streams": {"docker.container_logs": {
-                "enabled": True, "vars": {"containers.ids": ["*"]}}}},
+                "enabled": True, "vars": {"paths": ["/var/lib/docker/containers/${docker.container.id}/*-json.log"], "custom": FINGERPRINT}}}},
             "docker-docker/metrics": {"enabled": False},
         }
     elif pkg == "apache":

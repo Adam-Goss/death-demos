@@ -2,7 +2,17 @@
 
 Issue #23. Exit = checks **A4, A5** in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Inputs: [telemetry contracts](../decisions/telemetry-contracts-and-budgets.md), [first targets](../decisions/first-targets-and-hunt-outcomes.md), [lifecycle](../decisions/deployment-and-reset-lifecycle.md), [M3 runbook](m3-elastic.md).
 
-**Status: code and offline tests only. A4 and A5 evidence is NOT collected.** Written without the VPN and before A3 (M3, PR #35) was run on the live lab; nothing here has touched the firewall, Proxmox or Elastic. Every "unverified" item below is a hypothesis that the first live run settles by editing code and re-running, not by hand repair. **M5 does not start until the A4/A5 tables at the bottom are filled in and reviewed**, and M4 itself should not start live work before A3 is signed off.
+**Status: template 2301 created; provisioning fixes pass offline checks. A4 and A5 evidence is NOT collected.** A3/#22 is accepted. The public Elastic CA was retrieved and the bare target template was created through the Proxmox API; target VM 2011 has not been deployed. Unverified items below must be settled by editing code and re-running, not by hand repair. **M5 does not start until the A4/A5 tables at the bottom are filled in and reviewed.**
+
+## WSL preflight (2026-10-29)
+
+M3/#22 is closed with A3 evidence accepted. M4 remains incomplete: no target VM was created and A4/A5 have not passed.
+
+- The shared `../env.sh` supplies working Proxmox and firewall credentials. Its commented `ELASTIC_PASSWORD` assignment returned HTTP 401 against the live Elastic VM; a current credential or the M3 secrets backup is needed. Do not re-run the entire Elastic role with a new empty secrets directory: that would generate a different CA and passwords. The public CA can be retrieved over the authenticated Elastic SSH connection.
+- Target template **2301 is created and verified** in `lab-targets`, powered off, using the existing bare Debian image and the parameters from `scripts/make-target-template.sh`. The authenticated root Proxmox API supplied the bootstrap operation because browser automation is unavailable. API disk import required the resolved image path `/mnt/pve/iso-files/template/iso/debian-13-genericcloud-amd64.img`; cloud-init disk and template conversion completed. No Agent or token was installed. Target VM 2011 is still absent.
+- Corrected the Auditd input key to `auditd-audit/auditd` and explicitly selected the unicast socket for rule management; Docker now uses the pinned manifest's `paths` setting and a 64-byte fingerprint. The target role creates the timesyncd drop-in directory before writing its configuration.
+- Corrected A5 to inspect the container's digest-pinned `Config.Image` and parse Agent JSON state (`2` = healthy); neither `RepoDigests` on a container nor the former `State:` text matcher works with the live tools.
+- Inspection of the downloaded, checksum-verified Apache 3.0.2 manifest found only the `logfile` input, **not** the `apache-filestream` input currently requested by `fleetctl.py`. This is an unresolved provisioning blocker: configure an actual Filestream input with the Apache parsing pipelines before claiming A4. Firewall flow-log ingestion and ingest-lag alert firing also remain outstanding.
 
 ## Decisions
 
@@ -38,7 +48,7 @@ A rebuild (after M5's drain check exists): `scripts/target.sh bump t1`, then ste
 
 ## Known gaps and unverified assumptions
 
-- **Nothing ran live.** Unverified until the first run: Fleet API payload shapes in `fleetctl.py` (input keys such as `auditd-auditd`, `docker-filestream`, `apache-filestream`, stream var names, the Defend `integration_config` preset, ES\|QL rule params); the `<stream>@custom` and `index.final_pipeline` merge into Defend's templates; `elastic-agent install` flags on 9.5.5; Debian 13 `docker-compose` package providing Compose v2; DVWA `setup.php` token markup and the "Setup successful" text; DVWA's `latest` image matching the compose commit a1978a2 (it is whatever `latest` was on 2026-10-28; the digest is the pin).
+- **Target provisioning has not run live.** Unverified until the first target deploy: Fleet API payload shapes in `fleetctl.py` (input keys such as `auditd-auditd`, `docker-filestream`, `apache-filestream`, stream var names, the Defend `integration_config` preset, ES\|QL rule params); the `<stream>@custom` and `index.final_pipeline` merge into Defend's templates; `elastic-agent install` flags on 9.5.5; Debian 13 `docker-compose` package providing Compose v2; DVWA `setup.php` token markup and the "Setup successful" text; DVWA's `latest` image matching the compose commit a1978a2 (it is whatever `latest` was on 2026-10-28; the digest is the pin).
 - Dataset names in `plan.json` are still expected, not observed (see M3). `a3-verify.sh services` fails on any data stream outside a lab policy, which is how a wrong name shows up.
 - **Attacker no longer reaches the ingestion ports** (closed at M3/A3; only t1 and t2 may ingest). t2 has no VM.
 - `elastic-tunnel.sh` is needed for ES calls from the workstation; Kibana (5601) is direct.
