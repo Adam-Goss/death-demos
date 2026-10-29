@@ -21,7 +21,8 @@ PROMPT = b"# "
 IMPORTED = b"IMPORT-OK-42"
 VERIFIED = b"CONFIG-OK-42"
 # 6*7 is expanded by the shell, so the echoed command line never contains the marker itself.
-CONFIG_CHECK = "grep -q opaleye-api /conf/config.xml && echo CONFIG-OK-$((6*7))"
+# root's console shell is csh, which rejects $((...)): run everything through sh -c '...'.
+CONFIG_CHECK = "sh -c 'grep -q opaleye-api /conf/config.xml && echo CONFIG-OK-$((6*7))'"
 
 
 class ConsoleError(Exception):
@@ -79,7 +80,7 @@ def import_seed(link, device="cd0", timeout=300):
         _expect(link, MENU, timeout, seen)
     _send(link, "8", seen)
     _expect(link, PROMPT, timeout, seen)
-    _send(link, "opnsense-importer %s && echo IMPORT-OK-$((6*7))" % device, seen)
+    _send(link, "sh -c 'opnsense-importer %s && echo IMPORT-OK-$((6*7))'" % device, seen)
     _expect(link, IMPORTED, timeout, seen)
     _send(link, CONFIG_CHECK, seen)
     _expect(link, VERIFIED, timeout, seen)
