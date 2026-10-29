@@ -37,6 +37,16 @@ class SeedTest(unittest.TestCase):
         self.assertFalse(seed.looks_secret(self.tpl))
         self.assertEqual(seed.problems(self.tpl), [])
 
+    def test_invariants_reject_missing_disabled_or_delayed_deadman(self):
+        for field, value in (("enabled", "0"), ("minutes", "5"), ("hours", "0"),
+                             ("days", "1"), ("months", "1"), ("weekdays", "1"),
+                             ("command", "filter reload"), ("parameters", "unexpected")):
+            root = ET.fromstring(self.tpl)
+            root.find("OPNsense/cron/jobs/job/" + field).text = value
+            self.assertTrue(seed.problems(ET.tostring(root, encoding="unicode")), field)
+        self.root.find("OPNsense").remove(self.root.find("OPNsense/cron"))
+        self.assertTrue(seed.problems(ET.tostring(self.root, encoding="unicode")))
+
     def test_interfaces_follow_plan(self):
         for i, z in enumerate(self.plan["nic_order"]):
             e = self.root.find("interfaces/" + self.plan["zones"][z]["iface"])
@@ -82,6 +92,22 @@ class SeedTest(unittest.TestCase):
 
     def test_generation_is_deterministic(self):
         self.assertEqual(seed.template(self.plan), seed.template(self.plan))
+
+    def test_deadman_runs_every_minute_after_seed_import(self):
+        cron = self.root.find("OPNsense/cron")
+        self.assertIsNotNone(cron)
+        self.assertEqual(cron.get("version"), "1.0.4")
+        jobs = cron.findall("jobs/job")
+        self.assertEqual(len(jobs), 1)
+        job = jobs[0]
+        self.assertEqual(job.findtext("enabled"), "1")
+        self.assertEqual(job.findtext("command"), "opaleye deadman")
+        self.assertEqual(job.findtext("origin"), "cron")
+        self.assertEqual(job.findtext("who"), "root")
+        self.assertEqual(job.findtext("description"), "Opaleye dead-man switch")
+        for field in ("minutes", "hours", "days", "months", "weekdays"):
+            self.assertEqual(job.findtext(field), "*", field)
+        self.assertEqual(job.findtext("parameters"), "")
 
     def test_root_is_in_the_admins_group(self):
         # without the group root has no GUI privileges and login is refused

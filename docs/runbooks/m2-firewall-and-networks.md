@@ -21,7 +21,7 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 - `network/plan.json`: single source (zones, bridges, hosts, services, targets, literal A2 probe table).
 - `scripts/netpolicy.py`: flows -> rendered ruleset; `lint` checks it against the probe table; `matrix`, `bridges`, `check`.
 - `scripts/opnsense.py`, `scripts/labmode.py`: push the ruleset (pending marker -> apply -> confirm marker; the dead-man job reverts a push the controller never confirmed) and switch exercise/maintenance/selected target. State and audit log in `.state/labmode.{json,log}`.
-- `scripts/firewall/opaleye_deadman.py`, `scripts/install-deadman.sh`: dead-man switch that runs on the firewall (#32); tests in `tests/test_deadman.py`.
+- `scripts/firewall/opaleye_deadman.py`, `scripts/firewall/actions_opaleye.conf`, `scripts/bake-deadman.sh`, `scripts/install-deadman.sh`: dead-man switch that runs on the firewall (#32); tests in `tests/test_deadman.py`.
 - `scripts/bootstrap-bridges.sh`: root, node shell. Writes `/etc/network/interfaces.d/opaleye-lab.conf` (outside the Ludus blocks) and `ifup`s only new bridges.
 - `tofu/stacks/firewall`: firewall VM (only guest with the home bridge, WAN = first NIC) and optional throwaway probe guests.
 - `scripts/opnsense_seed.py`, `network/opnsense-seed.xml`: first-boot `config.xml` seed (#31); tests in `tests/test_opnsense_seed.py`.
@@ -37,16 +37,116 @@ Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks
 1. Fix the two home placeholders in `network/plan.json`; `python3 scripts/netpolicy.py check`.
 2. Node, as root: `scripts/bootstrap-bridges.sh`, then `HOME_BRIDGE=vmbr0 BRIDGES="vmbr2001 vmbr2003 vmbr2011 vmbr2012" scripts/bootstrap-proxmox.sh` (home bridge ACL goes to the firewall token only).
 3. Upload the OPNsense ISO to `iso-files`; `export TF_VAR_node_name=ludus TF_VAR_installer_iso_file_id=iso-files:iso/<file>`; `scripts/lab.sh apply firewall`.
-4. **Seeded first boot (#31):** one console step remains (see Known gaps): the nano image does not import the seed by itself, so after `apply` run `opnsense-importer` on the VM console and pick the cdrom, then re-add the dead-man cron job. `network/opnsense-seed.xml` is the secret-free `config.xml` generated from `network/plan.json` (`python3 scripts/opnsense_seed.py template > network/opnsense-seed.xml` after any plan change; `tests/static-checks.sh` fails if stale or if it holds secrets). It sets the bootstrap rules above (`labmode.py exercise` then completes the ruleset), interfaces vtnet0..4, addresses, the WireGuard instance and peer, Unbound and NTP on the lab interfaces, the `opaleye-api` user and key, WAN "Block private networks" off, anti-lockout off, offload off, IPv6 off. Secrets come from the operator environment (`secrets/env.sh` is gitignored): `export OPNSENSE_ROOT_PASSWORD OPNSENSE_API_KEY OPNSENSE_API_SECRET OPNSENSE_WG_PRIVATE_KEY OPNSENSE_WG_PUBLIC_KEY OPNSENSE_WG_PEER_PUBLIC_KEY; scripts/seed-build.sh` (wraps `opnsense_seed.py iso`; writes `.state/opnsense-seed.iso`, gitignored; needs openssl and the `bcrypt` Python module for the root password hash, plus xorriso/genisoimage/mkisofs/hdiutil or the `pycdlib` module for the ISO). Then **nano image path:** `export OPNSENSE_NANO_URL=... OPNSENSE_NANO_SHA256=...` (from the release checksums file) before `scripts/seed-build.sh`, which also fetches, verifies and decompresses the nano image to `.state/opnsense-nano.raw`; then `TF_VAR_seeded=true scripts/lab.sh apply firewall` (both files are uploaded by Tofu; the token needs `Datastore.AllocateTemplate` on `iso-files`, no `Sys.*`); the nano image is pre-installed so the interactive installer is not involved (the importer still is, see above). **The seed ISO holds the plaintext WireGuard private key and API key and is uploaded to the Proxmox `iso-files` store and stays attached as the VM cdrom**; state keeps only its path, so keep that store private and detach and delete the ISO once the firewall is up. **Installer path:** upload the ISO to `iso-files` and `TF_VAR_attach_installer=false TF_VAR_seed_iso_file_id=iso-files:iso/opnsense-seed.iso scripts/lab.sh apply firewall`; the importer takes `conf/config.xml` from it. Still by hand: remote syslog to Elastic (M3) and `os-qemu-guest-agent`.
-5. `export OPNSENSE_URL=https://<fw> OPNSENSE_API_KEY=... OPNSENSE_API_SECRET=... OPNSENSE_INSECURE=true`; `python3 scripts/labmode.py exercise t1`.
+4. **Seeded first boot (#31):** one console step remains (see Known gaps): the nano image does not import the seed by itself, so after `apply` run `opnsense-importer` on the VM console and pick the cdrom, then reboot. The generated seed includes the enabled every-minute dead-man job; its files must already be baked into the nano disk as described below. `network/opnsense-seed.xml` is the secret-free `config.xml` generated from `network/plan.json` (`python3 scripts/opnsense_seed.py template > network/opnsense-seed.xml` after any plan change; `tests/static-checks.sh` fails if stale or if it holds secrets). It sets the bootstrap rules above (`labmode.py exercise` then completes the ruleset), interfaces vtnet0..4, addresses, the WireGuard instance and peer, Unbound and NTP on the lab interfaces, the `opaleye-api` user and key, WAN "Block private networks" off, anti-lockout off, offload off, IPv6 off. Secrets come from the operator environment (`secrets/env.sh` is gitignored): `export OPNSENSE_ROOT_PASSWORD OPNSENSE_API_KEY OPNSENSE_API_SECRET OPNSENSE_WG_PRIVATE_KEY OPNSENSE_WG_PUBLIC_KEY OPNSENSE_WG_PEER_PUBLIC_KEY; scripts/seed-build.sh` (wraps `opnsense_seed.py iso`; writes `.state/opnsense-seed.iso`, gitignored; needs openssl and the `bcrypt` Python module for the root password hash, plus xorriso/genisoimage/mkisofs/hdiutil or the `pycdlib` module for the ISO). Then **nano image path:** `export OPNSENSE_NANO_URL=... OPNSENSE_NANO_SHA256=...` (from the release checksums file) before `scripts/seed-build.sh`, which fetches, verifies and decompresses the pristine nano image to `.state/opnsense-nano-base.raw`, then bakes the dead-man files into `.state/opnsense-nano.raw` on a FreeBSD build host (see below); then `TF_VAR_seeded=true scripts/lab.sh apply firewall` (both files are uploaded by Tofu; the token needs `Datastore.AllocateTemplate` on `iso-files`, no `Sys.*`); the nano image is pre-installed so the interactive installer is not involved (the importer still is, see above). **The seed ISO holds the plaintext WireGuard private key and API key and is uploaded to the Proxmox `iso-files` store and stays attached as the VM cdrom**; state keeps only its path, so keep that store private and detach and delete the ISO once the firewall is up. **Installer path:** upload the ISO to `iso-files` and `TF_VAR_attach_installer=false TF_VAR_seed_iso_file_id=iso-files:iso/opnsense-seed.iso scripts/lab.sh apply firewall`; the importer takes `conf/config.xml` from it. Still by hand: remote syslog to Elastic (M3) and `os-qemu-guest-agent`.
+5. `export OPNSENSE_URL=https://<fw> OPNSENSE_API_KEY=... OPNSENSE_API_SECRET=... OPNSENSE_INSECURE=true`; `python3 scripts/labmode.py arm`; wait for the first per-minute restore point, then `python3 scripts/labmode.py exercise t1`.
 6. Probe guests: as root on the node, `scripts/make-probe-template.sh` (needs the Debian cloud `.img` on `iso-files`; builds template 2100 in pool lab-firewall). Then `TF_VAR_probe_vms=true TF_VAR_probe_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)" scripts/lab.sh apply firewall`. Then `scripts/a2-verify.sh exercise t1 lab`, `... vpn` (VPN up), `... home` (VPN down), `a2-verify.sh failclosed`.
 7. Maintenance: `labmode.py maintenance --minutes 30 --reason "..."`; run `labmode.py tick` every minute from a timer; after return, `REVERIFY=1 scripts/a2-verify.sh exercise t1 lab` clears the flag. `labmode.py select` refuses until then.
 8. Record the tables below; destroy probe guests; only then does M3 start.
 
+## Prepare the dead-man disk (#42)
+
+Use a disposable FreeBSD build host with this checkout and the verified nano image.
+`scripts/seed-build.sh` runs the fetch and bake together there (bash and the seed
+builder's Python dependencies are required). Alternatively, fetch on the workstation:
+
+```sh
+python3 scripts/fetch_nano.py "$OPNSENSE_NANO_URL" "$OPNSENSE_NANO_SHA256" .state/opnsense-nano-base.raw
+```
+
+Copy that pristine disk and the checkout to the FreeBSD builder, then run as root:
+
+```sh
+sh scripts/bake-deadman.sh .state/opnsense-nano-base.raw .state/opnsense-nano.raw
+```
+
+Copy the resulting `.state/opnsense-nano.raw` back to the workstation before applying
+the seeded firewall stack. On Windows/Linux, unset `OPNSENSE_NANO_URL` when building
+only the seed ISO with `scripts/seed-build.sh`; baking UFS requires FreeBSD. Bake again
+whenever either `scripts/firewall/*` file changes. The helper copies the pristine disk,
+finds its single UFS partition, mounts it offline, installs the script (0755) and configd
+action (0644), then unmounts and publishes the prepared disk. It does not change the
+pristine download or its checksum stamp. `scripts/install-deadman.sh` now takes a
+mounted offline root directory, rather than an SSH hostname.
+
+Tofu hashes both upload sources, so changed disk or seed contents trigger replacement
+even when their paths stay the same. The scoped deployment token can upload files but
+cannot delete their predecessors (`Datastore.Allocate` is required). When changing
+either artifact, back up VM 2000 and have an administrator remove just the obsolete
+`iso-files:import/opnsense-nano.raw` and/or `iso-files:iso/opnsense-seed.iso` through
+the storage API as part of the replacement. Re-plan after removal. An unchanged-disk,
+unchanged-seed VM rebuild reuses the uploads. The deployment token is not widened.
+
+**Why bake:** the [26.7 importer](https://github.com/opnsense/core/blob/stable/26.7/src/sbin/opnsense-importer)
+only restores a fixed list of files from `conf`; arbitrary adjacent scripts are not
+installed. Baking avoids firewall SSH, console file installation, and boot-time network
+downloads. The files live outside `/conf`, so importing the generated config preserves
+them. This does not solve the separate console step needed to invoke the importer.
+The Cron 1.0.4 layout and job fields match the operator's GUI export
+`config-opaleye-firewall.lab.internal-20261029113405.xml`; only its random UUID and
+`persisted_at` metadata are replaced/omitted. Never commit the full export: it contains secrets.
+
+### #42 validation
+
+Offline tests assert an enabled every-minute `opaleye deadman` entry and reject missing,
+disabled or delayed jobs. The existing API tests exercise `labmode.py arm`. Live baking
+and rebuilt-VM acceptance passed on 2026-10-29 (evidence below). To repeat the check:
+
+1. Import the seed and reboot. No cron GUI or firewall file installation is needed.
+2. Run `python3 scripts/labmode.py arm` over the VPN; it must return 0.
+3. Observe nobody's crontab rendering `* * * * * /usr/local/sbin/configctl -d -- opaleye deadman`.
+   Wait for at least two scheduled runs; record exit status 0 and advancing
+   `/var/db/opaleye/confirmed.xml` timestamps. A successful `arm` alone does not prove the scheduler works.
+4. Push exercise mode and verify it persists beyond the rollback window. Rerun A2 when changing network policy.
+
+### Issue #42 live rebuild evidence (2026-10-29)
+
+The bake ran as root in a temporary OPNsense 26.7 DVD VM on Proxmox, using the
+verified pristine nano disk. Its BSD UFS partition begins at sector zero, so
+`fstyp` identifies both the disk and its partition as UFS; the helper now selects
+the `freebsd-ufs` provider from `gpart show -p` instead of counting overlapping aliases.
+The prepared raw disk's SHA256 was
+`d957e55a8ae8bdbe6e83a076c1e6f47bc1596cfa371a6c3bf53e118da98dbe07`.
+Both installed files matched the repository hashes, with script mode 0755 and action
+mode 0644, on the mounted prepared disk and again on the rebuilt firewall.
+
+VM 2000 was backed up, destroyed and recreated through Tofu with that disk and the
+new seed ISO. The token's first attempt to delete the old uploads was refused;
+administrator storage-API deletion of those two files allowed the subsequent plan
+and apply to finish. No deployment privileges were widened. The separate #41
+importer step was performed using `opnsense-importer cd0 && reboot` on the console.
+No script/action installation, SSH access, cron GUI change, or cron file edit was
+performed on the rebuilt firewall.
+
+`labmode.py arm` returned 0 and created matching marker aliases. Nobody's generated
+crontab contained `* * * * * /usr/local/sbin/configctl -d -- opaleye deadman`.
+An explicit `configctl opaleye deadman` returned `OK` with exit status 0.
+Kernel tracing of configd and its children then established the scheduled executions:
+
+| UTC | Dead-man process | Result |
+| --- | --- | --- |
+| 15:45:00 | PID 10971 | Executed `/usr/local/sbin/opaleye_deadman.py`, exited 0 |
+| 15:46:00 | PID 21351 | Executed `/usr/local/sbin/opaleye_deadman.py`, exited 0 |
+| 15:47:00 | PID 34588 | Executed `/usr/local/sbin/opaleye_deadman.py`, exited 0 |
+
+`confirmed.xml` advanced at the minute boundaries without manual action. The trace
+captured system calls and path lookups, not file contents, and was disabled afterward.
+The exercise/t1 push at **15:44:26 UTC** remained confirmed at **15:48:09 UTC**
+(223 seconds): matching markers, t1 exercise rules enabled, t2 exercise rules disabled.
+The NIC audit passed; only VM 2000 touched the home bridge. Network policy was not
+changed by #42, so the full A2 matrix was not repeated for this check.
+
+The full offline suite (210 tests, one skipped), all static guards, Python compilation,
+and Tofu validation/format checks passed. Tests ran from a clean LF archive because
+the Windows checkout's existing `tests/stub_ssh.py` CRLF shebang breaks unrelated
+lab-operations tests. Both review axes found no code defects. Screenshots and local
+test artifacts remain under ignored `.state/`. The temporary builder and transfer
+servers were stopped. The pre-rebuild VM backup remains private under
+`/mnt/pve/iso-files/opaleye-build-42/backup/` on the node.
+
 ## Known gaps
 
-- **Config seed proven except the hands-off first boot** (#31): VM 2000 was destroyed and rebuilt from the nano image plus the seed on 2026-10-29 and all A2 phases passed on it (evidence at the end; fixes found along the way in "What the rebuild taught us"). The bootstrap rules match what `labmode.py` pushes, and its first sync adopted them in place (same rule UUIDs). **Still open:** the nano image does not import the seed by itself, so a rebuild needs one console step (`opnsense-importer`, pick the cdrom) plus re-adding the dead-man cron job; the rebuild with the final seed was applied by `cp` of the cdrom `config.xml`, not a clean importer run from a fresh checkout. Close #31 only after one of the hands-off options (UFS write into the nano image, a cloned pre-seeded template disk, or Proxmox `sendkey`) is built and one rebuild from a fresh checkout needs no console. Remote syslog to Elastic (M3) and `os-qemu-guest-agent` are still by hand. Still true after any rebuild: ping to the firewall is denied by design (only TCP 443 from the VPN); test with `curl -k https://10.77.9.1/`.
-- **Dead-man switch** (#32, replaces the missing core savepoint; **proven live on 26.7 on 2026-10-29**, see "Issue #32 live recovery evidence" below): `scripts/install-deadman.sh <fw>` installs the job and configd action. Add a GUI cron job every minute (System > Settings > Cron, "Opaleye dead-man switch"), then `labmode.py arm` and wait for the first saved restore point before pushing. Each push sets `opaleye_pending`, applies, then confirms through the API. If confirmation cannot reach the firewall for 120 s after cron first observes the pending token, the job restores the saved config and reloads aliases and the filter (worst case about three minutes). Reload failures retain a retry marker. Restoring also drops other config changes made since the last saved confirmed configuration. The controller refuses unarmed or already-unconfirmed pushes. Take a separate configuration backup before testing recovery. Rebuild-time installation and cron seeding remain tracked in #42.
+- **Config seed proven except the hands-off first boot** (#31): VM 2000 was destroyed and rebuilt from the nano image plus the seed on 2026-10-29 and all A2 phases passed on it (evidence at the end; fixes found along the way in "What the rebuild taught us"). The bootstrap rules match what `labmode.py` pushes, and its first sync adopted them in place (same rule UUIDs). **Still open:** the nano image does not import the seed by itself, so a rebuild needs one console step (`opnsense-importer`, pick the cdrom); the dead-man cron job is now included in the seed. In that earlier rebuild, the final seed was applied by `cp` of the cdrom `config.xml`, not a clean importer run from a fresh checkout. Close #31 only after one of the hands-off options (UFS write into the nano image, a cloned pre-seeded template disk, or Proxmox `sendkey`) is built and one rebuild from a fresh checkout needs no console. Remote syslog to Elastic (M3) and `os-qemu-guest-agent` are still by hand. Still true after any rebuild: ping to the firewall is denied by design (only TCP 443 from the VPN); test with `curl -k https://10.77.9.1/`.
+- **Dead-man switch** (#32, replaces the missing core savepoint; **proven live on 26.7 on 2026-10-29**, see "Issue #32 live recovery evidence" below): The prepared nano disk installs the script and configd action before upload, and the generated seed includes the enabled every-minute cron job (#42). After importing the seed and rebooting, run `labmode.py arm` and wait for the first saved restore point before pushing. Each push sets `opaleye_pending`, applies, then confirms through the API. If confirmation cannot reach the firewall for 120 s after cron first observes the pending token, the job restores the saved config and reloads aliases and the filter (worst case about three minutes). Reload failures retain a retry marker. Restoring also drops other config changes made since the last saved confirmed configuration. The controller refuses unarmed or already-unconfirmed pushes. Take a separate configuration backup before testing recovery. Baking and rebuilt-VM cron execution were verified live for #42; see the evidence below.
 - IPv6 is probed per side: lab vantages (no global address, no default route, no reply to an all-routers ping); VPN (the firewall's own WireGuard peer config routes no IPv6: `labmode.py wgv4only`); home (the firewall's WAN MAC from the Proxmox API must not answer a `ping -6 ff02::1`, with other neighbours answering as the control, else ERROR). The home probe needs `PROXMOX_VE_*`/`PVE_NODE` in the environment and a working IPv6 multicast path on the workstation. Recorded in the `vpn` and `home` runs below.
 - The `workstation -> fw:51820` allow row reads the firewall's own WireGuard status (`labmode.py wgpeer`: peer `workstation`, fresh handshake, endpoint `192.168.0.223`); needs the `VPN: WireGuard: Status` privilege on `opaleye-api`. Recorded in the `home` run below (7 rows, 0 skipped).
 - `attacker -> fw` is probed on 443/22 (p46, p47) in the `lab` phase only; the other phases' tables predate those rows.

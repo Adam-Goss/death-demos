@@ -11,5 +11,8 @@ echo ".state/opnsense-seed.iso built"
 # Unset OPNSENSE_NANO_URL/OPNSENSE_NANO_SHA256 to skip (installer path).
 if [ -n "${OPNSENSE_NANO_URL:-}" ]; then
   : "${OPNSENSE_NANO_SHA256:?set OPNSENSE_NANO_SHA256 with OPNSENSE_NANO_URL}"
-  python3 scripts/fetch_nano.py "$OPNSENSE_NANO_URL" "$OPNSENSE_NANO_SHA256" .state/opnsense-nano.raw
+  python3 scripts/fetch_nano.py "$OPNSENSE_NANO_URL" "$OPNSENSE_NANO_SHA256" .state/opnsense-nano-base.raw
+  # UFS writes need a FreeBSD build host. Publish the prepared disk separately;
+  # the pristine image and its checksum stamp remain the fetcher's cache.
+  sh scripts/bake-deadman.sh .state/opnsense-nano-base.raw .state/opnsense-nano.raw
 fi

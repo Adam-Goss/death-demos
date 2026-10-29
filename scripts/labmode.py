@@ -13,7 +13,7 @@
                                              from source address IP (the VPN allow on the firewall WAN, seen by the firewall)
   labmode.py wgv4only NAME                   exit 0 if WireGuard peer NAME routes no IPv6 (allowed-ips has no ':')
   labmode.py logmark FILE                    write the digests of the current log rows to FILE (the baseline)
-  labmode.py arm                             create the dead-man marker aliases (once, after install-deadman.sh)
+  labmode.py arm                             create the dead-man marker aliases (once, after seeded boot)
   labmode.py status
 
 Env: OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET, OPNSENSE_INSECURE=true (self-signed),
@@ -68,7 +68,7 @@ def sync(client, plan, mode, selected):
         return False
     pending, confirmed = client.marker(PENDING), client.marker(CONFIRMED)
     if pending is None or confirmed is None:
-        raise SystemExit("dead-man switch not armed: run scripts/install-deadman.sh, then labmode.py arm")
+        raise SystemExit("dead-man switch not armed: run labmode.py arm after booting the prepared firewall disk")
     if pending != confirmed:
         raise SystemExit("previous push was never confirmed: wait for the dead-man job to revert it (about %d s), then retry" % GRACE)
     token = uuid.uuid4().hex
