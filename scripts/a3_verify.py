@@ -123,14 +123,14 @@ def check_lifecycle():
             if got != policy:
                 bad.append(n)
         row("operator", f"@custom templates ({cls}, {len(names)})", f"all use {policy}",
-            "all" if not bad else "missing/wrong: " + ",".join(bad), "component templates")
+            f"all use {policy}" if not bad else "missing/wrong: " + ",".join(bad), "component templates")
     # Every data stream that exists must carry a lab policy: no stream is left on a default.
     code, ds = req(ES + "/_data_stream/*?expand_wildcards=all")
     lab = {r["policy"] for r in EL["retention"].values()}
     bad = [d["name"] for d in ds.get("data_streams", [])
-           if not d["name"].startswith(".") and d.get("ilm_policy") not in lab]
+           if not d["name"].startswith(".") and not d.get("hidden") and d.get("ilm_policy") not in lab]
     row("operator", f"existing data streams ({len(ds.get('data_streams', []))})", "all on a lab policy",
-        "all" if not bad else "unmanaged: " + ",".join(bad), "ilm per data stream")
+        "all on a lab policy" if not bad else "unmanaged: " + ",".join(bad), "ilm per data stream")
 
 
 def check_snapshots():

@@ -13,6 +13,30 @@
     group: elasticsearch
     mode: "0640"
 
+# Elasticsearch 9 entitlements only allow reading SSL files under /etc/elasticsearch.
+- name: Elasticsearch certs directory
+  ansible.builtin.file:
+    path: /etc/elasticsearch/certs
+    state: directory
+    owner: root
+    group: elasticsearch
+    mode: "0750"
+
+- name: Lab CA and server certificate for Elasticsearch
+  ansible.builtin.copy:
+    src: "/etc/lab-ca/{{ item.name }}"
+    remote_src: true
+    dest: "/etc/elasticsearch/certs/{{ item.name }}"
+    owner: root
+    group: elasticsearch
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: ca.crt, mode: "0640" }
+    - { name: server.crt, mode: "0640" }
+    - { name: server.key, mode: "0640" }
+  loop_control: { label: "{{ item.name }}" }
+  notify: Restart elasticsearch
+
 - name: Heap
   ansible.builtin.copy:
     dest: /etc/elasticsearch/jvm.options.d/heap.options
@@ -35,7 +59,8 @@
   ansible.builtin.shell: |
     set -e
     if ! /usr/share/elasticsearch/bin/elasticsearch-keystore list 2>/dev/null | grep -qx bootstrap.password; then
-      /usr/share/elasticsearch/bin/elasticsearch-keystore create 2>/dev/null || true
+      # The package creates the keystore; `create` on an existing one prompts to overwrite and hangs.
+      [ -f /etc/elasticsearch/elasticsearch.keystore ] || /usr/share/elasticsearch/bin/elasticsearch-keystore create </dev/null
       printf '%s' "$PW" | /usr/share/elasticsearch/bin/elasticsearch-keystore add -x -f bootstrap.password
       echo changed
     fi

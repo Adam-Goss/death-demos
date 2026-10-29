@@ -40,10 +40,10 @@
         "metrics-system.diskio", "metrics-system.filesystem", "metrics-system.fsstat", "metrics-system.process",
         "metrics-system.process_summary", "metrics-system.socket_summary", "metrics-system.uptime",
         "metrics-endpoint.metrics", "metrics-endpoint.policy", "metrics-endpoint.metadata",
-        "metrics-elastic_agent.elastic_agent", "metrics-elastic_agent.filebeat", "metrics-elastic_agent.metricbeat",
+        "metrics-elastic_agent.filebeat_input", "metrics-elastic_agent.elastic_agent", "metrics-elastic_agent.filebeat", "metrics-elastic_agent.metricbeat",
         "metrics-elastic_agent.fleet_server", "metrics-elastic_agent.endpoint_security",
         "metrics-fleet_server.agent_status", "metrics-fleet_server.agent_versions",
-        "logs-elastic_agent", "logs-elastic_agent.filebeat", "logs-elastic_agent.metricbeat",
+        "logs-elastic_agent.status_change", "logs-elastic_agent", "logs-elastic_agent.filebeat", "logs-elastic_agent.metricbeat",
         "logs-elastic_agent.fleet_server", "logs-elastic_agent.endpoint_security",
         "logs-fleet_server.output_health", "logs-system.syslog", "logs-system.auth"
       ]

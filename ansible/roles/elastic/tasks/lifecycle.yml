@@ -86,6 +86,34 @@
   become: false
   no_log: true
 
+# A data stream created before its @custom template existed keeps the default policy and replicas until it
+# rolls over. Re-apply no replicas to every backing index and roll over any lab stream not yet on its lab policy.
+- name: Existing lab data streams adopt the lab policy
+  ansible.builtin.shell: |
+    set -e
+    auth="-u elastic:$PW --cacert {{ secrets_dir }}/ca/ca.crt"
+    api={{ api_ctl }}
+    curl -sS -f $auth -X PUT -H 'Content-Type: application/json' -d '{"index.number_of_replicas":0}'       "$api/{{ item.name }}-*/_settings?expand_wildcards=all&ignore_unavailable=true&allow_no_indices=true" >/dev/null
+    curl -sS -f $auth "$api/_data_stream/{{ item.name }}-*?expand_wildcards=all" 2>/dev/null | python3 -c '
+    import json,sys
+    d=json.load(sys.stdin)
+    for s in d.get("data_streams",[]):
+        if s.get("ilm_policy")!="{{ el.retention[item.class].policy }}": print(s["name"])
+    ' | while read ds; do
+      curl -sS -f $auth -X POST "$api/$ds/_rollover" >/dev/null && echo "changed $ds"
+    done
+  environment:
+    PW: "{{ elastic_password }}"
+  register: adopt
+  changed_when: "'changed' in adopt.stdout"
+  loop: >-
+    {{ (el.datasets.evidence | map('community.general.dict_kv', 'name') | map('combine', {'class': 'evidence'}) | list)
+       + (el.datasets.metrics | map('community.general.dict_kv', 'name') | map('combine', {'class': 'metrics'}) | list) }}
+  loop_control: { label: "{{ item.name }}" }
+  delegate_to: localhost
+  become: false
+  no_log: true
+
 - name: Snapshot repository
   ansible.builtin.uri:
     url: "{{ api_ctl }}/_snapshot/{{ el.snapshots.repository }}"

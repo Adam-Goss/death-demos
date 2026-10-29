@@ -7,11 +7,12 @@
     - { dev: /dev/vdb, label: es-data }
     - { dev: /dev/vdc, label: es-snapshots }
 
+# Mode and owner are set on the mounted filesystem by the elasticsearch role; resetting them here would flip every run.
 - name: Mount points
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    mode: "0755"
+    mode: "{{ '0750' if ansible_facts['mounts'] | selectattr('mount', 'equalto', item) | list | length else '0755' }}"
   loop: [/var/lib/elasticsearch, /srv/es-snapshots]
 
 - name: Mount data and snapshot disks
@@ -26,6 +27,12 @@
     - { path: /srv/es-snapshots, label: es-snapshots }
 
 # Lab NTP is on the firewall VM (.1 of this zone). Elastic has no other route out.
+- name: Lab NTP drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/timesyncd.conf.d
+    state: directory
+    mode: "0755"
+
 - name: Lab NTP
   ansible.builtin.copy:
     dest: /etc/systemd/timesyncd.conf.d/lab.conf
