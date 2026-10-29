@@ -2,7 +2,7 @@
 
 Issue #21. Exit = check A2 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). **A2 is a hard gate before any vulnerable target powers on.** Policy: [ADR 0001](../adr/0001-isolate-the-attack-lab-behind-a-firewall-vm.md) and the #6 flow contract.
 
-**Status: fresh A2 closeout evidence recorded 2026-10-29 at the end of this runbook; pending Adam's review before #21 closes.** The OPNsense API field names and the Tofu VM arguments held up on 26.7 with the fixes recorded in git history; first-boot OPNsense setup is generated as a config seed (#31) and rebuilt hands-off from a cloned seeded template (#41): clone + start, no console or GUI step, all A2 phases pass on it, and the dead-man switch is proven live (#32).
+**Status: A2 closeout evidence recorded 2026-10-29 at the end of this runbook; Adam authorized PR merge and closure of #21.** The OPNsense API field names and the Tofu VM arguments held up on 26.7 with the fixes recorded in git history; first-boot OPNsense setup is generated as a config seed (#31) and rebuilt hands-off from a cloned seeded template (#41): clone + start, no console or GUI step, all A2 phases pass on it, and the dead-man switch is proven live (#32).
 
 ## Decisions (defaults accepted 2026-10-28)
 
@@ -971,5 +971,5 @@ and the VPN available for controller-timed maintenance expiry.
 Validation: **232 tests passed under WSL**, including 12 verifier CLI tests and
 17 seed tests. Static guards, Python compilation, Bash syntax, and diff whitespace
 checks passed. Standards and spec review found no outstanding findings after the
-retry-window correction. #21 remains open for Adam's acceptance review; no next
-milestone was started by this work.
+retry-window correction. Adam authorized PR merge and issue closure on 2026-10-29;
+no next milestone was started by this work.
