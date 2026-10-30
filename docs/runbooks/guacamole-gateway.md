@@ -2,7 +2,7 @@
 
 Issue #51. Part of #2; not part of M6. Foundation for the malware-analysis zone (follow-up issue).
 
-**Status: deployed and verified live on 2026-10-30.** TOTP enrolment, the browser RDP session to the attacker and the browser SSH session to t1 were completed by the operator. The one open item is the home-LAN deny probes (`p55`, `p72`), not run live.
+**Status: deployed and verified live on 2026-10-30.** TOTP enrolment, the browser RDP session to the attacker and the browser SSH session to t1 were completed by the operator. The home-LAN denies (`p55`, `p72`) were also probed live.
 
 ## Design
 
@@ -67,7 +67,7 @@ Add the host to `connections()` in `scripts/guacctl.py` (and a firewall flow and
 
 | Done when | Evidence | Result |
 | --- | --- | --- |
-| Reachable only through the VPN, not from the home LAN | A2 `p53` (operator to gateway:443) allow in both modes; `https://10.77.2.10/` answers 200 through the proxy. The home phase (`p55`, `p72`) was **not** run (needs host routes from the home segment) | VPN side passed; home-LAN denies not probed live |
+| Reachable only through the VPN, not from the home LAN | A2 `p53` (operator to gateway:443) allow in both modes; `https://10.77.2.10/` answers 200 through the proxy. Home phase, exercise mode, with a host route for `10.77.2.10/32` via the firewall WAN: `p55` (workstation to gateway:443) and `p72` (to gateway:22) both deny, each logged by the firewall (`a2-verify.sh`, `ONLY_DST=gateway`, 2 rows, 0 skipped, **PASS**) | **passed** |
 | TOTP required, default password gone | `scripts/guacctl.py check`: "default password gone, TOTP demanded". The check caught that `EXTENSIONS=auth-totp` loaded nothing; `TOTP_ENABLED=true` fixed it | passed; enrolment happens at the operator's first login |
 | RDP to the attacker desktop from the browser | gateway to attacker:3389 allowed (`p59`); the operator logged in to the XFCE desktop from the browser. The first attempt failed with "X server could not be started" until `xorgxrdp` was added to the attacker role | **passed** (operator-confirmed) |
 | SSH terminal to each target from the browser | the gateway key logs in to t1 as `opaleye`; the operator opened the `t1` terminal from the browser. t2 has no VM | **passed** (operator-confirmed) |
