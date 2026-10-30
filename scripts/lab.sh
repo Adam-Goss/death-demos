@@ -23,7 +23,8 @@ case $cmd in init|plan|apply|destroy) ;; *) echo "bad command" >&2; exit 1;; esa
 if [ "$target" = all ]; then
   stacks=$ORDER
   # Guard: a broad destroy never reaches Elastic evidence.
-  if [ "$cmd" = destroy ]; then stacks=$(echo $ORDER | tr ' ' '\n' | grep -v '^elastic$' | sed "1!G;h;$!d" | tr '\n' ' '); fi
+  # Single quotes: in double quotes bash expands `$!` and the sed script collapses to "delete everything".
+  if [ "$cmd" = destroy ]; then stacks=$(echo $ORDER | tr ' ' '\n' | grep -v '^elastic$' | sed '1!G;h;$!d' | tr '\n' ' '); fi
 else
   case " $ORDER " in *" $target "*) stacks=$target;; *) echo "unknown stack" >&2; exit 1;; esac
   if [ "$cmd" = destroy ] && [ "$target" = elastic ]; then

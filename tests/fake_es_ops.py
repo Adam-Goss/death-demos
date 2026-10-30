@@ -41,6 +41,7 @@ class FakeEs:
         self.docs = {}        # data stream -> [doc]
         self.calls = []       # (method, path, body)
         self.disk_percent = 40
+        self.unassigned_row = False  # the real _cat/allocation adds an UNASSIGNED row, disk.percent null, when a shard is unassigned
         self.down = False     # simulate an outage: every request is a 503
         self.drop_drain = False  # a drain marker that never arrives
         self.srv = HTTPServer(("127.0.0.1", 0), self._handler())
@@ -68,7 +69,10 @@ class FakeEs:
         if path == "/_cluster/health":
             return 200, {"status": "green", "number_of_nodes": 1}
         if path == "/_cat/allocation":
-            return 200, [{"node": "n1", "disk.percent": str(self.disk_percent)}]
+            rows = [{"node": "n1", "disk.percent": str(self.disk_percent)}]
+            if self.unassigned_row:
+                rows.append({"node": "UNASSIGNED", "disk.percent": None})
+            return 200, rows
         if path.endswith("/_doc") and method == "POST":
             stream = path.split("/")[1]
             if not (self.drop_drain and "drain" in json.dumps(body)):

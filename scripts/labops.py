@@ -13,6 +13,7 @@
   labops.py shutdown [--include-elastic] [--acknowledge-loss REASON]
                                            drain running targets, then graceful power-off of lab guests; nothing is destroyed
   labops.py startup  [--include-elastic]   power the lab guests back on (firewall first)
+  labops.py watermark                      high-watermark check for cron: exit 1 and ALERT at the plan limit (Basic-license fallback for the alert)
   labops.py status
 
 Evidence deletion is deliberately NOT here: it is its own guarded, confirmed command and nothing in this file can reach it.
@@ -76,6 +77,10 @@ class Ops:
     def save(self, event, **detail):
         with open(self.path, "w") as f:
             json.dump(self.state, f)
+        self.audit(event, **detail)
+
+    def audit(self, event, **detail):
+        """Audit line only. Commands that run from cron use this so they never rewrite the state file from a stale copy."""
         with open(self.log, "a") as f:
             f.write(json.dumps(dict(ts=stamp(), event=event, user=getpass.getuser(), **detail)) + "\n")
 
@@ -130,7 +135,7 @@ class Ops:
             die("firewall is not in exercise mode with %s selected: run scripts/labmode.py select %s" % (target, target))
         es = self.need_elastic()
         limit = self.plan["ops"]["high_watermark_pct"]
-        worst = max(float(r["disk.percent"]) for r in es.call("/_cat/allocation?format=json"))
+        worst = self.disk_worst(es)
         if worst >= limit:
             die("Elasticsearch disk at %g%% (high watermark %d%%): new exercises are blocked; free space via evidence deletion" % (worst, limit))
         generation = self.generation_of(target)
@@ -138,6 +143,24 @@ class Ops:
         self.state["active"] = {"id": exercise_id, "target": target, "generation": generation, "started": started}
         self.save("exercise-start", exercise_id=exercise_id, target=target)
         print("exercise %s started on %s (generation %d). On the attacker VM: exercise1 --exercise-id %s" % (exercise_id, target, generation, exercise_id))
+
+    @staticmethod
+    def disk_worst(es):
+        # An unassigned shard adds an UNASSIGNED row with a null disk.percent: it has no disk, so it is not a reading.
+        return max(float(r["disk.percent"]) for r in es.call("/_cat/allocation?format=json") if r.get("disk.percent") is not None)
+
+    def watermark(self):
+        """Scheduled check (cron, every few minutes): the high-watermark alert, as the Basic-license fallback from #9.
+        Exit 1 and a line on stderr at or over the plan limit; an Elastic outage is an error, never an `ok`."""
+        es = self.need_elastic()
+        limit = self.plan["ops"]["high_watermark_pct"]
+        worst = self.disk_worst(es)
+        if worst >= limit:
+            self.audit("watermark-alert", disk_percent=worst, limit=limit)
+            print("ALERT: Elasticsearch disk at %g%% (high watermark %d%%): new exercises are blocked; free space via evidence deletion" % (worst, limit), file=sys.stderr)
+            return 1
+        print("ok: Elasticsearch disk at %g%% (high watermark %d%%)" % (worst, limit))
+        return 0
 
     def exercise_end(self):
         active = self.state["active"]
@@ -316,7 +339,7 @@ def main(argv):
         power.add_argument("--include-elastic", action="store_true")
         if name == "shutdown":
             power.add_argument("--acknowledge-loss", metavar="REASON", default=None)
-    for name in ("attacker-clean", "status"):
+    for name in ("attacker-clean", "status", "watermark"):
         sub.add_parser(name)
     a = ap.parse_args(argv[1:])
 
@@ -340,6 +363,8 @@ def main(argv):
             return ops.power(a.cmd, a.include_elastic, getattr(a, "acknowledge_loss", None))
         elif a.cmd == "attacker-clean":
             return ops.attacker_clean()
+        elif a.cmd == "watermark":
+            return ops.watermark()
         elif a.cmd == "status":
             print(json.dumps(ops.state))
     except (elastic_api.EsError, pve.PveError) as e:

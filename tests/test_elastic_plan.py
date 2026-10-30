@@ -55,6 +55,21 @@ class DestroyGuard(unittest.TestCase):
         text = (ROOT / "scripts/lab.sh").read_text()
         self.assertIn("grep -v '^elastic$'", text)
 
+    def test_broad_destroy_runs_every_other_stack_in_reverse_order(self):
+        # Behavioural: a stub tofu records which stack each call ran in. A bash quoting slip once made the list empty.
+        with tempfile.TemporaryDirectory() as d:
+            log = pathlib.Path(d) / "calls"
+            stub = pathlib.Path(d) / "tofu"
+            stub.write_text('#!/bin/sh\necho "$(basename "$PWD") $1" >> "%s"\n' % log)
+            stub.chmod(0o755)
+            env = dict(os.environ, PATH=d + os.pathsep + os.environ["PATH"], OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij",
+                       PROXMOX_VE_ENDPOINT="https://x/")
+            for s in ("FIREWALL", "ELASTIC", "TARGETS", "ATTACKER"):
+                env["PROXMOX_VE_API_TOKEN_" + s] = "t"
+            r = subprocess.run(["bash", str(ROOT / "scripts/lab.sh"), "destroy", "all"], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(log.read_text().split("\n")[:-1], ["attacker destroy", "targets destroy", "firewall destroy"])
+
     def test_vm_has_prevent_destroy(self):
         text = (ROOT / "tofu/stacks/elastic/main.tf").read_text()
         self.assertRegex(text, r"prevent_destroy\s*=\s*true")

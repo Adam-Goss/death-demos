@@ -22,6 +22,14 @@ class AttackerStack(unittest.TestCase):
         ids += [t["template_vm_id"] for t in PLAN["targets"].values() if "template_vm_id" in t]
         self.assertEqual(len(ids), len(set(ids)))
 
+    def test_attacker_package_install_retries_on_a_cold_clone(self):
+        # Found by the from-scratch run (#25): the first apt update on a fresh clone can fail transiently in maintenance mode.
+        tasks = read("ansible/roles/attacker/tasks/main.yml")
+        first = tasks.split("\n\n")[0]
+        self.assertIn("update_cache: true", first)
+        self.assertIn("retries:", first)
+        self.assertIn("until:", first)
+
     def test_attacker_address_and_bridge_come_from_the_plan(self):
         tf = read("tofu/stacks/attacker/main.tf")
         self.assertIn('zones["attacker"]', tf)
