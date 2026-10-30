@@ -18,7 +18,10 @@ def matches(doc, q):
         return True
     if "bool" in q:
         b = q["bool"]
-        return all(matches(doc, c) for c in b.get("filter", []) + b.get("must", []))
+        return (all(matches(doc, c) for c in b.get("filter", []) + b.get("must", []))
+                and not any(matches(doc, c) for c in b.get("must_not", [])))
+    if "exists" in q:
+        return dig(doc, q["exists"]["field"]) is not None
     if "term" in q:
         (f, v), = q["term"].items()
         v = v.get("value") if isinstance(v, dict) else v
@@ -77,6 +80,14 @@ class FakeEs:
             return 200, {"hits": {"total": {"value": len(hits)}, "hits": [{"_source": d} for d in hits[: body.get("size", 10)]]}}
         if path.endswith("/_count"):
             return 200, {"count": len([d for d in self.select(path.split("/")[1]) if matches(d, (body or {}).get("query"))])}
+        if path.endswith("/_update_by_query"):
+            n = 0
+            for pat in path.split("/")[1].split(","):
+                for d in self.select(pat):
+                    if matches(d, body.get("query")):
+                        d.setdefault("lab", {})["exercise_id"] = body["script"]["params"]["id"]
+                        n += 1
+            return 200, {"updated": n}
         if path.endswith("/_delete_by_query"):
             name = path.split("/")[1]
             n = 0

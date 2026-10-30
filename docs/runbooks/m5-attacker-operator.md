@@ -24,7 +24,7 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 5. Exercise (tunnel open, `labmode.py select t1`):
    - `scripts/labops.py exercise start ex-001 --target t1`
    - on the attacker (`ssh opaleye@10.77.1.10`): `exercise1 --exercise-id ex-001 --target t1`
-   - `scripts/labops.py exercise end`
+   - `scripts/labops.py exercise end` (also stamps `lab.exercise_id` on the window's events; later, `scripts/labops.py exercise tag ID` catches stragglers)
    - hunt in Kibana: both directions (process to request, request to process) inside the window from `labops.py exercise show ex-001`
    - `scripts/labops.py drain t1`, then `labmode.py maintenance --minutes 60 --reason "target reset"` and `reset t1` (A7), then back to exercise mode with denies re-verified, and `attacker-clean`.
 6. Lab off/on: `labops.py shutdown [--include-elastic] [--acknowledge-loss REASON]` / `startup [--include-elastic]` (A9). Needs `PROXMOX_VE_ENDPOINT`, `PVE_NODE`, `PROXMOX_VE_API_TOKEN_{ATTACKER,TARGETS,FIREWALL}` (+ `_ELASTIC`).
@@ -39,7 +39,7 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 ## Known gaps / decisions for Adam
 
 - **Shutdown vs Elastic**: A9 says shutdown powers off *all* guests; the brief said shutdown must never reach Elastic. Implemented as: excluded by default, graceful `--include-elastic` opt-in. Confirm or change.
-- **`lab.exercise_id` is a marker window, not a per-event field** (the `lab-stamp` pipeline maps the field but nothing sets it per event). Apache requests also carry the id in the User-Agent.
+- **`lab.exercise_id` is stamped at `exercise end`** on that target's events (same generation) between the start and end markers, widened by plan `ops.tag_slack_s` (3 s) each side for clock skew and Apache's whole-second timestamps. Events still in transit at `end` are picked up by `labops.py exercise tag ID` (safe to re-run; already-tagged events and markers are skipped). Apache requests also carry the id in the User-Agent. Run live on `ex-003`: Apache 4, Defend process 163, Defend network 28, firewall flow 25, auditd 225 events tagged.
 - Reset needs maintenance mode (M4 provisioning pulls images); afterwards return with `labmode.py exercise`, re-verify denies, `labmode.py select`.
 - Shutdown drains running targets first (Elastic must answer, or `--acknowledge-loss REASON`).
 - `exercise end` needs Elastic; during an outage the exercise stays active (blocks shutdown, reset of that target and evidence deletion) until it returns.
@@ -80,7 +80,7 @@ Observations from this run:
 ### Decisions (Adam, 2026-10-30)
 
 - Shutdown leaves Elastic running by default; `--include-elastic` is an explicit graceful opt-in. Confirmed.
-- Exercise tagging: the marker window is kept, and Adam asked for more precision (see the open item in the issue).
+- Exercise tagging: Adam chose per-event stamping (option 1). Implemented as above; the marker window is kept as well.
 
 ### A3 (M3) prerequisite, re-checked 2026-10-30
 
