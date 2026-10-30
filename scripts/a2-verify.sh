@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # A2 evidence (issue #21): isolation and egress probe matrix, run against the live lab.
-#   a2-verify.sh <exercise|maintenance> [selected-target|none] [lab|vpn|home]
+#   a2-verify.sh <exercise|maintenance> [selected-target|none] [lab|vpn|home] [online]
+#     online: expect the analysis-zone Internet toggle to be on (labmode.py analysis on); the analysis rows change, nothing else
 #   a2-verify.sh failclosed
 # Prints one row per probe: source | destination/port | mode | expected | actual | enforcement point.
 # Phases (each needs a different vantage; run all three for a full A2):
-#   lab   probe guests in attacker/elastic/t1/t2 (tofu -var probe_vms=true); the gateway probes from the real gateway VM (no probe guest: it owns that address), reached over the VPN by SSH
+#   lab   probe guests in attacker/elastic/t1/t2 and flare/remnux (analysis zone; tofu -var probe_vms=true); the gateway probes from the real gateway VM (no probe guest: it owns that address), reached over the VPN by SSH
 #   vpn   from this workstation with the VPN UP   (source = operator)
 #   home  from this workstation entering through the firewall WAN (source = workstation). Needs host routes
 #         that beat the tunnel's /16, e.g. `sudo ip route add 10.77.11.10/32 via <wan_ip>` for each lab target
@@ -27,7 +28,7 @@ PROBE_SSH=${PROBE_SSH:-ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKey
 # run <src-host> <command>: execute on the vantage that owns that source address.
 run() {
   case $1 in
-    attacker|elastic|t1|t2|gateway) $PROBE_SSH "opaleye@$2" "$3" </dev/null ;;  # never let ssh eat the loop's stdin
+    attacker|elastic|t1|t2|gateway|flare|remnux) $PROBE_SSH "opaleye@$2" "$3" </dev/null ;;  # never let ssh eat the loop's stdin
     *) bash -c "$3" </dev/null ;;
   esac
 }
@@ -67,7 +68,7 @@ probe_noipv6_home() { # the firewall must not answer an all-nodes ping on the ho
   ip -6 neigh show dev "$iface" | $PY scripts/v6probe.py "$mac"
 }
 
-phase_of() { case $1 in attacker|elastic|t1|t2|gateway) echo lab ;; operator) echo vpn ;; workstation|home_other|public) echo home ;; *) echo none ;; esac; }
+phase_of() { case $1 in attacker|elastic|t1|t2|gateway|flare|remnux) echo lab ;; operator) echo vpn ;; workstation|home_other|public) echo home ;; *) echo none ;; esac; }
 
 # Extra home-side source addresses are aliases on this host (sudo ip addr add <ip>/32 dev <if>); the probe binds to them.
 probe_bound_tcp() { # src_ip dst_ip port
@@ -93,7 +94,7 @@ if [ "${1:-}" = failclosed ]; then
   : "${PROXMOX_VE_ENDPOINT:?}" "${PROXMOX_VE_API_TOKEN_FIREWALL:?}" "${PVE_NODE:?}"
   vmid=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']['vm_id'])")
   api() { curl -sS -o /dev/null -w '%{http_code}' ${PROXMOX_VE_INSECURE:+-k} -X POST -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN_FIREWALL" "${PROXMOX_VE_ENDPOINT%/}/api2/json/nodes/$PVE_NODE/qemu/$vmid/status/$1"; }
-  rows=$($PY scripts/netpolicy.py matrix exercise t1 | awk -F'	' -v skip="${SKIP_SOURCES:-}" '$9=="allow" && $6=="tcp" && $12!="UPDATE_SOURCE" && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2"||$2=="gateway") && index(" " skip " ", " " $2 " ")==0')
+  rows=$($PY scripts/netpolicy.py matrix exercise t1 | awk -F'	' -v skip="${SKIP_SOURCES:-}" '$9=="allow" && $6=="tcp" && $12!="UPDATE_SOURCE" && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2"||$2=="gateway"||$2=="flare"||$2=="remnux") && index(" " skip " ", " " $2 " ")==0')
   while IFS=$'	' read -r id src dst proto port kind family mode expected enf sip dip; do
     [ -n "$id" ] || continue
     run "$src" "$sip" "rm -f /tmp/fc-$id; nohup sh -c 'sleep 40; out=\$(timeout 3 bash -c \"echo >/dev/tcp/$dip/$port\" 2>&1); echo \"\$? \$out\" >/tmp/fc-$id' >/dev/null 2>&1 &" || { echo "cannot arm $id on $src" >&2; exit 1; }
@@ -127,13 +128,14 @@ want=${3:-lab}
 case $mode in exercise|maintenance) ;; *) echo "invalid mode: $mode" >&2; exit 1 ;; esac
 case $want in lab|vpn|home) ;; *) echo "invalid phase: $want" >&2; exit 1 ;; esac
 # Capture once and check the producer's status: process substitution hides failures.
-matrix=$($PY scripts/netpolicy.py matrix "$mode" "$sel") || exit 1
+online=; [ "${4:-}" = online ] && online=online  # analysis-zone Internet toggle on: probe the online rules (labmode.py analysis on first)
+matrix=$($PY scripts/netpolicy.py matrix "$mode" "$sel" $online) || exit 1
 # Only blocks logged after this point count as evidence for this run (digests of the rows already in the log).
 LABMODE_LOG_BASELINE=$(mktemp) || exit 1
 export LABMODE_LOG_BASELINE
 trap 'rm -f "$LABMODE_LOG_BASELINE"' EXIT
 $PY scripts/labmode.py logmark "$LABMODE_LOG_BASELINE" || { echo "cannot read the firewall log" >&2; exit 1; }
-$PY scripts/netpolicy.py lint "$mode" "$sel" || exit 1  # the rules we think we pushed must already satisfy the matrix
+$PY scripts/netpolicy.py lint "$mode" "$sel" $online || exit 1  # the rules we think we pushed must already satisfy the matrix
 
 wan=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']['wan_ip'])"); wan=${wan%$'\r'}  # Windows python prints CRLF
 ufqdn=$($PY -c "import json;print(json.load(open('network/plan.json'))['update_sources'][0])"); ufqdn=${ufqdn%$'\r'}  # resolved on each vantage, through the firewall DNS
@@ -203,7 +205,7 @@ done <<<"$matrix"
 
 total=$(printf '%s\n' "$matrix" | awk -F'	' -v p="$want" -v only="${ONLY_DST:-}" '
   only != "" && $3 != only {next}
-  p=="lab"  && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2"||$2=="gateway") {c++}
+  p=="lab"  && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2"||$2=="gateway"||$2=="flare"||$2=="remnux") {c++}
   p=="vpn"  && $2=="operator" {c++}
   p=="home" && ($2=="workstation"||$2=="home_other"||$2=="public") {c++}
   END {print c+0}')

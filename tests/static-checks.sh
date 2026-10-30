@@ -10,7 +10,7 @@ ok()  { echo "ok   $*"; }
 bad() { echo "FAIL $*"; fail=1; }
 check() { local desc=$1; shift; if "$@" >/dev/null 2>&1; then ok "$desc"; else bad "$desc"; fi; }
 
-stacks=(firewall elastic targets attacker gateway)
+stacks=(firewall elastic targets attacker gateway analysis)
 
 for s in "${stacks[@]}"; do
   d=tofu/stacks/$s
@@ -94,5 +94,12 @@ check "gateway tests pass" python3 -m unittest tests.test_guacctl
 check "no Guacamole secrets in the gateway role or guacctl (generated on the VM / from env)" bash -c "! grep -REn 'PASSWORD *[=:] *[A-Za-z0-9]{12,}' ansible/roles/gateway scripts/guacctl.py"
 check "gateway secrets directory is gitignored" bash -c "git check-ignore -q secrets/gateway/targets_ed25519"
 check "gateway playbook passes syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/gateway.yml --syntax-check)"
+
+# #52: malware analysis zone guards.
+check "analysis rules match the A2 probe matrix with the Internet toggle on (exercise)" python3 scripts/netpolicy.py lint exercise none online
+check "analysis rules match the A2 probe matrix with the Internet toggle on (maintenance)" python3 scripts/netpolicy.py lint maintenance none online
+check "analysis plan, labmode toggle, reset, fleet policy and connection tests pass" python3 -m unittest tests.test_analysis_plan tests.test_netpolicy tests.test_labmode tests.test_labops tests.test_fleetctl tests.test_guacctl
+check "no secrets in the analysis role, runbook or ops commands" bash -c "! grep -REn 'PASSWORD *[=:] *[A-Za-z0-9]{12,}' ansible/roles/analysis_remnux docs/runbooks/malware-analysis.md scripts/labops.py"
+check "analysis playbook passes syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/analysis.yml --syntax-check)"
 
 exit $fail

@@ -14,6 +14,11 @@
                                            drain running targets, then graceful power-off of lab guests; nothing is destroyed
   labops.py startup  [--include-elastic]   power the lab guests back on (firewall first)
   labops.py watermark                      high-watermark check for cron: exit 1 and ALERT at the plan limit (Basic-license fallback for the alert)
+  labops.py analysis-online on|off|status [--minutes N]
+                                           malware analysis zone (#52): Internet on (30 min default, auto-expires, `on` again extends) or off
+  labops.py analysis-sample start ID | end set lab.sample_id on analysis-zone events (markers + stamping, like an exercise)
+  labops.py analysis-reset [HOST ...] [--acknowledge-loss REASON]
+                                           force analysis Internet off, drain check, revert flare/remnux to the clean snapshot, fresh enrolment
   labops.py status
 
 Evidence deletion is deliberately NOT here: it is its own guarded, confirmed command and nothing in this file can reach it.
@@ -23,6 +28,8 @@ Shutdown leaves Elastic running unless --include-elastic is given, and then only
 Env: LABMODE_STATE_DIR (default .state, shared with labmode.py), LAB_PLAN, the ELASTIC_* variables of
      scripts/elastic_api.py, PROXMOX_VE_ENDPOINT, PVE_NODE, PROXMOX_VE_INSECURE, PROXMOX_VE_API_TOKEN_<STACK>
      (shutdown/startup), LABOPS_SSH / LABOPS_TARGET_SH (command overrides, used by tests),
+     LABOPS_LABMODE / LABOPS_FLEETCTL (command overrides, used by tests), PROXMOX_VE_API_TOKEN_ANALYSIS (analysis-reset: the token
+     with snapshot rights on the analysis pool only),
      LABOPS_POLL (seconds, default plan ops.drain.poll_s), LABOPS_DRAIN_TIMEOUT, LABOPS_SHUTDOWN_WAIT.
 """
 import argparse
@@ -106,11 +113,15 @@ class Ops:
             die("Elastic is not answering (%s); is the tunnel up (scripts/elastic-tunnel.sh)? No exercise start, reset or shutdown during an outage" % e)
         return es
 
-    def ssh(self, host, command):
+    def ssh(self, host, command, stdin=None):
+        """Analysis hosts are reachable only from the gateway VM: jump through it."""
+        analysis = host in self.plan["analysis"]["hosts"]
+        user = self.plan["analysis"]["ssh_user"] if analysis else self.plan["ops"]["ssh_user"]
+        jump = ["-J", "%s@%s" % (self.plan["ops"]["ssh_user"], self.plan["hosts"]["gateway"]["ip"])] if analysis else []
         argv = shlex.split(os.environ.get("LABOPS_SSH", "ssh")) + [
-            "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
-            "%s@%s" % (self.plan["ops"]["ssh_user"], self.plan["hosts"][host]["ip"]), command]
-        return subprocess.run(argv).returncode
+            "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", *jump,
+            "%s@%s" % (user, self.plan["hosts"][host]["ip"]), command]
+        return subprocess.run(argv, input=stdin, text=True).returncode
 
     def marker(self, es, action, exercise_id, target, generation):
         when = stamp()
@@ -287,6 +298,155 @@ class Ops:
         if mode != "maintenance":
             die("provisioning needs maintenance mode: run scripts/labmode.py maintenance --minutes 60 --reason \"target reset\" first")
 
+    # ---- malware analysis zone (#52) ------------------------------------------------------------------------------
+
+    def analysis_host(self, name):
+        if name not in self.plan["analysis"]["hosts"]:
+            die("%r is not an analysis host (%s)" % (name, ", ".join(self.plan["analysis"]["hosts"])))
+        return name
+
+    def labmode(self, *args):
+        argv = shlex.split(os.environ.get("LABOPS_LABMODE") or "") or [sys.executable, os.path.join(ROOT, "scripts/labmode.py")]
+        return subprocess.run(argv + list(args), cwd=ROOT).returncode
+
+    def analysis_online(self, action, minutes):
+        args = ["analysis", action] + (["--minutes", str(minutes)] if minutes is not None else [])
+        rc = self.labmode(*args)
+        if rc == 0 and action != "status":
+            self.audit("analysis-online-" + action, minutes=minutes)
+            if action == "on":
+                print("Go offline BEFORE detonating a sample (C2 and home-IP risk): labops.py analysis-online off")
+        return rc
+
+    def sample_marker(self, es, action, sample_id):
+        when = stamp()
+        es.call("/%s/_doc" % self.plan["ops"]["marker_stream"], {
+            "@timestamp": when, "message": "%s %s analysis" % (action, sample_id),
+            "event": {"action": action, "dataset": "lab_marker.events", "kind": "event"},
+            "lab": {"sample_id": sample_id, "zone": "analysis"}})
+        return when
+
+    def analysis_sample_start(self, sample_id):
+        if not EXERCISE_ID.match(sample_id):
+            die("sample id must match %s" % EXERCISE_ID.pattern)
+        if self.state.get("sample"):
+            die("sample %s is still active (one at a time): run `analysis-sample end`" % self.state["sample"]["id"])
+        es = self.need_elastic()
+        started = self.sample_marker(es, "sample-start", sample_id)
+        self.state["sample"] = {"id": sample_id, "started": started}
+        self.save("sample-start", sample_id=sample_id)
+        print("sample %s started: analysis-zone events get lab.sample_id when you run `analysis-sample end`" % sample_id)
+
+    def analysis_sample_end(self):
+        active = self.state.get("sample")
+        if not active:
+            die("no active sample")
+        es = self.need_elastic()
+        ended = self.sample_marker(es, "sample-end", active["id"])
+        self.state["sample"] = None
+        self.save("sample-end", sample_id=active["id"])
+        slack = datetime.timedelta(seconds=self.plan["ops"]["tag_slack_s"])
+
+        def widen(ts, sign):
+            when = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")) + sign * slack
+            return when.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        try:
+            res = es.call("/logs-*,metrics-*/_update_by_query?conflicts=proceed&refresh=true&ignore_unavailable=true", {
+                "query": {"bool": {
+                    "filter": [{"term": {"lab.zone": "analysis"}},
+                               {"range": {"@timestamp": {"gte": widen(active["started"], -1), "lte": widen(ended, 1)}}}],
+                    "must_not": [{"exists": {"field": "lab.sample_id"}}, {"term": {"event.dataset": "lab_marker.events"}}]}},
+                "script": {"lang": "painless", "params": {"id": active["id"]},
+                           "source": "if (ctx._source.lab == null) { ctx._source.lab = new HashMap(); } ctx._source.lab.sample_id = params.id"}})
+            print("sample %s ended: tagged %d events with lab.sample_id" % (active["id"], res.get("updated", 0)))
+        except elastic_api.EsError as e:
+            print("warning: events not tagged (%s): see the analysis runbook to repeat the stamping" % e, file=sys.stderr)
+
+    def analysis_generation(self, host):
+        return self.state.get("analysis_generation", {}).get(host, 1)
+
+    def analysis_drain(self, host, es):
+        """Write a drain marker into the host's drain log (shipped by its agent) and wait for it in Elasticsearch."""
+        cfg = self.plan["analysis"]
+        token = secrets.token_hex(8)
+        line = "opaleye-drain/%s zone=analysis host=%s generation=%d" % (token, host, self.analysis_generation(host))
+        if cfg["hosts"][host]["os"] == "windows":
+            cmd = 'powershell -NoProfile -Command "Add-Content -Path \'%s\' -Value \'%s\'"' % (cfg["drain"]["log_windows"], line)
+        else:
+            cmd = "printf '%%s\\n' %s | sudo -n tee -a %s >/dev/null" % (shlex.quote(line), shlex.quote(cfg["drain"]["log_linux"]))
+        if self.ssh(host, cmd) != 0:
+            print("drain marker could not be written on %s (ssh failed)" % host, file=sys.stderr)
+            return False
+        end = time.time() + float(os.environ.get("LABOPS_DRAIN_TIMEOUT") or self.drain_cfg["timeout_s"])
+        query = {"query": {"bool": {"filter": [{"term": {"lab.zone": "analysis"}},
+                                                {"match_phrase": {"message": "opaleye-drain/" + token}}]}}, "size": 1}
+        while True:
+            try:
+                if es.call("/logs-*/_search", query)["hits"]["hits"]:
+                    print("drained: marker %s from %s arrived in Elasticsearch" % (token, host))
+                    return True
+            except elastic_api.EsError:
+                pass
+            if time.time() >= end:
+                print("not drained: marker %s did not arrive from %s in time" % (token, host), file=sys.stderr)
+                return False
+            time.sleep(self.poll)
+
+    def analysis_reset(self, hosts, ack):
+        """Revert to the clean Proxmox snapshot (no rebuild). Internet goes off first, whatever happens next."""
+        need_reason(ack)
+        hosts = [self.analysis_host(h) for h in hosts] or list(self.plan["analysis"]["hosts"])
+        if self.state.get("sample"):
+            die("sample %s is active: run `analysis-sample end` first" % self.state["sample"]["id"])
+        if self.labmode("analysis", "off") != 0:
+            die("could not switch analysis Internet off; nothing was reverted")
+        client = pve.from_env("analysis")
+        es = self.need_elastic()
+        cfg = self.plan["analysis"]
+        running = [h for h in hosts if client.status(cfg["hosts"][h]["vm_id"]) == "running"]
+        undrained = [h for h in running if not self.analysis_drain(h, es)]
+        if undrained and ack is None:
+            die("drain check failed for %s; fix forwarding or accept the loss with --acknowledge-loss REASON" % ", ".join(undrained))
+        wait = float(os.environ.get("LABOPS_SHUTDOWN_WAIT") or 120)
+        fleetctl = shlex.split(os.environ.get("LABOPS_FLEETCTL") or "") or [sys.executable, os.path.join(ROOT, "scripts/fleetctl.py")]
+        for h in hosts:
+            vmid = cfg["hosts"][h]["vm_id"]
+            client.rollback(vmid, cfg["snapshot"])
+            client.wait(vmid, "stopped", wait, min(self.poll, 2))  # a rollback leaves the guest stopped
+            if client.status(vmid) != "running":
+                client.start(vmid)
+            if not client.wait(vmid, "running", wait, min(self.poll, 2)):
+                print("%s did not start after the revert" % h, file=sys.stderr)
+                return 1
+            generation = self.analysis_generation(h) + 1
+            self.state.setdefault("analysis_generation", {})[h] = generation
+            self.save("analysis-reverted", host=h, generation=generation, drained=h not in undrained, acknowledged_loss=ack)
+            if self.enrol(h, generation, fleetctl) != 0:
+                print("%s reverted (generation %d) but enrolment failed: re-run `analysis-reset %s`" % (h, generation, h), file=sys.stderr)
+                return 1
+            print("%s reverted to snapshot %r: generation %d, fresh enrolment" % (h, cfg["snapshot"], generation))
+        self.save("analysis-reset", hosts=hosts, acknowledged_loss=ack)
+        print("Analysis Internet is off. Tool updates: go online, update, then take a new snapshot (runbook).")
+        return 0
+
+    def enrol(self, host, generation, fleetctl):
+        """Fresh token (retires the old agent), enrol the snapshot's unenrolled agent over SSH, register for lab fields."""
+        r = subprocess.run(fleetctl + ["issue-token", host, str(generation)], capture_output=True, text=True, cwd=ROOT)
+        token = r.stdout.strip()
+        if r.returncode != 0 or not token:
+            print("cannot issue an enrolment token for %s: %s" % (host, r.stderr.strip()), file=sys.stderr)
+            return 1
+        url = "https://%s:8220" % self.plan["hosts"]["elastic"]["ip"]
+        if self.plan["analysis"]["hosts"][host]["os"] == "windows":
+            cmd = ('powershell -NoProfile -Command "& \'C:\\Program Files\\Elastic\\Agent\\elastic-agent.exe\' enroll --force --non-interactive '
+                   '--url=%s --certificate-authorities=C:\\ProgramData\\opaleye\\ca.crt --enrollment-token ([Console]::In.ReadLine())"' % url)
+        else:
+            cmd = ('sudo -n elastic-agent enroll --force --non-interactive --url=%s '
+                   '--certificate-authorities=/etc/lab-ca/ca.crt --enrollment-token="$(cat)"' % url)
+        if self.ssh(host, cmd, stdin=token + "\n") != 0:  # the token travels on stdin, never in an argument list
+            return 1
+        return subprocess.run(fleetctl + ["register-agent", host, str(generation)], cwd=ROOT).returncode
+
     def attacker_clean(self):
         if self.ssh("attacker", "find %s -mindepth 1 -delete" % shlex.quote(EXERCISE_DIR)) != 0:
             return 1
@@ -339,6 +499,13 @@ def main(argv):
         power.add_argument("--include-elastic", action="store_true")
         if name == "shutdown":
             power.add_argument("--acknowledge-loss", metavar="REASON", default=None)
+    online = sub.add_parser("analysis-online")
+    online.add_argument("action", choices=("on", "off", "status")), online.add_argument("--minutes", type=int, default=None)
+    sample = sub.add_parser("analysis-sample").add_subparsers(dest="sub", required=True)
+    sample.add_parser("start").add_argument("id")
+    sample.add_parser("end")
+    ar = sub.add_parser("analysis-reset")
+    ar.add_argument("hosts", nargs="*"), ar.add_argument("--acknowledge-loss", metavar="REASON", default=None)
     for name in ("attacker-clean", "status", "watermark"):
         sub.add_parser(name)
     a = ap.parse_args(argv[1:])
@@ -361,6 +528,14 @@ def main(argv):
             return ops.reset(a.target, a.acknowledge_loss)
         elif a.cmd in ("shutdown", "startup"):
             return ops.power(a.cmd, a.include_elastic, getattr(a, "acknowledge_loss", None))
+        elif a.cmd == "analysis-online":
+            return ops.analysis_online(a.action, a.minutes)
+        elif a.cmd == "analysis-sample" and a.sub == "start":
+            ops.analysis_sample_start(a.id)
+        elif a.cmd == "analysis-sample":
+            ops.analysis_sample_end()
+        elif a.cmd == "analysis-reset":
+            return ops.analysis_reset(a.hosts, a.acknowledge_loss)
         elif a.cmd == "attacker-clean":
             return ops.attacker_clean()
         elif a.cmd == "watermark":

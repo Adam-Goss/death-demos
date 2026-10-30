@@ -1,0 +1,11 @@
+# Managed by Ansible (#52). INetSim answers the analysis zone's fake DNS, HTTP(S), SMTP and so on on this VM only, so a
+# sample run while the zone is offline gets plausible replies and reaches nothing real. Bound to this VM's own address.
+service_bind_address {{ host_ip }}
+dns_default_ip       {{ host_ip }}
+dns_default_domainname lab.internal
+start_service dns
+start_service http
+start_service https
+start_service smtp
+start_service ftp
+start_service irc

@@ -1,6 +1,7 @@
-"""Minimal Proxmox API client for lab shutdown/startup (issue #24). API token only, power operations only.
+"""Minimal Proxmox API client for lab shutdown/startup (issue #24). API token only, power operations only,
+plus snapshot rollback for the analysis zone (issue #52; that stack's token alone holds snapshot rights).
 
-Deliberately has no stop, delete or config call: a lab shutdown is a graceful guest shutdown and nothing else.
+Deliberately has no delete or config call: a lab shutdown is a graceful guest shutdown and nothing else.
 Env: PROXMOX_VE_ENDPOINT, PROXMOX_VE_INSECURE=true (self-signed).
 """
 import os
@@ -37,6 +38,9 @@ class Client:
 
     def start(self, vmid):
         self._call("/%d/status/start" % vmid, "POST", {})
+
+    def rollback(self, vmid, snapshot):
+        self._call("/%d/snapshot/%s/rollback" % (vmid, snapshot), "POST", {})
 
     def wait(self, vmid, want, timeout, poll):
         end = time.time() + timeout

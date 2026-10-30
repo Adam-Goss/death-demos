@@ -5,7 +5,9 @@
   labmode.py select <target|none>            change the selected target (exercise mode only)
   labmode.py maintenance --minutes N --reason TEXT
                                              time-limited update allowlist; closes all attacker->target flows
-  labmode.py tick                            run from a timer: leaves maintenance once it has expired
+  labmode.py analysis on [--minutes N]       analysis zone Internet on (default plan analysis.online.default_minutes, auto-expires; run again to extend)
+  labmode.py analysis off|status             analysis zone Internet off (also what analysis-reset forces) / show it
+  labmode.py tick                            run from a timer: leaves maintenance once it has expired; switches analysis Internet off at expiry
   labmode.py reverified                      record that exercise-mode denies were re-verified (a2-verify.sh)
   labmode.py denylog SRC DST PORT            exit 0 if the firewall logged that block (only rows newer than
                                              the LABMODE_LOG_BASELINE file, when that env var is set)
@@ -42,10 +44,10 @@ def now():
     return int(os.environ.get("LABMODE_NOW") or time.time())
 
 
-def desired(plan, mode, selected):
+def desired(plan, mode, selected, online=False):
     """OPNsense payloads keyed by description. One rule per port: ports are not a list in the rule form."""
     out = {}
-    for seq, r in enumerate(netpolicy.render_rules(plan, mode, selected), start=1):
+    for seq, r in enumerate(netpolicy.render_rules(plan, mode, selected, online), start=1):
         for port in (r["ports"] or [""]):
             desc = PREFIX + r["id"] + (":%s" % port if port != "" else "")
             out[desc] = {"enabled": "1" if r["enabled"] else "0", "action": r["action"], "quick": "1",
@@ -56,8 +58,8 @@ def desired(plan, mode, selected):
     return out
 
 
-def sync(client, plan, mode, selected):
-    want = desired(plan, mode, selected)
+def sync(client, plan, mode, selected, online=False):
+    want = desired(plan, mode, selected, online)
     have = client.rules(PREFIX)
     adds = [d for d in want if d not in have]
     sets = [d for d in want if d in have and any(str(have[d].get(k)) != v for k, v in want[d].items())]
@@ -96,6 +98,12 @@ class Lab:
                 self.st = json.load(f)
         except FileNotFoundError:
             self.st = {"mode": None, "selected": None, "expires": None, "reverify_required": False}
+        self.st.setdefault("analysis_online_until", None)
+
+    def online(self):
+        """The analysis Internet toggle as recorded; an expired one counts as off (tick pushes the change)."""
+        until = self.st["analysis_online_until"]
+        return until is not None and now() < until
 
     def client(self):
         url, key, sec = (os.environ.get(k) for k in ("OPNSENSE_URL", "OPNSENSE_API_KEY", "OPNSENSE_API_SECRET"))
@@ -111,7 +119,7 @@ class Lab:
                                     selected=self.st["selected"], **detail)) + "\n")
 
     def set_mode(self, event, mode, selected, **detail):
-        changed = sync(self.client(), self.plan, mode, selected)
+        changed = sync(self.client(), self.plan, mode, selected, self.online())
         print("%s (selected: %s): %s" % (mode, selected or "none", "applied" if changed else "no changes"))
         self.st.update(mode=mode, selected=selected, expires=detail.pop("expires", None))
         self.commit(event, **detail)
@@ -147,6 +155,30 @@ class Lab:
         self.set_mode("maintenance-on", "maintenance", None, expires=now() + minutes * 60,
                       minutes=minutes, reason=reason)
 
+    def analysis(self, action, minutes=None):
+        """Internet for the analysis zone only: one switch, auto-expiring. Independent of exercise/maintenance mode."""
+        cfg = self.plan["analysis"]["online"]
+        if action == "status":
+            until = self.st["analysis_online_until"]
+            print("analysis internet: %s" % ("on until %s" % until if self.online() else "off"))
+            return
+        if self.st["mode"] is None and action == "off":
+            print("analysis internet off (no rules were ever pushed)")
+            return
+        if self.st["mode"] is None:
+            raise SystemExit("lab mode unknown: run `exercise` first so the analysis rules are pushed with the lab rules")
+        if action == "on":
+            minutes = cfg["default_minutes"] if minutes is None else minutes
+            if not 0 < minutes <= cfg["max_minutes"]:
+                raise SystemExit("--minutes must be 1..%d" % cfg["max_minutes"])
+            until = now() + minutes * 60
+        else:
+            until = None
+        changed = sync(self.client(), self.plan, self.st["mode"], self.st["selected"], until is not None)
+        self.st["analysis_online_until"] = until
+        print("analysis internet %s (%s)" % ("on until %s" % until if until else "off", "applied" if changed else "no changes"))
+        self.commit("analysis-" + action, **({"minutes": minutes} if action == "on" else {}))
+
     def arm(self):
         c = self.client()
         if c.marker(PENDING) is not None and c.marker(CONFIRMED) is not None:
@@ -159,8 +191,12 @@ class Lab:
         self.commit("armed")
 
     def tick(self):
+        until = self.st["analysis_online_until"]
+        if until is not None and now() >= until:
+            self.analysis("off")
+            print("analysis internet expired: off")
         if self.st["mode"] == "maintenance" and self.st["expires"] is not None and now() >= self.st["expires"]:
-            sync(self.client(), self.plan, "exercise", None)
+            sync(self.client(), self.plan, "exercise", None, self.online())
             print("maintenance expired: back to exercise mode")
             self.st.update(mode="exercise", selected=None, expires=None, reverify_required=True)
             self.commit("maintenance-expired")
@@ -212,6 +248,8 @@ def main(argv):
     m = sub.add_parser("maintenance")
     m.add_argument("--minutes", type=int, required=True)
     m.add_argument("--reason", default="")
+    an = sub.add_parser("analysis")
+    an.add_argument("action", choices=("on", "off", "status")), an.add_argument("--minutes", type=int, default=None)
     for c in ("tick", "reverified", "arm", "status"):
         sub.add_parser(c)
     d = sub.add_parser("denylog")
@@ -230,6 +268,8 @@ def main(argv):
             lab.select(a.target)
         elif a.cmd == "maintenance":
             lab.maintenance(a.minutes, a.reason)
+        elif a.cmd == "analysis":
+            lab.analysis(a.action, a.minutes)
         elif a.cmd == "tick":
             lab.tick()
         elif a.cmd == "arm":

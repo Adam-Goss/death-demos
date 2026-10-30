@@ -33,7 +33,8 @@
         "logs-endpoint.events.process", "logs-endpoint.events.network", "logs-endpoint.events.file",
         "logs-endpoint.events.security", "logs-endpoint.events.library", "logs-endpoint.events.registry",
         "logs-endpoint.alerts", "logs-auditd_manager.auditd", "logs-docker.container_logs",
-        "logs-apache.access", "logs-apache.error", "logs-lab_firewall.flow"
+        "logs-apache.access", "logs-apache.error", "logs-lab_firewall.flow",
+        "logs-windows.sysmon_operational", "logs-windows.powershell_operational", "logs-system.security"
       ],
       "metrics": [
         "metrics-system.cpu", "metrics-system.memory", "metrics-system.load", "metrics-system.network",
@@ -78,6 +79,23 @@
       }
     }
   },
+  "analysis": {
+    "pool": "lab-analysis",
+    "ssh_user": "opaleye",
+    "online": { "default_minutes": 30, "max_minutes": 120 },
+    "private_ranges": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "127.0.0.0/8", "224.0.0.0/3"],
+    "namespace": "analysis",
+    "ingest_key": "lab-analysis-ingest",
+    "agent_policy_prefix": "lab-analysis-",
+    "drain": { "log_linux": "/var/log/opaleye/drain.log", "log_windows": "C:/ProgramData/opaleye/drain.log" },
+    "snapshot": "clean",
+    "hosts": {
+      "remnux": { "vm_id": 2021, "template_vm_id": 2305, "vcpu": 4, "memory_mb": 8192, "disk_gb": 50, "os": "linux", "guac": "ssh+sftp",
+                  "image": { "file": "remnux-v7-focal.ova", "sha256": "REPLACE-WITH-PINNED-SHA256-FROM-REMNUX-RELEASE" } },
+      "flare":  { "vm_id": 2020, "template_vm_id": 2304, "vcpu": 4, "memory_mb": 8192, "disk_gb": 100, "os": "windows", "guac": "rdp",
+                  "image": { "file": "windows-eval-enterprise.iso", "sha256": "REPLACE-WITH-PINNED-SHA256-FROM-OPERATOR-DOWNLOAD" } }
+    }
+  },
   "ops": {
     "ssh_user": "opaleye",
     "marker_stream": "logs-lab_marker.events-default",
@@ -86,7 +104,7 @@
     "tag_slack_s": 3,
     "drain": { "log": "/var/log/dvwa/apache2/drain.log", "timeout_s": 180, "poll_s": 5 }
   },
-  "nic_order": ["home", "attacker", "elastic", "t1", "t2", "gateway"],
+  "nic_order": ["home", "attacker", "elastic", "t1", "t2", "gateway", "analysis"],
   "zones": {
     "home":     { "iface": "wan",  "bridge": "vmbr0",    "cidr": "192.168.0.0/24" },
     "vpn":      { "iface": "opt4", "bridge": null,       "cidr": "10.77.9.0/24" },
@@ -94,7 +112,8 @@
     "elastic":  { "iface": "opt1", "bridge": "vmbr2003", "cidr": "10.77.3.0/24" },
     "t1":       { "iface": "opt2", "bridge": "vmbr2011", "cidr": "10.77.11.0/24" },
     "t2":       { "iface": "opt3", "bridge": "vmbr2012", "cidr": "10.77.12.0/24" },
-    "gateway":  { "iface": "opt5", "bridge": "vmbr2002", "cidr": "10.77.2.0/24" }
+    "gateway":  { "iface": "opt5", "bridge": "vmbr2002", "cidr": "10.77.2.0/24" },
+    "analysis": { "iface": "opt6", "bridge": "vmbr2020", "cidr": "10.77.20.0/24" }
   },
   "hosts": {
     "operator":    { "zone": "vpn",      "ip": "10.77.9.2" },
@@ -103,6 +122,8 @@
     "t1":          { "zone": "t1",       "ip": "10.77.11.10" },
     "t2":          { "zone": "t2",       "ip": "10.77.12.10" },
     "gateway":     { "zone": "gateway",  "ip": "10.77.2.10" },
+    "flare":       { "zone": "analysis", "ip": "10.77.20.10" },
+    "remnux":      { "zone": "analysis", "ip": "10.77.20.11" },
     "workstation": { "zone": "home",     "ip": "192.168.0.223" },
     "home_other":  { "zone": "home",     "ip": "192.168.0.50" },
     "home_router": { "zone": "home",     "ip": "192.168.0.1" },
@@ -227,6 +248,34 @@
     { "id": "p69", "src": "operator", "dst": "attacker", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p70", "src": "t1", "dst": "attacker", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p71", "src": "gateway", "dst": "update_source", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "allow" } },
-    { "id": "p72", "src": "workstation", "dst": "gateway", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } }
+    { "id": "p72", "src": "workstation", "dst": "gateway", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p73", "src": "gateway", "dst": "flare", "proto": "tcp", "port": 3389, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p74", "src": "gateway", "dst": "flare", "proto": "tcp", "port": 22, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p75", "src": "gateway", "dst": "remnux", "proto": "tcp", "port": 22, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p76", "src": "gateway", "dst": "remnux", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p77", "src": "operator", "dst": "flare", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p78", "src": "operator", "dst": "remnux", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p79", "src": "attacker", "dst": "flare", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p80", "src": "t1", "dst": "remnux", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p81", "src": "elastic", "dst": "flare", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p82", "src": "flare", "dst": "attacker", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p83", "src": "flare", "dst": "t1", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p84", "src": "remnux", "dst": "t2", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p85", "src": "flare", "dst": "gateway", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p86", "src": "flare", "dst": "proxmox", "proto": "tcp", "port": 8006, "modes": { "exercise": "deny", "maintenance": "deny" }, "online": "deny" },
+    { "id": "p87", "src": "remnux", "dst": "proxmox", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" }, "online": "deny" },
+    { "id": "p88", "src": "flare", "dst": "home_router", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" }, "online": "deny" },
+    { "id": "p89", "src": "flare", "dst": "workstation", "proto": "tcp", "port": 445, "modes": { "exercise": "deny", "maintenance": "deny" }, "online": "deny" },
+    { "id": "p90", "src": "flare", "dst": "fw", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" }, "online": "deny" },
+    { "id": "p91", "src": "flare", "dst": "fw", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" }, "online": "deny" },
+    { "id": "p92", "src": "flare", "dst": "internet", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" }, "online": "allow" },
+    { "id": "p93", "src": "remnux", "dst": "internet", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" }, "online": "allow" },
+    { "id": "p94", "src": "flare", "dst": "elastic", "proto": "tcp", "port": 9200, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p95", "src": "flare", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p96", "src": "remnux", "dst": "elastic", "proto": "tcp", "port": 9200, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p97", "src": "remnux", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p98", "src": "flare", "dst": "elastic", "proto": "tcp", "port": 5601, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p99", "src": "flare", "dst": "elastic", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p100", "src": "flare", "dst": "fw", "proto": "udp", "port": 53, "kind": "dns", "modes": { "exercise": "deny", "maintenance": "deny" }, "online": "allow" }
   ]
 }

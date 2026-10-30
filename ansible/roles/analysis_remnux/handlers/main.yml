@@ -1,0 +1,4 @@
+- name: restart inetsim
+  ansible.builtin.systemd:
+    name: inetsim
+    state: restarted

@@ -1,0 +1,7 @@
+plan: "{{ lookup('ansible.builtin.file', playbook_dir + '/../../network/plan.json') | from_json }}"
+an: "{{ plan.analysis }}"
+el: "{{ plan.elastic }}"
+host_ip: "{{ plan.hosts.remnux.ip }}"
+agent_pkg: "{{ el.packages['elastic-agent'] }}"
+secrets_dir: "{{ playbook_dir }}/../../secrets/elastic"
+cache_dir: "{{ playbook_dir }}/../../.state/elastic-packages"

@@ -20,6 +20,8 @@ ROLE=OpaleyeDeploy
 # Deliberately no Sys.*, Permissions.*, Realm.* or User.* privileges.
 PRIVS="VM.Allocate VM.Audit VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt Datastore.AllocateSpace Datastore.AllocateTemplate Datastore.Audit Pool.Audit"
 NET_ROLE=OpaleyeNet   # SDN.Use only, for lab bridges (M2)
+SNAP_ROLE=OpaleyeSnapshot   # snapshot revert (#52): granted to the analysis stack token on the analysis pool only
+SNAP_PRIVS="VM.Snapshot VM.Snapshot.Rollback"
 
 [ "$(id -u)" = 0 ] || { echo "run as root on the node" >&2; exit 1; }
 
@@ -29,8 +31,10 @@ role_exists() { pveum role list --output-format json | tr -d ' ' | grep -q "\"ro
 if role_exists "$ROLE"; then pveum role modify "$ROLE" --privs "$(echo $PRIVS | tr ' ' ',')"
 else pveum role add "$ROLE" --privs "$(echo $PRIVS | tr ' ' ',')"; fi
 role_exists "$NET_ROLE" || pveum role add "$NET_ROLE" --privs SDN.Use
+if role_exists "$SNAP_ROLE"; then pveum role modify "$SNAP_ROLE" --privs "$(echo $SNAP_PRIVS | tr ' ' ',')"
+else pveum role add "$SNAP_ROLE" --privs "$(echo $SNAP_PRIVS | tr ' ' ',')"; fi
 
-for stack in firewall elastic targets attacker gateway; do
+for stack in firewall elastic targets attacker gateway analysis; do
   pool=lab-$stack
   user=opaleye-$stack@pve
   pvesh get /pools/$pool >/dev/null 2>&1 || pvesh create /pools --poolid "$pool" --comment "Opaleye $stack stack"
@@ -51,6 +55,9 @@ for stack in firewall elastic targets attacker gateway; do
     for br in $BRIDGES; do
       pveum acl modify "/sdn/zones/localnetwork/$br" $who --roles "$NET_ROLE"
     done
+    if [ "$stack" = analysis ]; then
+      pveum acl modify "/pool/$pool" $who --roles "$SNAP_ROLE"  # the only token that can roll a guest back, and only here
+    fi
     if [ "$stack" = firewall ]; then
       for br in $HOME_BRIDGE; do
         pveum acl modify "/sdn/zones/localnetwork/$br" $who --roles "$NET_ROLE"

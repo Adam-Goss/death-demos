@@ -33,7 +33,7 @@
         <enabled>1</enabled>
         <port>53</port>
         <stats>0</stats>
-        <active_interface>lan,opt1,opt2,opt3,opt5</active_interface>
+        <active_interface>lan,opt1,opt2,opt3,opt5,opt6</active_interface>
         <dnssec>0</dnssec>
         <dns64>0</dns64>
         <dns64prefix />
@@ -323,6 +323,13 @@
       <ipaddr>10.77.2.1</ipaddr>
       <subnet>24</subnet>
     </opt5>
+    <opt6>
+      <if>vtnet6</if>
+      <descr>analysis</descr>
+      <enable>1</enable>
+      <ipaddr>10.77.20.1</ipaddr>
+      <subnet>24</subnet>
+    </opt6>
     <opt4>
       <if>wg0</if>
       <descr>vpn</descr>
@@ -332,6 +339,6 @@
   <ntpd>
     <prefer>0.opnsense.pool.ntp.org</prefer>
     <ispool>0.opnsense.pool.ntp.org 1.opnsense.pool.ntp.org 2.opnsense.pool.ntp.org 3.opnsense.pool.ntp.org</ispool>
-    <interface>lan,opt1,opt2,opt3,opt5</interface>
+    <interface>lan,opt1,opt2,opt3,opt5,opt6</interface>
   </ntpd>
 </opnsense>

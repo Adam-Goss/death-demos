@@ -5,9 +5,10 @@ plan flows -> rendered firewall ruleset (render_rules) -> checked against the li
 probe table in the plan (lint). The probe table is written by hand and is the A2 contract;
 the rules are derived from flows, so the two only agree when the flows are right.
 
-  netpolicy.py matrix <exercise|maintenance> [selected]   A2 probe rows, TSV
-  netpolicy.py rules  <exercise|maintenance> [selected]   rendered ruleset, JSON
-  netpolicy.py lint   <exercise|maintenance> [selected]   exit 1 on any mismatch
+  netpolicy.py matrix <exercise|maintenance> [selected] [online]   A2 probe rows, TSV
+  netpolicy.py rules  <exercise|maintenance> [selected] [online]   rendered ruleset, JSON
+  netpolicy.py lint   <exercise|maintenance> [selected] [online]   exit 1 on any mismatch
+  (online = analysis-zone Internet toggle on; selected may be "none")
   netpolicy.py check                                       plan sanity, exit 1 on errors
   netpolicy.py bridges                                     /etc/network/interfaces.d stanzas
 """
@@ -19,7 +20,7 @@ import sys
 DEFAULT_PLAN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "network", "plan.json")
 # Networks the lab must never overlap: Ludus (10.1.0.0/16, 192.0.2.0/24, 198.51.100.0/24) and the home LAN.
 RESERVED = ["10.1.0.0/16", "192.0.2.0/24", "198.51.100.0/24", "192.168.0.0/24"]
-V6_ZONES = ("attacker", "elastic", "t1", "t2", "gateway", "operator", "workstation")
+V6_ZONES = ("attacker", "elastic", "t1", "t2", "gateway", "flare", "operator", "workstation")
 UPDATE_ALIAS = "opaleye_update_sources"
 SELF = "(self)"
 
@@ -35,14 +36,17 @@ def _svc(plan, name):
 
 
 def flows(plan):
-    """Allowed flows. src/dst: 'zone:x', 'host:x', 'fw', 'alias:update_sources'."""
+    """Allowed flows. src/dst: 'zone:x', 'host:x', 'fw', 'alias:update_sources', 'any'.
+    action 'block' flows are always enabled; online=True flows are enabled only while the analysis Internet toggle is on."""
     labzones = ["zone:attacker", "zone:elastic", "zone:t1", "zone:t2", "zone:gateway"]
     out = []
 
-    def add(fid, src, dst, svc=None, proto=None, ports=None, modes=("exercise", "maintenance"), selected=None, log=False):
+    def add(fid, src, dst, svc=None, proto=None, ports=None, modes=("exercise", "maintenance"), selected=None, log=False,
+            action="pass", online=False):
         if svc:
             proto, ports = _svc(plan, svc)
-        out.append(dict(id=fid, src=src, dst=dst, proto=proto, ports=ports, modes=modes, selected=selected, log=log))
+        out.append(dict(id=fid, src=src, dst=dst, proto=proto, ports=ports, modes=modes, selected=selected, log=log,
+                        action=action, online=online))
 
     add("vpn-handshake", ["host:workstation"], "fw", "wireguard")
     for s in ("dns", "ntp"):
@@ -57,6 +61,18 @@ def flows(plan):
     add("op-gateway-web", ["zone:vpn"], "host:gateway", "gateway_web")
     add("op-gateway-ssh", ["zone:vpn"], "host:gateway", "ssh")
     add("gw-attacker-rdp", ["host:gateway"], "host:attacker", "rdp")
+    # Analysis zone (#52): only the gateway initiates in; the zone reaches only the ingestion endpoint, plus the
+    # Internet while the operator has switched it online (private ranges, the firewall and other zones stay blocked).
+    add("gw-flare-rdp", ["host:gateway"], "host:flare", "rdp")
+    for h in ("flare", "remnux"):
+        add("gw-%s-ssh" % h, ["host:gateway"], "host:" + h, "ssh")
+    analysis = ["host:flare", "host:remnux"]
+    add("analysis-telemetry", analysis, "host:elastic", "ingest")
+    add("analysis-dns", analysis, "fw", "dns", online=True)
+    add("analysis-block-fw", analysis, "fw", proto="any", ports=[], modes=("exercise", "maintenance"), log=True, action="block")
+    for i, net in enumerate(plan["analysis"]["private_ranges"]):
+        add("analysis-block-private%d" % i, analysis, "net:" + net, proto="any", ports=[], log=True, action="block")
+    add("analysis-internet", analysis, "any", proto="tcp", ports=[80, 443], log=True, online=True)
     for t in plan["targets"]:
         add("op-%s-ssh" % t, ["zone:vpn"], "host:" + t, "ssh")
         add("gw-%s-ssh" % t, ["host:gateway"], "host:" + t, "ssh")
@@ -78,13 +94,18 @@ def _net(plan, ent):
     kind, _, name = ent.partition(":")
     if kind == "alias":
         return UPDATE_ALIAS
+    if kind == "net":
+        return name
+    if ent == "any":
+        return "any"
     if kind == "zone":
         return plan["zones"][name]["cidr"]
     return plan["hosts"][name]["ip"] + "/32"
 
 
-def render_rules(plan, mode, selected):
-    """Complete ordered ruleset; conditional rules are present but disabled when not active."""
+def render_rules(plan, mode, selected, online=False):
+    """Complete ordered ruleset; conditional rules are present but disabled when not active.
+    online: the analysis-zone Internet toggle (separate from the lab mode)."""
     rules = []
     for zname, z in plan["zones"].items():
         iface = z["iface"]
@@ -95,7 +116,11 @@ def render_rules(plan, mode, selected):
                 if plan["zones"][_zone_of(plan, src)]["iface"] != iface:
                     continue
                 active = mode in fl["modes"] and (fl["selected"] is None or fl["selected"] == selected)
-                rules.append(dict(id="%s@%s@%s" % (fl["id"], iface, src.partition(":")[2]), iface=iface, action="pass",
+                if fl["action"] == "block":
+                    active = True
+                elif fl["online"]:
+                    active = active and online
+                rules.append(dict(id="%s@%s@%s" % (fl["id"], iface, src.partition(":")[2]), iface=iface, action=fl["action"],
                                   family="inet", proto=fl["proto"], src=_net(plan, src), dst=_net(plan, fl["dst"]),
                                   ports=fl["ports"], enabled=active, log=fl["log"]))
         rules.append(dict(id="deny-all@" + iface, iface=iface, action="block", family="inet", proto="any",
@@ -147,19 +172,22 @@ def _dst_ip(plan, src, dst):
     return str(next(ipaddress.ip_network(plan["zones"][zone]["cidr"]).hosts()))
 
 
-def _expected(p, mode, selected):
-    """Literal verdict from the plan; probes tied to a selected target follow the selection in exercise mode."""
+def _expected(p, mode, selected, online=False):
+    """Literal verdict from the plan; probes tied to a selected target follow the selection in exercise mode;
+    probes with an `online` verdict use it while the analysis Internet toggle is on."""
+    if online and "online" in p:
+        return p["online"]
     if mode == "exercise" and "allowed_when_selected" in p:
         return "allow" if selected == p["allowed_when_selected"] else "deny"
     return p["modes"][mode]
 
 
-def matrix(plan, mode, selected):
+def matrix(plan, mode, selected, online=False):
     rows = []
     for p in plan["probes"]:
         zone = plan["hosts"][p["src"]]["zone"]
         rows.append(dict(id=p["id"], src=p["src"], dst=p["dst"], proto=p["proto"], port=p["port"], mode=mode,
-                         selected=selected or "none", expected=_expected(p, mode, selected), family="inet",
+                         selected=selected or "none", expected=_expected(p, mode, selected, online), family="inet",
                          kind=p.get("kind", "tcp"), enforcement="firewall:" + plan["zones"][zone]["iface"],
                          src_ip=plan["hosts"][p["src"]]["ip"], dst_ip=_dst_ip(plan, p["src"], p["dst"])))
     for z in V6_ZONES:
@@ -170,10 +198,10 @@ def matrix(plan, mode, selected):
     return rows
 
 
-def lint(plan, mode, selected, rules=None):
-    rules = render_rules(plan, mode, selected) if rules is None else rules
+def lint(plan, mode, selected, rules=None, online=False):
+    rules = render_rules(plan, mode, selected, online) if rules is None else rules
     bad = []
-    for p in matrix(plan, mode, selected):
+    for p in matrix(plan, mode, selected, online):
         got = evaluate(plan, rules, p)
         if got != p["expected"]:
             bad.append("%s %s->%s %s/%s %s: expected %s, rules give %s" %
@@ -224,11 +252,12 @@ def main(argv):
     cmd = argv[1] if len(argv) > 1 else ""
     mode = argv[2] if len(argv) > 2 else "exercise"
     sel = argv[3] if len(argv) > 3 and argv[3] != "none" else None
+    online = len(argv) > 4 and argv[4] == "online"
     if cmd == "matrix":
-        for r in matrix(plan, mode, sel):
+        for r in matrix(plan, mode, sel, online):
             print("\t".join(str(r[k]) for k in ("id", "src", "dst", "proto", "port", "kind", "family", "mode", "expected", "enforcement", "src_ip", "dst_ip")))
     elif cmd == "rules":
-        print(json.dumps(render_rules(plan, mode, sel), indent=1))
+        print(json.dumps(render_rules(plan, mode, sel, online), indent=1))
     elif cmd == "lint":
         bad = lint(plan, mode, sel)
         print("\n".join(bad) or "ok: rules match the probe matrix (%s)" % mode)
