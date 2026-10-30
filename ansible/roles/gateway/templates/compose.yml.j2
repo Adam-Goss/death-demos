@@ -1,0 +1,56 @@
+# Managed by Ansible (#51). Images are pinned by digest from network/plan.json (gateway.guacamole.images).
+# Only the TLS proxy publishes a port. guacd and the web app are reachable on the internal compose network only.
+name: guacamole
+
+networks:
+  guac:
+
+volumes:
+  pgdata:
+
+services:
+  postgres:
+    image: {{ images.postgres.ref }}@{{ images.postgres.digest }}
+    pull_policy: missing
+    env_file: {{ guac_dir }}/.env
+    environment:
+      - POSTGRES_USER=guacamole
+      - POSTGRES_DB=guacamole
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [guac]
+    restart: unless-stopped
+
+  guacd:
+    image: {{ images.guacd.ref }}@{{ images.guacd.digest }}
+    pull_policy: missing
+    networks: [guac]
+    restart: unless-stopped
+
+  guacamole:
+    image: {{ images.guacamole.ref }}@{{ images.guacamole.digest }}
+    pull_policy: missing
+    env_file: {{ guac_dir }}/.env
+    environment:
+      - GUACD_HOSTNAME=guacd
+      - POSTGRESQL_HOSTNAME=postgres
+      - POSTGRESQL_DATABASE=guacamole
+      - POSTGRESQL_USER=guacamole
+      - EXTENSIONS=auth-totp
+      - TOTP_ISSUER=Opaleye lab
+      - WEBAPP_CONTEXT=ROOT
+    depends_on: [postgres, guacd]
+    networks: [guac]
+    restart: unless-stopped
+
+  proxy:
+    image: {{ images.proxy.ref }}@{{ images.proxy.digest }}
+    pull_policy: missing
+    ports:
+      - "{{ gw.web_port }}:443"
+    volumes:
+      - {{ guac_dir }}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - {{ guac_dir }}/tls:/etc/nginx/tls:ro
+    depends_on: [guacamole]
+    networks: [guac]
+    restart: unless-stopped

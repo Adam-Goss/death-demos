@@ -6,7 +6,7 @@ Rules, from network/plan.json:
   - every other guest sits on exactly one lab bridge (two would bridge zones around the firewall);
   - no NIC on a bridge the plan doesn't know (e.g. a Ludus bridge).
 
-CLI: nicaudit.py [wanmac]   (wanmac prints the firewall WAN MAC for the home-side IPv6 probe; env: PROXMOX_VE_ENDPOINT, PVE_NODE, PROXMOX_VE_API_TOKEN_{FIREWALL,ELASTIC,TARGETS},
+CLI: nicaudit.py [wanmac]   (wanmac prints the firewall WAN MAC for the home-side IPv6 probe; env: PROXMOX_VE_ENDPOINT, PVE_NODE, PROXMOX_VE_API_TOKEN_{FIREWALL,ELASTIC,TARGETS,ATTACKER,GATEWAY},
                     PROXMOX_VE_INSECURE=true). Read-only; uses each stack's own token over the API.
 """
 import json
@@ -19,7 +19,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import netpolicy  # noqa: E402
 
-POOLS = {"firewall": "lab-firewall", "elastic": "lab-elastic", "targets": "lab-targets"}
+POOLS = {"firewall": "lab-firewall", "elastic": "lab-elastic", "targets": "lab-targets", "attacker": "lab-attacker", "gateway": "lab-gateway"}
 
 
 def bridges_of(vm):

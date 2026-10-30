@@ -30,7 +30,7 @@ if role_exists "$ROLE"; then pveum role modify "$ROLE" --privs "$(echo $PRIVS | 
 else pveum role add "$ROLE" --privs "$(echo $PRIVS | tr ' ' ',')"; fi
 role_exists "$NET_ROLE" || pveum role add "$NET_ROLE" --privs SDN.Use
 
-for stack in firewall elastic targets attacker; do
+for stack in firewall elastic targets attacker gateway; do
   pool=lab-$stack
   user=opaleye-$stack@pve
   pvesh get /pools/$pool >/dev/null 2>&1 || pvesh create /pools --poolid "$pool" --comment "Opaleye $stack stack"

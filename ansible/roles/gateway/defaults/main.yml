@@ -1,0 +1,10 @@
+plan: "{{ lookup('ansible.builtin.file', playbook_dir + '/../../network/plan.json') | from_json }}"
+gw: "{{ plan.gateway }}"
+gw_user: "{{ gw.ssh_user }}"
+gw_ip: "{{ plan.hosts.gateway.ip }}"
+gw_fw: "{{ gw_ip.split('.')[:3] | join('.') }}.1"
+guac_dir: "{{ gw.guacamole.dir }}"
+images: "{{ gw.guacamole.images }}"
+# Generated on the VM (database password, TLS key, the targets' SSH key); the targets' key pair is also fetched here,
+# under the gitignored secrets/ directory, for scripts/guacctl.py and the target role. Never committed.
+secrets_dir: "{{ playbook_dir }}/../../secrets/gateway"

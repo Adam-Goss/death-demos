@@ -33,7 +33,7 @@
         <enabled>1</enabled>
         <port>53</port>
         <stats>0</stats>
-        <active_interface>lan,opt1,opt2,opt3</active_interface>
+        <active_interface>lan,opt1,opt2,opt3,opt5</active_interface>
         <dnssec>0</dnssec>
         <dns64>0</dns64>
         <dns64prefix />
@@ -229,7 +229,7 @@
             <destination_net>any</destination_net>
             <destination_port />
             <log>1</log>
-            <sequence>11</sequence>
+            <sequence>13</sequence>
             <description>opaleye:deny-all@opt4</description>
           </rule>
         </rules>
@@ -316,6 +316,13 @@
       <ipaddr>10.77.12.1</ipaddr>
       <subnet>24</subnet>
     </opt3>
+    <opt5>
+      <if>vtnet5</if>
+      <descr>gateway</descr>
+      <enable>1</enable>
+      <ipaddr>10.77.2.1</ipaddr>
+      <subnet>24</subnet>
+    </opt5>
     <opt4>
       <if>wg0</if>
       <descr>vpn</descr>
@@ -325,6 +332,6 @@
   <ntpd>
     <prefer>0.opnsense.pool.ntp.org</prefer>
     <ispool>0.opnsense.pool.ntp.org 1.opnsense.pool.ntp.org 2.opnsense.pool.ntp.org 3.opnsense.pool.ntp.org</ispool>
-    <interface>lan,opt1,opt2,opt3</interface>
+    <interface>lan,opt1,opt2,opt3,opt5</interface>
   </ntpd>
 </opnsense>

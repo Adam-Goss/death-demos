@@ -54,3 +54,19 @@
     src: "{{ secrets_dir }}/ca/ca.crt"
     dest: /etc/lab-ca/ca.crt
     mode: "0644"
+
+# #51: the Guacamole gateway's terminal. Key-only, and only from the gateway's address.
+- name: Gateway key present on the controller
+  ansible.builtin.stat:
+    path: "{{ gateway_pubkey_file }}"
+  delegate_to: localhost
+  become: false
+  register: gateway_key
+
+- name: Authorise the gateway's SSH key
+  ansible.posix.authorized_key:
+    user: "{{ plan.ops.ssh_user }}"
+    key: "{{ lookup('ansible.builtin.file', gateway_pubkey_file) }}"
+    key_options: "from=\"{{ gateway_ip }}\""
+    comment: opaleye-gateway
+  when: gateway_key.stat.exists

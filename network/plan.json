@@ -59,6 +59,25 @@
     "os_disk_gb": 30,
     "ssh_user": "opaleye"
   },
+  "gateway": {
+    "vm_id": 2002,
+    "template_vm_id": 2303,
+    "pool": "lab-gateway",
+    "vcpu": 2,
+    "memory_mb": 4096,
+    "os_disk_gb": 20,
+    "ssh_user": "opaleye",
+    "web_port": 443,
+    "guacamole": {
+      "dir": "/opt/guacamole",
+      "images": {
+        "guacamole": { "ref": "docker.io/guacamole/guacamole", "tag": "1.5.5", "digest": "sha256:0f62f6d17ab379e46aa66874b2ff564dab856a6ef5e754a69cbb34c32d3e588a", "resolved": "2026-10-30" },
+        "guacd": { "ref": "docker.io/guacamole/guacd", "tag": "1.5.5", "digest": "sha256:38232cae271361ef53db46faf5c49fe64049a1320a05b82c597425b69d6ce77e", "resolved": "2026-10-30" },
+        "postgres": { "ref": "docker.io/library/postgres", "tag": "16-alpine", "digest": "sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab", "resolved": "2026-10-30" },
+        "proxy": { "ref": "docker.io/library/nginx", "tag": "1.27-alpine", "digest": "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10", "resolved": "2026-10-30" }
+      }
+    }
+  },
   "ops": {
     "ssh_user": "opaleye",
     "marker_stream": "logs-lab_marker.events-default",
@@ -67,14 +86,15 @@
     "tag_slack_s": 3,
     "drain": { "log": "/var/log/dvwa/apache2/drain.log", "timeout_s": 180, "poll_s": 5 }
   },
-  "nic_order": ["home", "attacker", "elastic", "t1", "t2"],
+  "nic_order": ["home", "attacker", "elastic", "t1", "t2", "gateway"],
   "zones": {
     "home":     { "iface": "wan",  "bridge": "vmbr0",    "cidr": "192.168.0.0/24" },
     "vpn":      { "iface": "opt4", "bridge": null,       "cidr": "10.77.9.0/24" },
     "attacker": { "iface": "lan",  "bridge": "vmbr2001", "cidr": "10.77.1.0/24" },
     "elastic":  { "iface": "opt1", "bridge": "vmbr2003", "cidr": "10.77.3.0/24" },
     "t1":       { "iface": "opt2", "bridge": "vmbr2011", "cidr": "10.77.11.0/24" },
-    "t2":       { "iface": "opt3", "bridge": "vmbr2012", "cidr": "10.77.12.0/24" }
+    "t2":       { "iface": "opt3", "bridge": "vmbr2012", "cidr": "10.77.12.0/24" },
+    "gateway":  { "iface": "opt5", "bridge": "vmbr2002", "cidr": "10.77.2.0/24" }
   },
   "hosts": {
     "operator":    { "zone": "vpn",      "ip": "10.77.9.2" },
@@ -82,6 +102,7 @@
     "elastic":     { "zone": "elastic",  "ip": "10.77.3.10" },
     "t1":          { "zone": "t1",       "ip": "10.77.11.10" },
     "t2":          { "zone": "t2",       "ip": "10.77.12.10" },
+    "gateway":     { "zone": "gateway",  "ip": "10.77.2.10" },
     "workstation": { "zone": "home",     "ip": "192.168.0.223" },
     "home_other":  { "zone": "home",     "ip": "192.168.0.50" },
     "home_router": { "zone": "home",     "ip": "192.168.0.1" },
@@ -95,6 +116,8 @@
     "wireguard": { "proto": "udp", "ports": [51820] },
     "fw_admin":  { "proto": "tcp", "ports": [443] },
     "ssh":       { "proto": "tcp", "ports": [22] },
+    "rdp":       { "proto": "tcp", "ports": [3389] },
+    "gateway_web": { "proto": "tcp", "ports": [443] },
     "kibana":    { "proto": "tcp", "ports": [5601] },
     "ingest":    { "proto": "tcp", "ports": [9200, 8220] }
   },
@@ -131,7 +154,7 @@
     "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com", "production.cloudfront.docker.com",
     "ghcr.io", "pkg-containers.githubusercontent.com"
   ],
-  "maintenance": { "max_minutes": 120, "initiators": ["attacker", "t1", "t2"] },
+  "maintenance": { "max_minutes": 120, "initiators": ["attacker", "t1", "t2", "gateway"] },
   "probes": [
     { "id": "p01", "src": "attacker", "dst": "t1", "proto": "tcp", "port": 80, "allowed_when_selected": "t1", "modes": { "exercise": "allow", "maintenance": "deny" } },
     { "id": "p02", "src": "attacker", "dst": "t1", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
@@ -184,6 +207,25 @@
     { "id": "p49", "src": "operator", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p50", "src": "t2", "dst": "elastic", "proto": "tcp", "port": 9200, "modes": { "exercise": "allow", "maintenance": "allow" } },
     { "id": "p51", "src": "attacker", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "deny", "maintenance": "deny" } },
-    { "id": "p52", "src": "t2", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "allow", "maintenance": "allow" } }
+    { "id": "p52", "src": "t2", "dst": "elastic", "proto": "tcp", "port": 8220, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p53", "src": "operator", "dst": "gateway", "proto": "tcp", "port": 443, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p54", "src": "operator", "dst": "gateway", "proto": "tcp", "port": 22, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p55", "src": "workstation", "dst": "gateway", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p56", "src": "attacker", "dst": "gateway", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p57", "src": "t1", "dst": "gateway", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p58", "src": "elastic", "dst": "gateway", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p59", "src": "gateway", "dst": "attacker", "proto": "tcp", "port": 3389, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p60", "src": "gateway", "dst": "attacker", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p61", "src": "gateway", "dst": "t1", "proto": "tcp", "port": 22, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p62", "src": "gateway", "dst": "t2", "proto": "tcp", "port": 22, "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p63", "src": "gateway", "dst": "t1", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p64", "src": "gateway", "dst": "elastic", "proto": "tcp", "port": 5601, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p65", "src": "gateway", "dst": "elastic", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p66", "src": "gateway", "dst": "proxmox", "proto": "tcp", "port": 8006, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p67", "src": "gateway", "dst": "fw", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p68", "src": "gateway", "dst": "internet", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p69", "src": "operator", "dst": "attacker", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p70", "src": "t1", "dst": "attacker", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
+    { "id": "p71", "src": "gateway", "dst": "update_source", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "allow" } }
   ]
 }

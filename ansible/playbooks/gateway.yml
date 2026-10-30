@@ -1,0 +1,17 @@
+# #51: the Guacamole gateway VM. Re-runnable. Needs maintenance mode for packages and image pulls
+# (scripts/labmode.py maintenance --minutes 30 --reason "gateway packages"). Then scripts/guacctl.py bootstrap.
+- name: Guacamole gateway VM
+  hosts: gateway
+  become: true
+  pre_tasks:
+    - name: Wait for the gateway SSH connection
+      ansible.builtin.wait_for_connection:
+        timeout: 180
+    - name: Wait for cloud-init to finish initial package metadata
+      ansible.builtin.command: cloud-init status --wait
+      register: cloud_init
+      changed_when: false
+      failed_when: >-
+        cloud_init.rc not in [0, 2] or 'status: done' not in cloud_init.stdout
+  roles:
+    - gateway

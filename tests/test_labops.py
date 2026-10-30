@@ -18,13 +18,14 @@ from fake_pve import FakePve  # noqa: E402
 
 PLAN = json.load(open(os.path.join(ROOT, "network/plan.json")))
 FW, EL, AT = PLAN["firewall"]["vm_id"], PLAN["elastic"]["vm_id"], PLAN["attacker"]["vm_id"]
+GW = PLAN["gateway"]["vm_id"]
 T1 = PLAN["targets"]["t1"]["vm_id"]
 
 
 class OpsCase(unittest.TestCase):
     def setUp(self):
         self.es = FakeEs()
-        self.pve = FakePve({FW: "running", EL: "running", AT: "running", T1: "running"})
+        self.pve = FakePve({FW: "running", EL: "running", AT: "running", GW: "running", T1: "running"})
         self.dir = tempfile.mkdtemp()
         self.state = os.path.join(self.dir, "state")
         os.makedirs(self.state)
@@ -42,7 +43,8 @@ class OpsCase(unittest.TestCase):
             ELASTIC_ES_URL=self.es.url, ELASTIC_KB_URL=self.es.url, ELASTIC_PASSWORD_FILE=pw,
             PROXMOX_VE_ENDPOINT=self.pve.url, PVE_NODE="n1",
             PROXMOX_VE_API_TOKEN_FIREWALL="fw!t=1", PROXMOX_VE_API_TOKEN_ELASTIC="el!t=2",
-            PROXMOX_VE_API_TOKEN_TARGETS="tg!t=3", PROXMOX_VE_API_TOKEN_ATTACKER="at!t=4")
+            PROXMOX_VE_API_TOKEN_TARGETS="tg!t=3", PROXMOX_VE_API_TOKEN_ATTACKER="at!t=4",
+            PROXMOX_VE_API_TOKEN_GATEWAY="gw!t=5")
         self.labmode("exercise", "t1")
 
     def tearDown(self):
@@ -347,7 +349,7 @@ class Shutdown(OpsCase):
     def test_shutdown_powers_off_the_guests_but_not_elastic_by_default(self):
         r = self.ops("shutdown")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, FW])
+        self.assertEqual(self.vm_ops("shutdown"), [GW, AT, T1, FW])
         self.assertEqual(self.pve.vms[EL], "running")
         self.assertIn("Elastic left running", r.stdout)
         self.assertEqual(self.es.deletes(), [])
@@ -357,7 +359,7 @@ class Shutdown(OpsCase):
     def test_include_elastic_is_a_graceful_shutdown_only_and_never_a_delete(self):
         r = self.ops("shutdown", "--include-elastic")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, EL, FW])
+        self.assertEqual(self.vm_ops("shutdown"), [GW, AT, T1, EL, FW])
         self.assertTrue(all(m in ("GET", "POST") for m, _ in self.pve.paths()))
         self.assertTrue(all(p.endswith(("/status/current", "/status/shutdown")) for _, p in self.pve.paths()))
         self.assertEqual(self.es.deletes(), [])
@@ -378,7 +380,7 @@ class Shutdown(OpsCase):
         self.assertEqual(self.vm_ops("shutdown"), [])
         r = self.ops("shutdown", "--acknowledge-loss", "elastic is down", STUB_DROP="1")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.vm_ops("shutdown"), [AT, T1, FW])
+        self.assertEqual(self.vm_ops("shutdown"), [GW, AT, T1, FW])
 
     def test_shutdown_is_refused_during_an_active_exercise(self):
         self.start()
@@ -403,7 +405,7 @@ class Shutdown(OpsCase):
             self.pve.vms[v] = "stopped"
         r = self.ops("startup", "--include-elastic")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.vm_ops("start"), [FW, EL, T1, AT])
+        self.assertEqual(self.vm_ops("start"), [FW, EL, T1, AT, GW])
 
 
 class AttackerClean(OpsCase):
