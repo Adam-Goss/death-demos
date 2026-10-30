@@ -111,7 +111,7 @@ class PlanWiring(unittest.TestCase):
         self.assertNotRegex(text, r"(?i)password: *[\"'][A-Za-z0-9]{8,}")
 
     def test_attacker_desktop_exists_and_attacker_is_not_enrolled_in_fleet(self):
-        self.assertIn("xrdp", read("ansible/roles/attacker/defaults/main.yml"))
+        self.assertIn("xorgxrdp", read("ansible/roles/attacker/defaults/main.yml"))  # install_recommends is off: Xorg comes only from this
         self.assertNotIn("attacker", read("scripts/fleetctl.py").lower().replace("attacker-side", ""))
         self.assertNotRegex(read("ansible/roles/attacker/tasks/main.yml"), r"(?i)elastic-agent|fleet")
 

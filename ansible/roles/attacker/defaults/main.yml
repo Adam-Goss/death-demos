@@ -4,6 +4,6 @@ exercise_dir: /srv/exercise
 # Manual-attack tooling only; Exercise 1 needs nothing beyond python3 and bash.
 attacker_packages: [python3, curl, jq, netcat-openbsd, nmap, dnsutils]
 # Desktop for the Guacamole RDP connection (#51). The attacker is not enrolled in Fleet, so the desktop adds no telemetry.
-desktop_packages: [xfce4, xfce4-terminal, xrdp, dbus-x11]
+desktop_packages: [xfce4, xfce4-terminal, xrdp, xorgxrdp, dbus-x11]
 # Login password for the RDP session, from the operator environment (never the repo). The role fails without it.
 attacker_rdp_password: "{{ lookup('ansible.builtin.env', 'ATTACKER_RDP_PASSWORD') }}"
