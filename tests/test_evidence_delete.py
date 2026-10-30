@@ -43,10 +43,10 @@ class EvidenceDelete(unittest.TestCase):
         return re.search(r'--confirm "(.*)"', out).group(1)
 
     def confirm(self, scope):
-        """The arguments the dry run tells the operator to add."""
+        """The arguments the dry run tells the operator to add. One dry run: its cutoff comes from the wall clock, so a second run could differ."""
         out = self.run_cli(scope).stdout
         before = re.search(r'--before "(.*?)"', out)
-        return (["--before", before.group(1)] if before else []) + ["--confirm", self.phrase(scope)]
+        return (["--before", before.group(1)] if before else []) + ["--confirm", re.search(r'--confirm "(.*)"', out).group(1)]
 
     def count(self, prefix):
         return len(self.es.select(prefix))
