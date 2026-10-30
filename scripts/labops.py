@@ -47,6 +47,9 @@ EXERCISE_DIR = "/srv/exercise"  # attacker-side working directory (ansible/roles
 MIN_REASON = 5
 
 
+DRAIN_AGENT = "opaleye-drain/"
+
+
 def stamp():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
@@ -201,14 +204,17 @@ class Ops:
         es = es or elastic_api.es_client()
         generation = self.generation_of(target)
         token = secrets.token_hex(8)
-        line = "OPALEYE_DRAIN_MARKER token=%s target_id=%s rebuild_generation=%d" % (token, target, generation)
+        # A valid Apache combined-log line: the Apache access pipeline rejects anything else (no `message`, no lab-stamp),
+        # and as a real record it is parsed and stamped like the evidence it vouches for. The token is the User-Agent.
+        line = '127.0.0.1 - - [%s] "GET /opaleye-drain?target_id=%s&rebuild_generation=%d HTTP/1.1" 200 0 "-" "%s%s"' % (
+            time.strftime("%d/%b/%Y:%H:%M:%S +0000", time.gmtime()), target, generation, DRAIN_AGENT, token)
         cmd = "printf '%%s\\n' %s | sudo -n tee -a %s >/dev/null" % (shlex.quote(line), shlex.quote(self.drain_cfg["log"]))
         if self.ssh(target, cmd) != 0:
             print("drain marker could not be written on %s (ssh failed)" % target, file=sys.stderr)
             return False
         end = time.time() + float(os.environ.get("LABOPS_DRAIN_TIMEOUT") or self.drain_cfg["timeout_s"])
         query = {"query": {"bool": {"filter": [{"term": {"lab.rebuild_generation": generation}},
-                                                {"match_phrase": {"message": "token=" + token}}]}}, "size": 1}
+                                                {"term": {"user_agent.original": DRAIN_AGENT + token}}]}}, "size": 1}
         while True:
             try:
                 if es.call("/logs-*/_search", query)["hits"]["hits"]:
