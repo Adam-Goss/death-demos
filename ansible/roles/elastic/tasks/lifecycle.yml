@@ -178,6 +178,24 @@
   become: false
   no_log: true
 
+# Failure-store backing indices (.fs-*) are hidden and do not match the data stream wildcards above, so
+# they keep the default replica and stay unassigned on a single node (found by the from-scratch run, #25).
+- name: Failure-store indices have no replicas
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/.fs-*/_settings?expand_wildcards=all&ignore_unavailable=true&allow_no_indices=true"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body: { index.number_of_replicas: 0 }
+    status_code: [200, 404]
+  changed_when: false
+  delegate_to: localhost
+  become: false
+  no_log: true
+
 - name: Snapshot repository
   ansible.builtin.uri:
     url: "{{ api_ctl }}/_snapshot/{{ el.snapshots.repository }}"
