@@ -2,7 +2,7 @@
 
 Issue #25. Exit = checks A6-A10 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Design: [operator commands and target interface](../decisions/operator-commands-and-target-interface.md).
 
-**Status (2026-10-30): run from scratch. A6-A10 evidence is recorded; one optional re-run remains (see Open).** The whole lab was wiped and rebuilt from code with newly generated secrets, then A6-A10 were run against it. The remaining open items are listed under "Open" (A10's idle day was waived by Adam, see A10). Nothing below used the earlier lab, its Tofu state or its secrets.
+**Status (2026-10-30): run from scratch. A6-A10 evidence is recorded, including the gaps found afterwards (firewall restart persistence, interrupted firewall apply, other guests untouched by a reset); one optional re-run remains (see Open).** The whole lab was wiped and rebuilt from code with newly generated secrets, then A6-A10 were run against it. The remaining open items are listed under "Open" (A10's idle day was waived by Adam, see A10). Nothing below used the earlier lab, its Tofu state or its secrets.
 
 ## From-scratch rebuild
 
@@ -64,7 +64,16 @@ Exercise **`ex-a6d`** on t1, generation 4 (attacker script `exercise1`, DVWA `lo
 | t1 | agents | exercise | one t1 agent, old one retired | one `opaleye-t1` agent (enrolled 13:10:56Z) plus the Fleet Server agent | Fleet |
 | operator | reset with a failed drain | maintenance | refused without acknowledged loss | `refused: drain check failed; fix forwarding or accept the loss with --acknowledge-loss REASON` (new VM had no Apache log yet) | labops.py |
 
-Not captured: process IDs of the firewall, attacker and Elastic VMs across the first reset. The reset only invokes the targets stack and the unit tests assert nothing else is addressed.
+Other guests untouched by a reset, live (second reset, 2026-10-30, generation 4 -> 5, process IDs read from the Proxmox API in maintenance mode, before any other restart):
+
+| guest | PID before | PID after | result |
+| --- | --- | --- | --- |
+| firewall 2000 | 122804 | 122804 | untouched |
+| attacker 2001 | 125778 | 125778 | untouched |
+| Elastic 2003 | 125645 | 125645 | untouched |
+| t1 2011 | 125704 | 126533 | replaced |
+
+The first attempt at this reset was refused (`Elastic is not answering ... handshake timed out`) because the SSH tunnel had gone stale after earlier firewall power-cycles; generation stayed 4 and nothing changed. The tunnel must be restarted after any firewall or Elastic power-cycle (see findings).
 
 ## A8 Outage and recovery
 
@@ -80,7 +89,16 @@ Elastic powered off gracefully for **300 s** while the attacker sent one request
 | operator | interrupted Elastic apply (playbook killed after 60 s) | maintenance | recovers by re-apply | re-apply ok=43 failed=0; A3 services 27/27 PASS | Ansible |
 | operator | high watermark | exercise | blocks new exercises | with `ops.high_watermark_pct` forced to 1% against a 5% disk: `refused: Elasticsearch disk at 5% (high watermark 1%): new exercises are blocked` | labops.py |
 
-Not covered: an interrupted **firewall** apply (the re-apply is a no-op on a converged stack, so there was nothing to interrupt), and a Kibana alerting rule for the watermark (the Elastic VM's own agent does not ship filesystem metrics, so the alert is the Basic-license fallback from #9: `scripts/labops.py watermark`, run from cron every few minutes; exit 1 and an `ALERT` line at `ops.high_watermark_pct`, audited as `watermark-alert`; an Elastic outage is an error, never `ok`; proven live: `ok: Elasticsearch disk at 5% (high watermark 90%)` normally and `ALERT: ... (high watermark 1%)` with the limit forced to 1%). Example crontab line: `*/5 * * * * set -a; . ~/secrets/env.sh; set +a; cd <repo> && python3 scripts/labops.py watermark >> .state/watermark.log 2>&1`.
+Interrupted **firewall** apply (2026-10-30): a change that creates a probe guest (`TF_VAR_probe_vms=true`, zone t2) was killed with SIGKILL 6 s in, mid-clone.
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| operator | `lab.sh apply firewall` killed mid-create | exercise | recovers via re-apply, no auto-destroy | no state lock left; `plan` showed `1 to add`; re-apply `Apply complete! 1 added`; next `plan` `No changes`; nothing was destroyed automatically | Tofu, `lab.sh` |
+| operator | the killed apply's side effect | exercise | documented manual path | **an orphan clone (VM 120) existed in the pool that Tofu did not track**; deleted by ID through the Proxmox API (a stopped VM deletes with `DELETE /nodes/N/qemu/ID?purge=1`) | Proxmox pool |
+
+Manual recovery after an interrupted apply: re-apply; then list the pool (`GET /pools/lab-firewall`) and delete any VM that is not in the stack's state. Probe guests destroyed seconds after creation hang the provider (see findings).
+
+Not covered: a Kibana alerting rule for the watermark (the Elastic VM's own agent does not ship filesystem metrics, so the alert is the Basic-license fallback from #9: `scripts/labops.py watermark`, run from cron every few minutes; exit 1 and an `ALERT` line at `ops.high_watermark_pct`, audited as `watermark-alert`; an Elastic outage is an error, never `ok`; proven live: `ok: Elasticsearch disk at 5% (high watermark 90%)` normally and `ALERT: ... (high watermark 1%)` with the limit forced to 1%). Example crontab line: `*/5 * * * * set -a; . ~/secrets/env.sh; set +a; cd <repo> && python3 scripts/labops.py watermark >> .state/watermark.log 2>&1`.
 
 ## A9 Shutdown, teardown, deletion
 
@@ -93,6 +111,15 @@ Not covered: an interrupted **firewall** apply (the re-apply is a no-op on a con
 | operator | `lab.sh destroy elastic` | exercise | refused | `refused: Elastic destroy is evidence deletion; use its guarded command (M3)` | lab.sh guard |
 | operator | `evidence_delete.py all` | n/a | dry run lists, nothing deleted | per-stream counts and the exact `--before ... --confirm "..."` command printed; "nothing deleted" | evidence_delete.py |
 | operator | `evidence_delete.py all --before T --confirm "wrong phrase"` | n/a | refused | `refused: confirmation must be exactly: DELETE EVIDENCE all up to ... (N documents)`; doc counts unchanged | evidence_delete.py |
+
+Firewall restart keeps the ruleset (exercise mode, t1 selected, 2026-10-30; attacker/t1 probes by curl and `/dev/tcp` from the real guests):
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| attacker | t1:80 after a graceful firewall power-cycle (before, right after boot, 90 s later) | exercise | 200 each time | 200, 200, 200 | firewall |
+| attacker | t1:22, elastic:9200; t1 -> attacker:4444 (same three times) | exercise | deny | deny x3 each | firewall |
+| attacker | t1:80, t1:22, t1 -> attacker:4444 after a **hard stop** of a settled firewall (30 s off) | exercise | unchanged | unchanged before, right after boot, 90 s later | firewall |
+| operator | push `select t1`, then a hard stop 2 s later, boot | exercise | rules survive | attacker -> t1:80 = 200; workstation and firewall agree (`exercise t1` then said `no changes`) | firewall, labmode |
 
 Evidence deletion was **not** run to completion (it is the only destructive path and this milestone's goal is to keep the evidence). Its non-reachability from reset, shutdown and `lab.sh` is asserted by `tests/test_evidence_delete.py` and `tests/test_m5_plan.py`.
 
@@ -132,13 +159,17 @@ Placeholders to replace in #9 from these numbers: ~0.6 GB/day idle plus ~2 MB pe
 1. **Failure-store indices kept a replica** (A3 yellow, 1 unassigned shard): the replica fix targeted data stream wildcards, not `.fs-*`. Fixed in `ansible/roles/elastic/tasks/lifecycle.yml`, applied by re-running `elastic-evidence.yml`. **Known limit:** the task only fixes `.fs-*` indices that exist when the playbook runs; a failure-store index created or rolled over later gets the default replica (the `@custom` replica setting did not reach it here) and turns A3 yellow until the playbook is re-run. A durable fix needs a template that reaches failure-store indices; not found yet.
 2. **`lab.sh destroy all` destroyed nothing**: `sed "1!G;h;$!d"` in double quotes expanded `$!`. Fixed with single quotes plus `tests/test_elastic_plan.py::test_broad_destroy_runs_every_other_stack_in_reverse_order`.
 3. **Environment, not code:** exporting `ELASTIC_PASSWORD` overrides the generated password file and gives HTTP 401 from `fleetctl`; export `ANSIBLE_CONFIG` before `target.sh provision` or Ansible cannot find the roles; the Elastic SSH tunnel dies whenever Elastic is power-cycled and must be restarted; `reset` can race the new VM's SSH (re-run `target.sh provision t1`, as its message says).
-4. **After the fail-closed test the firewall had lost the selected-target rules** (attacker to t1:80 timed out until `labmode.py exercise t1` was pushed again), unlike the M2 record where the mode survived. Not root-caused; reconcile with `labmode.py exercise <target>` after any firewall restart.
+4. **Firewall rules after the fail-closed test (not reproduced).** Once, after the A2 fail-closed test, attacker to t1:80 timed out and `labmode.py exercise t1` reported `applied` instead of `no changes` (the firewall had lost the selected-target rule). Three later attempts did not reproduce it (graceful power-cycle, hard stop on a settled ruleset, hard stop 2 s after a push; see A9). Cause unknown. Mitigation: after any firewall restart run `labmode.py exercise <target>`: `no changes` confirms the firewall matches the workstation, `applied` means it had drifted and is now repaired.
 5. **Maintenance-mode update sources are alias-refresh dependent**: the first t1 provision timed out on a rotating CDN address and passed on retry (known from M2).
 
 6. **Attacker package install failed on a cold clone** (`No package matching 'jq'`, three tries) because the first `apt update` through the maintenance allowlist is ~28 MB and can fail on a rotating CDN address; passed once the cache was warm. The role now retries (`ansible/roles/attacker/tasks/main.yml`, guarded by a test).
 7. **Script hygiene:** a retry loop that tests only for `failed=0` treats `unreachable=1` as success; require `unreachable=0 .* failed=0`. This bit the rebuild helper, not the repo code.
 
+8. **An interrupted apply can leave an untracked VM** (see A8): re-apply converges, but the orphan clone must be deleted by ID.
+9. **Destroying a probe guest seconds after starting it hangs the provider** (the guest is not yet listening for ACPI shutdown, so Tofu waits out a very long timeout and holds Proxmox's shutdown task). Wait about 30 s after creating a probe. To unstick: `POST /nodes/N/qemu/ID/status/stop` with `overrule-shutdown=1` (works with the stack token, no root), then `lab.sh apply` again.
+10. **The Elastic SSH tunnel goes stale after any firewall or Elastic power-cycle** (`handshake operation timed out`, and `reset`/`exercise start` are then correctly refused). Restart `scripts/elastic-tunnel.sh`; a helper that only starts one when none is running is not enough.
+
 ## Open (needs you or more time)
 
 - **A2 VPN path loss** (`a2-vpn-loss.sh`, needs root) was not re-run on the rebuilt firewall; every other A2 phase was (lab, maintenance, fail-closed, `vpn`, `home`).
-- Final lab state: all four guests running (attacker and t1 rebuilt for A6 after the A9 teardown), `exercise` mode, t1 selected, generation 4.
+- Final lab state: all four guests running (attacker and t1 rebuilt for A6 after the A9 teardown), `exercise` mode, t1 selected, rebuild generation 5.
