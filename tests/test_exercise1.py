@@ -34,12 +34,14 @@ class FakeDvwa:
 
             def do_GET(self):
                 fake.requests.append(("GET", self.path, self.headers.get("User-Agent"), {}))
-                self.page("<input type='hidden' name='user_token' value='abc123' />", "PHPSESSID=s1; Path=/")
+                # The pinned DVWA low exec form has no token; only login requires one.
+                body = "<input type='hidden' name='user_token' value='abc123' />" if self.path == "/login.php" else "<form method='post'><input name='ip'></form>"
+                self.page(body, "PHPSESSID=s1; Path=/")
 
             def do_POST(self):
                 form = dict(urllib.parse.parse_qsl(self.rfile.read(int(self.headers["Content-Length"])).decode()))
                 fake.requests.append(("POST", self.path, self.headers.get("User-Agent"), form))
-                if form.get("user_token") != "abc123":
+                if self.path == "/login.php" and form.get("user_token") != "abc123":
                     return self.page("CSRF token is incorrect")
                 if self.path == "/vulnerabilities/exec/":
                     ok = fake.vulnerable and "security=low" in (self.headers.get("Cookie") or "") and "PHPSESSID" in (self.headers.get("Cookie") or "")
