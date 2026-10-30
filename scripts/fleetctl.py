@@ -317,7 +317,10 @@ def cmd_register(args):
     config = params.setdefault("firewall_targets", {}).setdefault(args.target, {
         "ip": plan["hosts"][args.target]["ip"], "generations": []})
     if not any(g["generation"] == gen for g in config["generations"]):
-        since = min(a.get("enrolled_at") or dt.datetime.now(dt.timezone.utc).isoformat() for a in found)
+        # Fleet writes `Z`; compare as datetimes, not strings, and keep the earliest original value.
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        since = min((a.get("enrolled_at") or now for a in found),
+                    key=lambda v: dt.datetime.fromisoformat(v.replace("Z", "+00:00")))
         config["generations"].append({"generation": gen, "since": since})
     es.call("PUT", "/_ingest/pipeline/" + name, body)
     print("registered %s as %s gen %d" % (", ".join(a["id"] for a in found), args.target, gen))

@@ -171,6 +171,8 @@
     ca_path: "{{ secrets_dir }}/ca/ca.crt"
     body_format: json
     body: { index.number_of_replicas: 0 }
+    status_code: [200, 404]
+  changed_when: false
   loop: "{{ el.endpoint_internal_datasets }}"
   delegate_to: localhost
   become: false

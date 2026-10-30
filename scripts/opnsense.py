@@ -82,7 +82,7 @@ class Client:
         want = {"enabled": "1", "name": name, "type": "host", "proto": "IPv4", "content": "\n".join(content), "description": comment}
         rows = self.call("firewall/alias/searchItem", {"rowCount": -1}).get("rows", [])
         cur = next((r for r in rows if r.get("name") == name), None)
-        if cur and cur.get("content") == want["content"] and cur.get("proto") == want["proto"]:
+        if cur and cur.get("content") == want["content"] and cur.get("proto", want["proto"]) == want["proto"]:
             return False
         if check_only:
             return True

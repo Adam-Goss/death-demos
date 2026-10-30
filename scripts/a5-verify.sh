@@ -10,6 +10,8 @@ PLAN=network/plan.json
 ip=$(python3 -c "import json;print(json.load(open('$PLAN'))['hosts']['$t']['ip'])") || exit 2
 app=$(python3 -c "import json;i=json.load(open('$PLAN'))['target_stack']['dvwa']['images']['app'];print(i['ref']+'@'+i['digest'])")
 db=$(python3 -c "import json;i=json.load(open('$PLAN'))['target_stack']['dvwa']['images']['db'];print(i['ref']+'@'+i['digest'])")
+appd=${app#*@}
+dbd=${db#*@}
 dir=$(python3 -c "import json;print(json.load(open('$PLAN'))['target_stack']['dvwa_dir'])")
 level=$(python3 -c "import json;print(json.load(open('$PLAN'))['target_stack']['dvwa']['security_level'])")
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 opaleye@$ip"
@@ -22,8 +24,8 @@ row() { # name expected actual
 }
 run() { $SSH "$@" 2>/dev/null | tr -d '\r' | head -1; }
 
-row "app image digest" "$app" "$(run "sudo docker inspect --format '{{.Config.Image}}' \$(sudo docker-compose -f $dir/compose.yml ps -q dvwa)")"
-row "db image digest" "$db" "$(run "sudo docker inspect --format '{{.Config.Image}}' \$(sudo docker-compose -f $dir/compose.yml ps -q db)")"
+row "app image digest" "$appd" "$(run "sudo docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' \$(sudo docker inspect --format '{{.Image}}' \$(sudo docker-compose -f $dir/compose.yml ps -q dvwa)) | grep -o 'sha256:[0-9a-f]\{64\}' | grep -Fx '$appd' | head -1")"
+row "db image digest" "$dbd" "$(run "sudo docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' \$(sudo docker inspect --format '{{.Image}}' \$(sudo docker-compose -f $dir/compose.yml ps -q db)) | grep -o 'sha256:[0-9a-f]\{64\}' | grep -Fx '$dbd' | head -1")"
 row "login page" "200" "$(run "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/login.php")"
 row "security level" "$level" "$(run "sudo docker-compose -f $dir/compose.yml exec -T dvwa printenv DEFAULT_SECURITY_LEVEL" | tr -d '[:space:]')"
 row "database created" "yes" "$(run "test -f /var/lib/opaleye/dvwa-db.done && echo yes || echo no")"
