@@ -28,7 +28,7 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
    - hunt in Kibana: both directions (process to request, request to process) inside the window from `labops.py exercise show ex-001`
    - `scripts/labops.py drain t1`, then `labmode.py maintenance --minutes 60 --reason "target reset"` and `reset t1` (A7), then back to exercise mode with denies re-verified, and `attacker-clean`.
 6. Lab off/on: `labops.py shutdown [--include-elastic] [--acknowledge-loss REASON]` / `startup [--include-elastic]` (A9). Needs `PROXMOX_VE_ENDPOINT`, `PVE_NODE`, `PROXMOX_VE_API_TOKEN_{ATTACKER,TARGETS,FIREWALL}` (+ `_ELASTIC`).
-7. Evidence deletion: `scripts/evidence_delete.py all` (dry run), then re-run with the printed `--confirm` phrase (it includes the document count).
+7. Evidence deletion: `scripts/evidence_delete.py all` (dry run) prints a cutoff a few minutes in the past and the exact `--before "T" --confirm "..."` to re-run. The count in the phrase is for documents up to that cutoff, so it stays valid while agents keep shipping; newer documents are kept (run it again later to remove them). `exercise:ID` has its own fixed window and needs no `--before`.
 
 ## Guards
 

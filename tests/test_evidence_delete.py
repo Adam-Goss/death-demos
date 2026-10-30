@@ -42,29 +42,36 @@ class EvidenceDelete(unittest.TestCase):
         out = self.run_cli(scope).stdout
         return re.search(r'--confirm "(.*)"', out).group(1)
 
+    def confirm(self, scope):
+        """The arguments the dry run tells the operator to add."""
+        out = self.run_cli(scope).stdout
+        before = re.search(r'--before "(.*?)"', out)
+        return (["--before", before.group(1)] if before else []) + ["--confirm", self.phrase(scope)]
+
     def count(self, prefix):
         return len(self.es.select(prefix))
 
     def test_without_confirmation_it_only_reports_what_it_would_delete(self):
         r = self.run_cli("all")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("DELETE EVIDENCE all (7 documents)", r.stdout)
+        self.assertRegex(r.stdout, r"DELETE EVIDENCE all up to \S+ \(7 documents\)")
+        self.assertIn("--before", r.stdout)
         self.assertEqual(self.es.deletes(), [])
 
     def test_a_wrong_phrase_deletes_nothing(self):
-        r = self.run_cli("all", "--confirm", "yes")
+        r = self.run_cli("all", "--before", "2999-01-01T00:00:00Z", "--confirm", "yes")
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.es.deletes(), [])
         self.assertEqual(self.count("logs-"), 7)
 
     def test_all_removes_evidence_and_markers_but_not_metrics(self):
-        r = self.run_cli("all", "--confirm", self.phrase("all"))
+        r = self.run_cli("all", *self.confirm("all"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.count("logs-"), 0)
         self.assertEqual(self.count("metrics-"), 1)
 
     def test_one_exercise_removes_only_its_window_on_its_target(self):
-        r = self.run_cli("exercise:ex-1", "--confirm", self.phrase("exercise:ex-1"))
+        r = self.run_cli("exercise:ex-1", *self.confirm("exercise:ex-1"))
         self.assertEqual(r.returncode, 0, r.stderr)
         left = self.es.select("logs-endpoint.events.process")
         self.assertEqual([d["@timestamp"] for d in left], ["2026-10-28T12:00:00Z"])
@@ -73,14 +80,28 @@ class EvidenceDelete(unittest.TestCase):
         self.assertEqual(self.count("metrics-"), 1)
 
     def test_a_phrase_for_a_different_scope_or_count_is_refused(self):
-        self.assertNotEqual(self.run_cli("all", "--confirm", "DELETE EVIDENCE all").returncode, 0)
-        self.assertNotEqual(self.run_cli("all", "--confirm", "DELETE EVIDENCE all (9 documents)").returncode, 0)
+        far = ["--before", "2999-01-01T00:00:00Z"]
+        self.assertNotEqual(self.run_cli("all", *far, "--confirm", "DELETE EVIDENCE all").returncode, 0)
+        self.assertNotEqual(self.run_cli("all", *far, "--confirm", "DELETE EVIDENCE all (9 documents)").returncode, 0)
+
+    def test_the_phrase_stays_valid_while_new_documents_keep_arriving(self):
+        args = self.confirm("all")
+        self.es.add("logs-endpoint.events.process-default", {"@timestamp": "2999-01-01T00:00:00Z", "lab": {"target_id": "t1"}})
+        r = self.run_cli("all", *args)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([d["@timestamp"] for d in self.es.select("logs-endpoint.events.process")], ["2999-01-01T00:00:00Z"])
+
+    def test_confirming_all_needs_the_cutoff_from_the_dry_run(self):
+        r = self.run_cli("all", "--confirm", self.phrase("all"))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--before", r.stderr + r.stdout)
+        self.assertEqual(self.es.deletes(), [])
         self.assertEqual(self.es.deletes(), [])
 
     def test_firewall_flow_rows_in_the_window_go_with_the_exercise(self):
         self.es.add("logs-lab_firewall.flow-default", {"@timestamp": "2026-10-28T10:30:00Z"})
         self.es.add("logs-lab_firewall.flow-default", {"@timestamp": "2026-10-28T14:00:00Z"})
-        self.assertEqual(self.run_cli("exercise:ex-1", "--confirm", self.phrase("exercise:ex-1")).returncode, 0)
+        self.assertEqual(self.run_cli("exercise:ex-1", *self.confirm("exercise:ex-1")).returncode, 0)
         self.assertEqual([d["@timestamp"] for d in self.es.select("logs-lab_firewall.flow")], ["2026-10-28T14:00:00Z"])
 
     def test_an_unknown_exercise_is_refused(self):
@@ -90,18 +111,18 @@ class EvidenceDelete(unittest.TestCase):
     def test_refused_while_an_exercise_is_active(self):
         with open(os.path.join(self.dir, "labops.json"), "w") as f:
             json.dump({"active": {"id": "ex-9", "target": "t1"}, "generations": {}}, f)
-        r = self.run_cli("all", "--confirm", "DELETE EVIDENCE all (7 documents)")
+        r = self.run_cli("all", "--before", "2999-01-01T00:00:00Z", "--confirm", "DELETE EVIDENCE all (7 documents)")
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.es.deletes(), [])
 
     def test_refused_when_the_markers_show_an_open_exercise_even_without_local_state(self):
         self.es.add(MARK, {"@timestamp": "2026-10-28T13:00:00Z", "event": {"action": "exercise-start"}, "lab": {"exercise_id": "ex-2", "target_id": "t1"}})
-        r = self.run_cli("all", "--confirm", "DELETE EVIDENCE all (9 documents)")
+        r = self.run_cli("all", "--before", "2999-01-01T00:00:00Z", "--confirm", "DELETE EVIDENCE all (9 documents)")
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.es.deletes(), [])
 
     def test_a_confirmed_deletion_is_audited(self):
-        self.run_cli("all", "--confirm", self.phrase("all"))
+        self.run_cli("all", *self.confirm("all"))
         with open(os.path.join(self.dir, "evidence-delete.log")) as f:
             self.assertEqual(json.loads(f.readline())["scope"], "all")
 
