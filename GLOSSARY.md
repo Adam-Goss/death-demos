@@ -47,7 +47,7 @@ A counter (`lab.rebuild_generation`) that increments on each target rebuild, dis
 A marker event emitted on the target after its last exercise event; its arrival in Elasticsearch is the check that forwarding has drained before a target reset.
 
 **Gateway VM**:
-The dedicated VM running Apache Guacamole on the admin path; the operator's only browser route to the Attacker VM (RDP desktop) and the targets (SSH terminal).
+The dedicated VM running Apache Guacamole on the admin path; the operator's browser route to the Attacker VM (RDP desktop) and the targets (SSH terminal); direct SSH over the VPN remains.
 
 **Gateway zone**:
 The isolated network (`10.77.2.0/24`) holding the Gateway VM; the firewall allows the operator in over the VPN, RDP out to the Attacker VM and SSH out to targets only.

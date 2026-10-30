@@ -56,11 +56,16 @@
     groups: ssl-cert
     append: true
 
+- name: RDP password supplied (export ATTACKER_RDP_PASSWORD; the Guacamole connection needs the same value)
+  ansible.builtin.assert:
+    that: attacker_rdp_password | length >= 12
+    fail_msg: set ATTACKER_RDP_PASSWORD (12+ characters)
+    quiet: true
+
 - name: RDP login password for the attacker user
   ansible.builtin.user:
     name: "{{ attacker_user }}"
     password: "{{ attacker_rdp_password | password_hash('sha512') }}"
-  when: attacker_rdp_password | length > 0
   no_log: true
 
 - name: xrdp enabled

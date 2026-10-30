@@ -73,3 +73,9 @@ Add the host to `connections()` in `scripts/guacctl.py` (and a firewall flow and
 | SSH terminal to each target from the browser | manual (t1; t2 has no VM) | pending live run |
 | A2 covers the new flows, both modes | `p53`-`p71` in exercise and maintenance | pending live run |
 | `netpolicy.py lint` and `tests/static-checks.sh` | offline | lint passes; static checks pass except the Windows-only baseline failures (see PR) |
+
+## Known gaps
+
+- Between the gateway playbook and `guacctl.py bootstrap` the schema's default `guacadmin`/`guacadmin` login exists (VPN-reachable only). Run bootstrap straight after the playbook.
+- The target SSH key and the RDP password are stored in plaintext in the gateway's Postgres (inherent to Guacamole connection parameters). Acceptable for a lab behind the VPN; rebuild the gateway to rotate.
+- Debian's `docker-compose` v1 is used, as on the targets; if a recreate fails with `KeyError: 'ContainerConfig'`, `docker-compose down` then `up -d`.

@@ -132,14 +132,18 @@ def do_connections(plan):
 
 
 def web_login_status(plan, password):
-    """HTTP status of an API login without a TOTP code (403 = a second factor is demanded)."""
+    """(HTTP status, error type) of an API login without a TOTP code. A wrong password is also 403, but typed
+    INVALID_CREDENTIALS; a demanded second factor is INSUFFICIENT_CREDENTIALS."""
     url = "https://%s:%d/api/tokens" % (plan["hosts"]["gateway"]["ip"], plan["gateway"]["web_port"])
     body = ("username=%s&password=%s" % (ADMIN, urllib.request.quote(password, safe=""))).encode()
     ctx = ssl._create_unverified_context()  # self-signed; the VPN is the trust boundary
     try:
-        return urllib.request.urlopen(urllib.request.Request(url, data=body), timeout=15, context=ctx).status
+        return urllib.request.urlopen(urllib.request.Request(url, data=body), timeout=15, context=ctx).status, ""
     except urllib.error.HTTPError as e:
-        return e.code
+        try:
+            return e.code, json.loads(e.read().decode()).get("type", "")
+        except ValueError:
+            return e.code, ""
 
 
 def do_check(plan, say=print):
@@ -150,11 +154,11 @@ def do_check(plan, say=print):
         bad.append("no guacadmin account")
     elif default_password_works(rows):
         bad.append("the default guacadmin password is still set")
-    status = web_login_status(plan, admin_password())
+    status, kind = web_login_status(plan, admin_password())
     if status == 200:
         bad.append("login succeeded without a TOTP code")
-    elif status != 403:
-        bad.append("unexpected login status %s" % status)
+    elif (status, kind) != (403, "INSUFFICIENT_CREDENTIALS"):
+        bad.append("expected a TOTP demand, got %s %s (wrong GUAC_ADMIN_PASSWORD?)" % (status, kind or "-"))
     say("\n".join(bad) or "ok: default password gone, TOTP demanded")
     return bad
 

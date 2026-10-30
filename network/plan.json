@@ -226,6 +226,7 @@
     { "id": "p68", "src": "gateway", "dst": "internet", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p69", "src": "operator", "dst": "attacker", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p70", "src": "t1", "dst": "attacker", "proto": "tcp", "port": 3389, "modes": { "exercise": "deny", "maintenance": "deny" } },
-    { "id": "p71", "src": "gateway", "dst": "update_source", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "allow" } }
+    { "id": "p71", "src": "gateway", "dst": "update_source", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "allow" } },
+    { "id": "p72", "src": "workstation", "dst": "gateway", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } }
   ]
 }
