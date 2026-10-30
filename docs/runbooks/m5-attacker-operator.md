@@ -51,7 +51,7 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 
 ## A6 evidence
 
-**Partly collected (live run 2026-10-30, exercise `ex-003`, target t1 generation 1, window 08:08:11.300Z to 08:09:16.730Z from `exercise show`).** The evidence rows below were read from Elasticsearch through the API, **not Kibana**. The Kibana-only hunt and the #7 limitations are still to do, so A6 is not passed. `ex-001` and `ex-002` were aborted runs (attacker script defects, since fixed) and have start/end markers but no usable activity.
+**Collected (live run 2026-10-30, exercise `ex-003`, target t1 generation 1, window 08:08:11.300Z to 08:09:16.730Z from `exercise show`).** The evidence rows below were read from Elasticsearch through the API, **not Kibana**. The Kibana hunt was done by Adam (reported, no screenshots kept). A6 stays open until the A7/A9 touchpoints are run and Adam signs off. `ex-001` and `ex-002` were aborted runs (attacker script defects, since fixed) and have start/end markers but no usable activity.
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
@@ -60,8 +60,8 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 | t1 | Apache request in Elastic | exercise | request found by window / User-Agent | 4 requests, `user_agent.original=opaleye-exercise1/ex-003`, `lab.target_id=t1`, including `POST /vulnerabilities/exec/` (200) | Filestream |
 | t1 | process parent->shell->child, container attribution | exercise | present | Defend: `apache2` (group leader) -> `dash` (`sh -c -- ping -c 4 127.0.0.1; id; timeout 5 bash -c ...`, parent start 08:08:09.700Z) -> `id` (08:08:12.760Z), `timeout` and `bash`; `entry_meta.type=container`. auditd execve for `id`/`timeout` carries `container.name=dvwa-dvwa-1`, `container.id=898bb426...`, image `ghcr.io/digininja/dvwa@sha256:80294506...` | Defend, auditd |
 | t1 | attacker:4444 outbound attempt | exercise | network event, blocked | Defend network: `connection_attempted` 08:08:12.774Z then `disconnect_received` 08:08:17.775Z (bash, 172.18.0.3 -> 10.77.1.10:4444); auditd `connected-to` outcome `failure`; firewall flow log: 5 `block` events t1 -> 10.77.1.10:4444 | Defend, firewall flow log |
-| operator | hunt process->request and request->process in Kibana only | exercise | both within the window | **not done in Kibana.** Via the API the pair links by time and command line: the `sh -c` command line at 08:08:12.76Z matches the injected `ip` value of the `POST /vulnerabilities/exec/` logged at 08:08:10Z (Apache timestamps have 1 s resolution) | Kibana |
-| operator | #7 limitations recorded | n/a | recorded | _not run_ | this file |
+| operator | hunt process->request and request->process in Kibana only | exercise | both within the window | Adam ran both hunts in Kibana over the `ex-003` window and the results matched (process `sh -c ...` command line <-> `POST /vulnerabilities/exec/` request with `user_agent.original=opaleye-exercise1/ex-003`, in both directions). The same pair was also read via the API (command line at 08:08:12.76Z matches the injected `ip` value of the request logged at 08:08:10Z; Apache timestamps have 1 s resolution) | Kibana |
+| operator | #7 limitations recorded | n/a | recorded | recorded below | this file |
 
 Observations from this run:
 
@@ -69,3 +69,19 @@ Observations from this run:
 - The Defend process events carry no `container.*` fields; container attribution comes from `process.entry_leader.entry_meta.type=container` there, and from `container.*` on the auditd events.
 - The firewall **drops** (not rejects) the callback, so the target's `bash` hangs on the connection; `exercise1` therefore wraps it in `timeout 5` (without it the HTTP POST hits the client's 30 s timeout).
 - `exercise start` then `exercise end` with nothing between them leaves a usable marker pair but an empty window; `exercise show` right after `end` can say "no markers" until Elasticsearch refreshes.
+
+### #7 limitations, as observed in this run
+
+- Execution happened inside the DVWA container (`dvwa-dvwa-1`). Nothing here shows container escape or Proxmox host compromise.
+- DVWA logs carry no authenticated-user or object fields; identity evidence is the session and source IP only (the Apache request has the attacker IP and the User-Agent).
+- Container attribution was unproven before this run. It is now seen, but from two sources: Defend marks the process `entry_meta.type=container` (no `container.*` fields), and auditd carries `container.name`, `container.id` and the image digest.
+- Only the `low` path was run.
+
+### Decisions (Adam, 2026-10-30)
+
+- Shutdown leaves Elastic running by default; `--include-elastic` is an explicit graceful opt-in. Confirmed.
+- Exercise tagging: the marker window is kept, and Adam asked for more precision (see the open item in the issue).
+
+### A3 (M3) prerequisite, re-checked 2026-10-30
+
+`a3-verify.sh services`: 27/27 rows pass (version 9.5.5, green, 1 node, lifecycle 90d/14d on all templates and 50 data streams, snapshot restore 3 docs, TLS with the lab CA, destroy guard, pool ACL denies). The config backup was missing and was produced with `playbooks/elastic-config-backup.yml`. Not re-run here: `a3-verify.sh net vpn|home`, which needs the probe guests.
