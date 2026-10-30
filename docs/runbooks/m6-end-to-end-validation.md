@@ -77,7 +77,7 @@ Elastic powered off gracefully for **300 s** while the attacker sent one request
 | operator | interrupted Elastic apply (playbook killed after 60 s) | maintenance | recovers by re-apply | re-apply ok=43 failed=0; A3 services 27/27 PASS | Ansible |
 | operator | high watermark | exercise | blocks new exercises | with `ops.high_watermark_pct` forced to 1% against a 5% disk: `refused: Elasticsearch disk at 5% (high watermark 1%): new exercises are blocked` | labops.py |
 
-Not covered: an interrupted **firewall** apply (the re-apply is a no-op on a converged stack, so there was nothing to interrupt), and a separate high-watermark **alert** (only the block exists, the documented Basic-license fallback from #9).
+Not covered: an interrupted **firewall** apply (the re-apply is a no-op on a converged stack, so there was nothing to interrupt), and a Kibana alerting rule for the watermark (the Elastic VM's own agent does not ship filesystem metrics, so the alert is the Basic-license fallback from #9: `scripts/labops.py watermark`, run from cron every few minutes; exit 1 and an `ALERT` line at `ops.high_watermark_pct`, audited as `watermark-alert`; an Elastic outage is an error, never `ok`). Example crontab line: `*/5 * * * * set -a; . ~/secrets/env.sh; set +a; cd <repo> && python3 scripts/labops.py watermark >> .state/watermark.log 2>&1`.
 
 ## A9 Shutdown, teardown, deletion
 

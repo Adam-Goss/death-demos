@@ -73,6 +73,35 @@ class OpsCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class Watermark(OpsCase):
+    """`labops.py watermark`: the scheduled-check fallback for the high-watermark alert (Basic license, #9)."""
+
+    def test_ok_below_the_limit(self):
+        self.es.disk_percent = 42
+        r = self.ops("watermark")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("ok", r.stdout)
+        self.assertIn("42", r.stdout)
+
+    def test_alert_at_the_limit_exits_non_zero(self):
+        self.es.disk_percent = 90
+        r = self.ops("watermark")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("ALERT", r.stderr)
+        self.assertIn("90", r.stderr)
+
+    def test_alert_is_recorded_in_the_audit_log(self):
+        self.es.disk_percent = 95
+        self.ops("watermark")
+        self.assertEqual(self.audit()[-1]["event"], "watermark-alert")
+
+    def test_an_outage_is_an_error_not_an_ok(self):
+        self.es.down = True
+        r = self.ops("watermark")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("ok", r.stdout)
+
+
 class ExerciseMarkers(OpsCase):
     def test_start_writes_a_marker_with_the_lab_fields(self):
         self.start()
