@@ -2,7 +2,7 @@
 
 Issue #25. Exit = checks A6-A10 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Design: [operator commands and target interface](../decisions/operator-commands-and-target-interface.md).
 
-**Status (2026-10-30): run from scratch. Not closed.** The whole lab was wiped and rebuilt from code with newly generated secrets, then A6-A10 were run against it. The remaining open items are listed under "Open" (A10's idle day was waived by Adam, see A10). Nothing below used the earlier lab, its Tofu state or its secrets.
+**Status (2026-10-30): run from scratch. A6-A10 evidence is recorded; one optional re-run remains (see Open).** The whole lab was wiped and rebuilt from code with newly generated secrets, then A6-A10 were run against it. The remaining open items are listed under "Open" (A10's idle day was waived by Adam, see A10). Nothing below used the earlier lab, its Tofu state or its secrets.
 
 ## From-scratch rebuild
 
@@ -39,16 +39,19 @@ Run after the A9 teardown, on the freshly rebuilt firewall (exercise mode, t1 se
 
 ## A6 Manual hunt exercise
 
-Exercise `ex-002` on t1, generation 1 (attacker script `exercise1`, DVWA `low`). Read from Elasticsearch through the API.
+Exercise **`ex-a6d`** on t1, generation 4 (attacker script `exercise1`, DVWA `low`), 2026-10-30, window 15:54:39Z to 15:55:17Z. Evidence counts read from Elasticsearch through the API; the hunt itself was done by Adam in Kibana (reported, no screenshots kept). `ex-002` (generation 1) and `ex-a6c` were earlier runs; `ex-a6c` ran before Defend had settled after t1's reboot and is not used.
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
-| operator | exercise start/end markers | exercise | marker pair with `lab.exercise_id` | `exercise-start` 13:01:24Z, `exercise-end` 13:02:15Z, `ex-002`, t1 gen 1 | labops.py |
-| attacker | t1:80 `/vulnerabilities/exec/` | exercise | HTTP 200, injected output | `command_output_seen: true`; `POST /vulnerabilities/exec/` 200, `user_agent.original=opaleye-exercise1/ex-002`, `lab.target_id=t1` | firewall allow, DVWA, Filestream |
-| t1 | process parent->shell->child, container attribution | exercise | present | Defend: `dash` (`sh -c -- ping ...; id; timeout 5 bash -c ...`) -> `id`, `entry_meta.type=container`; auditd execve carries `container.name=dvwa-dvwa-1`, `container.id`, image digest | Defend, auditd |
-| t1 | attacker:4444 outbound attempt | exercise | network event, blocked | Defend network `connection_attempted` then `disconnect_received` (bash 172.18.0.3 -> 10.77.1.10:4444); 5 firewall flow `block` events t1 -> 10.77.1.10:4444 | Defend, firewall flow log |
-| operator | hunt both directions, Kibana only | exercise | within the window | **not run in this session (needs a person)** | Kibana |
+| operator | exercise start/end markers | exercise | marker pair with `lab.exercise_id` | `exercise-start` 15:54:39.9Z, `exercise-end` 15:55:17.5Z, `ex-a6d`, t1 gen 4 | labops.py |
+| attacker | t1:80 `/vulnerabilities/exec/` | exercise | HTTP 200, injected output | `command_output_seen: true`; 1 `POST /vulnerabilities/exec/` in Elastic, `user_agent.original=opaleye-exercise1/ex-a6d`, `lab.target_id=t1` | firewall allow, DVWA, Filestream |
+| t1 | process parent->shell->child, container attribution | exercise | present | Defend: `dash` -> `ping` (15:54:39.5Z), `dash` -> `timeout` and `dash` -> `id` (15:54:42.6Z), `entry_meta.type=container`; auditd: 109 events with `container.name` | Defend, auditd |
+| t1 | attacker:4444 outbound attempt | exercise | network event, blocked | 1 Defend network event to :4444; 5 firewall flow `block` events | Defend, firewall flow log |
+| operator | hunt process -> request, Kibana only | exercise | within the window | **matched** (Adam): `dash` children and their command line in `logs-endpoint.events.process-*`, then the `POST /vulnerabilities/exec/` in `logs-apache.access-*` | Kibana |
+| operator | hunt request -> process, Kibana only | exercise | within the window | **matched** (Adam): from the POST, the same `ping`/`timeout`/`id` events within +/-3 s | Kibana |
 | operator | #7 limitations | n/a | recorded | unchanged from the [M5 runbook](m5-attacker-operator.md#7-limitations-as-observed-in-this-run); only `low` was run | this file |
+
+**Defend needs a settling period after the VM boots.** On `ex-a6c`, about 5 minutes after t1 rebooted, Defend shipped almost no process events (2 documents in 15:44-15:46Z, against about 250 per 2 minutes later) and the injected chain was missing, while auditd and the firewall log were complete. The same exercise about 14 minutes after boot was complete. Wait about 10 minutes after any t1 start before an exercise, and check the chain with the process query before handing a window to a hunter.
 
 ## A7 Reset with evidence retained
 
@@ -77,7 +80,7 @@ Elastic powered off gracefully for **300 s** while the attacker sent one request
 | operator | interrupted Elastic apply (playbook killed after 60 s) | maintenance | recovers by re-apply | re-apply ok=43 failed=0; A3 services 27/27 PASS | Ansible |
 | operator | high watermark | exercise | blocks new exercises | with `ops.high_watermark_pct` forced to 1% against a 5% disk: `refused: Elasticsearch disk at 5% (high watermark 1%): new exercises are blocked` | labops.py |
 
-Not covered: an interrupted **firewall** apply (the re-apply is a no-op on a converged stack, so there was nothing to interrupt), and a Kibana alerting rule for the watermark (the Elastic VM's own agent does not ship filesystem metrics, so the alert is the Basic-license fallback from #9: `scripts/labops.py watermark`, run from cron every few minutes; exit 1 and an `ALERT` line at `ops.high_watermark_pct`, audited as `watermark-alert`; an Elastic outage is an error, never `ok`). Example crontab line: `*/5 * * * * set -a; . ~/secrets/env.sh; set +a; cd <repo> && python3 scripts/labops.py watermark >> .state/watermark.log 2>&1`.
+Not covered: an interrupted **firewall** apply (the re-apply is a no-op on a converged stack, so there was nothing to interrupt), and a Kibana alerting rule for the watermark (the Elastic VM's own agent does not ship filesystem metrics, so the alert is the Basic-license fallback from #9: `scripts/labops.py watermark`, run from cron every few minutes; exit 1 and an `ALERT` line at `ops.high_watermark_pct`, audited as `watermark-alert`; an Elastic outage is an error, never `ok`; proven live: `ok: Elasticsearch disk at 5% (high watermark 90%)` normally and `ALERT: ... (high watermark 1%)` with the limit forced to 1%). Example crontab line: `*/5 * * * * set -a; . ~/secrets/env.sh; set +a; cd <repo> && python3 scripts/labops.py watermark >> .state/watermark.log 2>&1`.
 
 ## A9 Shutdown, teardown, deletion
 
@@ -132,8 +135,10 @@ Placeholders to replace in #9 from these numbers: ~0.6 GB/day idle plus ~2 MB pe
 4. **After the fail-closed test the firewall had lost the selected-target rules** (attacker to t1:80 timed out until `labmode.py exercise t1` was pushed again), unlike the M2 record where the mode survived. Not root-caused; reconcile with `labmode.py exercise <target>` after any firewall restart.
 5. **Maintenance-mode update sources are alias-refresh dependent**: the first t1 provision timed out on a rotating CDN address and passed on retry (known from M2).
 
+6. **Attacker package install failed on a cold clone** (`No package matching 'jq'`, three tries) because the first `apt update` through the maintenance allowlist is ~28 MB and can fail on a rotating CDN address; passed once the cache was warm. The role now retries (`ansible/roles/attacker/tasks/main.yml`, guarded by a test).
+7. **Script hygiene:** a retry loop that tests only for `failed=0` treats `unreachable=1` as success; require `unreachable=0 .* failed=0`. This bit the rebuild helper, not the repo code.
+
 ## Open (needs you or more time)
 
-- **A6 Kibana hunt** in both directions on `ex-002` (or a new exercise): a person must do it in Kibana and sign off.
 - **A2 VPN path loss** (`a2-vpn-loss.sh`, needs root) was not re-run on the rebuilt firewall; every other A2 phase was (lab, maintenance, fail-closed, `vpn`, `home`).
-- Final lab state: firewall and Elastic running; attacker and t1 torn down (A9). `labmode.py` is in `exercise` mode with no selected target. Rebuild with `lab.sh apply all` and the target and attacker playbooks above.
+- Final lab state: all four guests running (attacker and t1 rebuilt for A6 after the A9 teardown), `exercise` mode, t1 selected, generation 4.
