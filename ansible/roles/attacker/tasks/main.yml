@@ -31,3 +31,45 @@
     src: exercise1
     dest: /usr/local/bin/exercise1
     mode: "0755"
+
+# #51: lightweight desktop reached only through the Guacamole gateway (firewall: gateway to attacker:3389 only).
+- name: Desktop packages (maintenance mode only)
+  ansible.builtin.apt:
+    name: "{{ desktop_packages }}"
+    state: present
+    install_recommends: false
+  register: attacker_desktop_apt
+  until: attacker_desktop_apt is succeeded
+  retries: 4
+  delay: 20
+
+- name: XFCE session for RDP logins
+  ansible.builtin.copy:
+    dest: "/home/{{ attacker_user }}/.xsession"
+    content: "startxfce4\n"
+    owner: "{{ attacker_user }}"
+    mode: "0755"
+
+- name: xrdp can read its TLS key
+  ansible.builtin.user:
+    name: xrdp
+    groups: ssl-cert
+    append: true
+
+- name: RDP password supplied (export ATTACKER_RDP_PASSWORD; the Guacamole connection needs the same value)
+  ansible.builtin.assert:
+    that: attacker_rdp_password | length >= 12
+    fail_msg: set ATTACKER_RDP_PASSWORD (12+ characters)
+    quiet: true
+
+- name: RDP login password for the attacker user
+  ansible.builtin.user:
+    name: "{{ attacker_user }}"
+    password: "{{ attacker_rdp_password | password_hash('sha512') }}"
+  no_log: true
+
+- name: xrdp enabled
+  ansible.builtin.systemd:
+    name: xrdp
+    enabled: true
+    state: started

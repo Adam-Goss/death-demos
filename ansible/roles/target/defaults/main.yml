@@ -13,3 +13,6 @@ cache_dir: "{{ playbook_dir }}/../../.state/elastic-packages"
 fleetctl: "{{ playbook_dir }}/../../scripts/fleetctl.py"
 dvwa_dir: "{{ ts.dvwa_dir }}"
 apache_log_dir: "{{ ts.apache_log_dir }}"
+# #51: the Guacamole gateway's SSH key (fetched by the gateway role); absent until the gateway exists.
+gateway_pubkey_file: "{{ playbook_dir }}/../../secrets/gateway/targets_ed25519.pub"
+gateway_ip: "{{ plan.hosts.gateway.ip }}"

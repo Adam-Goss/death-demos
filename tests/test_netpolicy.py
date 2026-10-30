@@ -54,6 +54,35 @@ class RulesMatchProbeMatrix(unittest.TestCase):
         self.assertTrue(any("p04" in b for b in bad), bad)
 
 
+class GuacamoleGateway(unittest.TestCase):
+    def verdict(self, mode, sel, src, dst, port):
+        rules = netpolicy.render_rules(PLAN, mode, sel)
+        return netpolicy.evaluate(PLAN, rules, {"src": src, "dst": dst, "proto": "tcp", "port": port})
+
+    def test_gateway_flows_in_both_modes(self):
+        for mode, sel in (("exercise", "t1"), ("exercise", None), ("maintenance", None)):
+            for src, dst, port, want in (
+                    ("operator", "gateway", 443, "allow"), ("workstation", "gateway", 443, "deny"),
+                    ("attacker", "gateway", 443, "deny"), ("t1", "gateway", 443, "deny"),
+                    ("gateway", "attacker", 3389, "allow"), ("gateway", "attacker", 22, "deny"),
+                    ("gateway", "t1", 22, "allow"), ("gateway", "t2", 22, "allow"), ("gateway", "t1", 80, "deny"),
+                    ("gateway", "elastic", 22, "deny"), ("gateway", "elastic", 5601, "deny"),
+                    ("operator", "attacker", 3389, "deny")):
+                self.assertEqual(self.verdict(mode, sel, src, dst, port), want, (mode, sel, src, dst, port))
+
+    def test_gateway_has_no_internet_in_exercise_mode_only_updates_in_maintenance(self):
+        rows = {r["id"]: r["expected"] for r in netpolicy.matrix(PLAN, "maintenance", None)}
+        self.assertEqual(rows["p71"], "allow")
+        self.assertEqual(rows["p68"], "deny")
+        rows = {r["id"]: r["expected"] for r in netpolicy.matrix(PLAN, "exercise", "t1")}
+        self.assertEqual(rows["p71"], "deny")
+
+    def test_gateway_is_not_on_the_home_bridge_and_has_its_own_zone(self):
+        self.assertEqual(PLAN["hosts"]["gateway"]["zone"], "gateway")
+        self.assertNotEqual(PLAN["zones"]["gateway"]["bridge"], PLAN["zones"]["home"]["bridge"])
+        self.assertEqual(PLAN["nic_order"][-1], "gateway")
+
+
 class MatrixShape(unittest.TestCase):
     def test_rows_carry_evidence_fields(self):
         row = netpolicy.matrix(PLAN, "exercise", "t1")[0]
@@ -62,7 +91,7 @@ class MatrixShape(unittest.TestCase):
 
     def test_ipv6_is_probed_from_every_zone_and_expected_absent(self):
         v6 = [r for r in netpolicy.matrix(PLAN, "exercise", "t1") if r["family"] == "inet6"]
-        self.assertEqual({r["src"] for r in v6}, {"attacker", "elastic", "t1", "t2", "operator", "workstation"})
+        self.assertEqual({r["src"] for r in v6}, {"attacker", "elastic", "t1", "t2", "gateway", "operator", "workstation"})
         self.assertTrue(all(r["expected"] == "deny" and r["kind"] == "no-ipv6" for r in v6))
 
 
@@ -128,9 +157,9 @@ class BridgeStanzas(unittest.TestCase):
     def test_lab_bridges_are_isolated_and_exclude_home_bridge(self):
         text = netpolicy.bridge_stanzas(PLAN)
         self.assertNotIn("iface vmbr0", text)
-        for name in ("vmbr2001", "vmbr2003", "vmbr2011", "vmbr2012"):
+        for name in ("vmbr2001", "vmbr2002", "vmbr2003", "vmbr2011", "vmbr2012"):
             self.assertIn("iface %s inet manual" % name, text)
-        self.assertEqual(text.count("bridge-ports none"), 4)
+        self.assertEqual(text.count("bridge-ports none"), 5)
         self.assertNotIn("address", text)
 
 

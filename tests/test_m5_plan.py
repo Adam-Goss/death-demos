@@ -17,7 +17,8 @@ def read(rel):
 class AttackerStack(unittest.TestCase):
     def test_vm_ids_are_unique_across_the_lab(self):
         ids = [PLAN["firewall"]["vm_id"], PLAN["elastic"]["vm_id"], PLAN["elastic"]["template_vm_id"],
-               PLAN["attacker"]["vm_id"], PLAN["attacker"]["template_vm_id"], 2100]
+               PLAN["attacker"]["vm_id"], PLAN["attacker"]["template_vm_id"],
+               PLAN["gateway"]["vm_id"], PLAN["gateway"]["template_vm_id"], 2100]
         ids += [t["vm_id"] for t in PLAN["targets"].values() if "vm_id" in t]
         ids += [t["template_vm_id"] for t in PLAN["targets"].values() if "template_vm_id" in t]
         self.assertEqual(len(ids), len(set(ids)))
@@ -51,7 +52,7 @@ class AttackerStack(unittest.TestCase):
 
     def test_runner_orders_attacker_after_targets_and_still_skips_elastic_on_destroy(self):
         sh = read("scripts/lab.sh")
-        self.assertIn('ORDER="firewall elastic targets attacker"', sh)
+        self.assertIn('ORDER="firewall elastic targets attacker gateway"', sh)
         self.assertIn("grep -v '^elastic$'", sh)
 
     def test_targets_stack_does_not_manage_the_attacker(self):

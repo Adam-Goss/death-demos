@@ -10,7 +10,7 @@ ok()  { echo "ok   $*"; }
 bad() { echo "FAIL $*"; fail=1; }
 check() { local desc=$1; shift; if "$@" >/dev/null 2>&1; then ok "$desc"; else bad "$desc"; fi; }
 
-stacks=(firewall elastic targets attacker)
+stacks=(firewall elastic targets attacker gateway)
 
 for s in "${stacks[@]}"; do
   d=tofu/stacks/$s
@@ -87,5 +87,12 @@ check "console driver tests pass" python3 -m unittest tests.test_firewall_consol
 check "template builder deletes the seed ISO (secrets leave the store)" grep -q 'pvesm free "\$SEED_ISO"' scripts/make-firewall-template.sh
 check "template builder puts the template in the private lab-firewall pool" grep -q -- '--pool lab-firewall' scripts/make-firewall-template.sh
 check "firewall stack clones the template and uploads no seed or nano disk (secrets stay off the API and state)" bash -c "grep -q firewall_template_vm_id tofu/stacks/firewall/main.tf && ! grep -q proxmox_virtual_environment_file tofu/stacks/firewall/main.tf"
+
+# #51: Guacamole gateway guards.
+check "gateway images pinned by digest in the plan" python3 -c "import json,re,sys;i=json.load(open('network/plan.json'))['gateway']['guacamole']['images'];sys.exit(0 if all(re.fullmatch('sha256:[0-9a-f]{64}',v['digest']) for v in i.values()) else 1)"
+check "gateway tests pass" python3 -m unittest tests.test_guacctl
+check "no Guacamole secrets in the gateway role or guacctl (generated on the VM / from env)" bash -c "! grep -REn 'PASSWORD *[=:] *[A-Za-z0-9]{12,}' ansible/roles/gateway scripts/guacctl.py"
+check "gateway secrets directory is gitignored" bash -c "git check-ignore -q secrets/gateway/targets_ed25519"
+check "gateway playbook passes syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/gateway.yml --syntax-check)"
 
 exit $fail

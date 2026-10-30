@@ -19,7 +19,7 @@ import sys
 DEFAULT_PLAN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "network", "plan.json")
 # Networks the lab must never overlap: Ludus (10.1.0.0/16, 192.0.2.0/24, 198.51.100.0/24) and the home LAN.
 RESERVED = ["10.1.0.0/16", "192.0.2.0/24", "198.51.100.0/24", "192.168.0.0/24"]
-V6_ZONES = ("attacker", "elastic", "t1", "t2", "operator", "workstation")
+V6_ZONES = ("attacker", "elastic", "t1", "t2", "gateway", "operator", "workstation")
 UPDATE_ALIAS = "opaleye_update_sources"
 SELF = "(self)"
 
@@ -36,7 +36,7 @@ def _svc(plan, name):
 
 def flows(plan):
     """Allowed flows. src/dst: 'zone:x', 'host:x', 'fw', 'alias:update_sources'."""
-    labzones = ["zone:attacker", "zone:elastic", "zone:t1", "zone:t2"]
+    labzones = ["zone:attacker", "zone:elastic", "zone:t1", "zone:t2", "zone:gateway"]
     out = []
 
     def add(fid, src, dst, svc=None, proto=None, ports=None, modes=("exercise", "maintenance"), selected=None, log=False):
@@ -53,8 +53,13 @@ def flows(plan):
     add("op-attacker-ssh", ["zone:vpn"], "host:attacker", "ssh")
     add("op-kibana", ["zone:vpn"], "host:elastic", "kibana")
     add("op-elastic-ssh", ["zone:vpn"], "host:elastic", "ssh")
+    # Guacamole gateway (#51): the operator reaches it over the VPN; it alone brokers GUI/terminal sessions.
+    add("op-gateway-web", ["zone:vpn"], "host:gateway", "gateway_web")
+    add("op-gateway-ssh", ["zone:vpn"], "host:gateway", "ssh")
+    add("gw-attacker-rdp", ["host:gateway"], "host:attacker", "rdp")
     for t in plan["targets"]:
         add("op-%s-ssh" % t, ["zone:vpn"], "host:" + t, "ssh")
+        add("gw-%s-ssh" % t, ["host:gateway"], "host:" + t, "ssh")
         add("exercise-" + t, ["zone:attacker"], "host:" + t, proto="tcp", ports=plan["targets"][t]["exercise_ports"],
             modes=("exercise",), selected=t, log=True)
     add("maint-updates", ["host:" + h for h in plan["maintenance"]["initiators"]], "alias:update_sources",
