@@ -4,6 +4,11 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  # A cold clone's first apt update is ~28 MB through the maintenance allowlist and can fail on a rotating CDN address.
+  register: attacker_apt
+  until: attacker_apt is succeeded
+  retries: 4
+  delay: 20
 
 - name: Lab details for the exercise scripts (rendered from network/plan.json)
   ansible.builtin.file: { path: /etc/opaleye, state: directory, mode: "0755" }
