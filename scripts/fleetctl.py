@@ -16,6 +16,7 @@ FLEET_PLAN, ELASTIC_PASSWORD (default: secrets/elastic/elastic.password). The to
 """
 import argparse
 import base64
+import datetime as dt
 import hashlib
 import json
 import os
@@ -129,13 +130,24 @@ def cmd_upload(_args):
             die("%s: sha256 does not match the pin in plan.json" % f)
     kb = kibana()
     for name, p in integrations.items():
-        code, _ = kb.call("GET", "/api/fleet/epm/packages/%s/%s" % (name, p["version"]), ok=(200, 404))
-        if code == 200:
-            print("installed already: %s %s" % (name, p["version"]))
+        code, info = kb.call("GET", "/api/fleet/epm/packages/%s/%s" % (name, p["version"]), ok=(200, 404))
+        if code == 200 and info.get("item", {}).get("status") == "installed":
+            print("installed already: %s %s" % (name, p["version"]), flush=True)
             continue
-        kb.call("POST", "/api/fleet/epm/packages?ignoreMappingUpdateErrors=false", raw=(d / p["file"]).read_bytes(),
-                ctype="application/zip")
-        print("uploaded: %s %s" % (name, p["version"]))
+        if name == "endpoint":
+            # Kibana bundles Defend's special assets; direct ZIP uploads reject them.
+            kb.call("POST", "/api/fleet/epm/packages/endpoint/" + p["version"], {})
+        else:
+            for attempt in range(4):
+                code, out = kb.call("POST", "/api/fleet/epm/packages?ignoreMappingUpdateErrors=false",
+                                    raw=(d / p["file"]).read_bytes(), ctype="application/zip", ok=(200, 429))
+                if code != 429:
+                    break
+                if attempt == 3:
+                    die("package upload rate limit persisted after retries: " + name)
+                print("upload rate limited; retrying in 12 seconds: " + name, flush=True)
+                time.sleep(12)
+        print("uploaded: %s %s" % (name, p["version"]), flush=True)
 
 
 # ---- policies -----------------------------------------------------------------------------------------------------
@@ -148,9 +160,19 @@ AUDIT_RULES = "\n".join([
 ])
 # Filestream waits for 1,024 bytes before it fingerprints a file; tiny exercise logs would look missing.
 FINGERPRINT = "prospector.scanner.fingerprint.offset: 0\nprospector.scanner.fingerprint.length: 64\n"
+CREATED_PROCESSOR = """- script:
+    lang: javascript
+    id: lab_event_created
+    source: >
+      function process(event) {
+        if (event.Get('event.created') === null) {
+          event.Put('event.created', new Date().toISOString());
+        }
+      }
+"""
 
 
-def package_policy(target, pkg, plan, version=None):
+def package_policy(target, pkg, plan, version=None, log_kind="access"):
     version = version or plan["target_stack"]["integrations"].get(pkg, {}).get("version")
     base = {"name": "%s-%s" % (target, pkg), "namespace": "default", "policy_id": policy_id(plan, target),
             "package": {"name": pkg, "version": version}}
@@ -158,23 +180,34 @@ def package_policy(target, pkg, plan, version=None):
         # DataCollection = events only, no protections: the exercise must be able to run and be observed.
         base["inputs"] = [{"type": "endpoint", "enabled": True, "streams": [], "config": {"integration_config": {
             "value": {"type": "endpoint", "endpointConfig": {"preset": "DataCollection"}}}}}]
+    elif pkg == "system":
+        base["inputs"] = {"system-system/metrics": {"enabled": True, "streams": {
+            dataset: {"enabled": True} for dataset in ["system.cpu", "system.memory", "system.network", "system.filesystem"]}}}
     elif pkg == "auditd_manager":
-        base["inputs"] = {"auditd-auditd": {"enabled": True, "streams": {"auditd_manager.auditd": {
-            "enabled": True, "vars": {"audit_rules": AUDIT_RULES, "resolve_ids": True, "failure_mode": "log"}}}}}
+        base["inputs"] = {"auditd-audit/auditd": {"enabled": True, "streams": {"auditd_manager.auditd": {
+            "enabled": True, "vars": {"audit_rules": AUDIT_RULES, "socket_type": "unicast", "resolve_ids": True, "failure_mode": "log", "processors": CREATED_PROCESSOR}}}}}
     elif pkg == "docker":
         base["inputs"] = {
             "docker-filestream": {"enabled": True, "streams": {"docker.container_logs": {
-                "enabled": True, "vars": {"containers.ids": ["*"]}}}},
+                "enabled": True, "vars": {"paths": ["/var/lib/docker/containers/${docker.container.id}/*-json.log"], "custom": FINGERPRINT, "processors": CREATED_PROCESSOR}}}},
             "docker-docker/metrics": {"enabled": False},
         }
     elif pkg == "apache":
-        base["inputs"] = {
-            "apache-filestream": {"enabled": True, "streams": {
-                "apache.access": {"enabled": True, "vars": {"paths": [plan["target_stack"]["apache_log_dir"] + "/access.log*", plan["ops"]["drain"]["log"]], "custom": FINGERPRINT}},
-                "apache.error": {"enabled": True, "vars": {"paths": [plan["target_stack"]["apache_log_dir"] + "/error.log*"], "custom": FINGERPRINT}}}},
-            "apache-apache/metrics": {"enabled": False},
-        }
-    elif pkg != "system":
+        base["inputs"] = {"apache-logfile": {"enabled": False}, "apache-apache/metrics": {"enabled": False}}
+    elif pkg == "filestream":
+        paths = [plan["target_stack"]["apache_log_dir"] + "/" + log_kind + ".log*"]
+        if log_kind == "access":
+            paths.append(plan["ops"]["drain"]["log"])
+        else:
+            base["name"] += "-" + log_kind
+        apache_version = plan["target_stack"]["integrations"]["apache"]["version"]
+        base["create_dataset_templates"] = False  # Apache owns the parsed dataset templates.
+        values = {"paths": paths, "data_stream.dataset": "apache." + log_kind,
+                  "pipeline": "logs-apache." + log_kind + "-" + apache_version,
+                  "fingerprint": True, "fingerprint_length": 64, "processors": CREATED_PROCESSOR}
+        base["inputs"] = {"filestream-filestream": {"enabled": True,
+            "streams": {"filestream.filestream": {"enabled": True, "vars": values}}}}
+    else:
         die("no policy definition for package %r" % pkg)
     return base
 
@@ -190,16 +223,39 @@ def cmd_policy(args):
             "description": "Opaleye %s evidence sources; managed by scripts/fleetctl.py" % args.target})
         print("created policy " + pid)
     _, existing = kb.call("GET", "/api/fleet/package_policies?perPage=500")
-    have = {p["name"] for p in existing.get("items", []) if p.get("policy_id") == pid}
-    for pkg in plan["target_stack"]["bundled_integrations"] + list(plan["target_stack"]["integrations"]):
-        name = "%s-%s" % (args.target, pkg)
-        if name in have:
-            continue
-        code, info = kb.call("GET", "/api/fleet/epm/packages/" + pkg, ok=(200, 404))
+    have = {p["name"]: p for p in existing.get("items", []) if p.get("policy_id") == pid}
+    packages = plan["target_stack"]["bundled_integrations"] + list(plan["target_stack"]["integrations"])
+    specs = [(pkg, "access") for pkg in packages] + [("filestream", "error")]
+    for pkg, log_kind in specs:
+        name = "%s-%s" % (args.target, pkg) + ("-error" if log_kind == "error" else "")
+        version = plan["target_stack"]["integrations"].get(pkg, {}).get("version")
+        package_path = pkg + ("/" + version if version else "")
+        code, info = kb.call("GET", "/api/fleet/epm/packages/" + package_path, ok=(200, 404))
         if code == 404 or info.get("item", {}).get("status") != "installed":
             die("package %s is not installed in Kibana (run upload-packages; Elastic has no Internet)" % pkg)
-        kb.call("POST", "/api/fleet/package_policies", package_policy(args.target, pkg, plan, info["item"]["version"]))
-        print("added " + name)
+        body = package_policy(args.target, pkg, plan, info["item"]["version"], log_kind)
+        digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+        body["description"] = "Managed by scripts/fleetctl.py; config-sha256=" + digest
+        if pkg == "endpoint":
+            body["description"] += "; session-data=enabled"
+        if name in have:
+            if have[name].get("description") == body["description"]:
+                continue
+            if pkg == "endpoint":
+                # Defend requires its generated policy and artifact manifest on update.
+                body["inputs"][0]["config"].update(have[name]["inputs"][0].get("config", {}))
+                body["inputs"][0]["config"]["policy"]["value"]["linux"]["events"]["session_data"] = True
+            kb.call("PUT", "/api/fleet/package_policies/" + have[name]["id"], body)
+            print("updated " + name)
+        else:
+            _, created = kb.call("POST", "/api/fleet/package_policies", body)
+            if pkg == "endpoint":
+                body["inputs"][0]["config"].update(created["item"]["inputs"][0].get("config", {}))
+                policy = body["inputs"][0]["config"].get("policy", {}).get("value")
+                if policy is not None:
+                    policy["linux"]["events"]["session_data"] = True
+                    kb.call("PUT", "/api/fleet/package_policies/" + created["item"]["id"], body)
+            print("added " + name)
 
 
 # ---- enrolment ----------------------------------------------------------------------------------------------------
@@ -251,17 +307,26 @@ def cmd_register(args):
         die("no enrolled agent for %s on policy %s" % (host, pid), 1)
     name = plan["target_stack"]["stamp_pipeline"]
     _, cur = es.call("GET", "/_ingest/pipeline/" + name)
-    body = cur[name]
+    # Elasticsearch 9 returns system-managed creation/modification dates that PUT rejects.
+    body = {k: v for k, v in cur[name].items()
+            if k in ("description", "processors", "on_failure", "version", "_meta", "deprecated")}
     agents = body["processors"][0]["script"]["params"]["agents"]
     for a in found:
         agents[a["id"]] = {"target_id": args.target, "rebuild_generation": gen}
+    params = body["processors"][0]["script"]["params"]
+    config = params.setdefault("firewall_targets", {}).setdefault(args.target, {
+        "ip": plan["hosts"][args.target]["ip"], "generations": []})
+    if not any(g["generation"] == gen for g in config["generations"]):
+        since = min(a.get("enrolled_at") or dt.datetime.now(dt.timezone.utc).isoformat() for a in found)
+        config["generations"].append({"generation": gen, "since": since})
     es.call("PUT", "/_ingest/pipeline/" + name, body)
     print("registered %s as %s gen %d" % (", ".join(a["id"] for a in found), args.target, gen))
 
 
 # ---- ingest lag ---------------------------------------------------------------------------------------------------
 
-LAG_SCRIPT = ("doc['event.ingested'].size() > 0 && doc['@timestamp'].size() > 0 && "
+LAG_SCRIPT = ("doc.containsKey('event.ingested') && doc.containsKey('@timestamp') && "
+              "doc['event.ingested'].size() > 0 && doc['@timestamp'].size() > 0 && "
               "doc['event.ingested'].value.toInstant().toEpochMilli() - doc['@timestamp'].value.toInstant().toEpochMilli() > params.ms")
 
 

@@ -53,7 +53,7 @@ class Packages(Base):
         r = self.run_cli("upload-packages", FLEET_PLAN=plan)
         self.assertEqual(r.returncode, 0, r.stderr)
         posts = [c for c in self.fake.names() if c == "POST /api/fleet/epm/packages"]
-        self.assertEqual(len(posts), 2)  # auditd_manager and apache; docker already there
+        self.assertEqual(len(posts), 4)  # auditd, Apache, System and Filestream; Docker and Endpoint already installed
         self.assertEqual(self.fake.installed["apache"], TS["integrations"]["apache"]["version"])
 
     def test_refuses_a_zip_that_does_not_match_the_pinned_sha256(self):
@@ -80,7 +80,7 @@ class Policy(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(POLICY, self.fake.policies)
         pkgs = sorted(p["package"]["name"] for p in self.fake.package_policies)
-        self.assertEqual(pkgs, ["apache", "auditd_manager", "docker", "endpoint", "system"])
+        self.assertEqual(pkgs, ["apache", "auditd_manager", "docker", "endpoint", "filestream", "filestream", "system"])
         self.assertTrue(all(p["policy_id"] == POLICY for p in self.fake.package_policies))
 
     def test_second_run_creates_nothing(self):
@@ -107,7 +107,7 @@ class Policy(Base):
         self.assertIn("execve", rules)
 
     def test_apache_filestream_does_not_wait_for_1024_bytes(self):
-        pp = fleetctl.package_policy("t1", "apache", PLAN)
+        pp = fleetctl.package_policy("t1", "filestream", PLAN)
         self.assertIn("fingerprint", json.dumps(pp))
         self.assertIn("/var/log/dvwa/apache2/access.log", json.dumps(pp))
 

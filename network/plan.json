@@ -38,16 +38,17 @@
       "metrics": [
         "metrics-system.cpu", "metrics-system.memory", "metrics-system.load", "metrics-system.network",
         "metrics-system.diskio", "metrics-system.filesystem", "metrics-system.fsstat", "metrics-system.process",
-        "metrics-system.process_summary", "metrics-system.socket_summary", "metrics-system.uptime",
+        "metrics-system.process.summary", "metrics-system.socket_summary", "metrics-system.uptime",
         "metrics-endpoint.metrics", "metrics-endpoint.policy", "metrics-endpoint.metadata",
         "metrics-elastic_agent.filebeat_input", "metrics-elastic_agent.elastic_agent", "metrics-elastic_agent.filebeat", "metrics-elastic_agent.metricbeat",
         "metrics-elastic_agent.fleet_server", "metrics-elastic_agent.endpoint_security",
         "metrics-fleet_server.agent_status", "metrics-fleet_server.agent_versions",
-        "logs-elastic_agent.status_change", "logs-elastic_agent", "logs-elastic_agent.filebeat", "logs-elastic_agent.metricbeat",
+        "logs-elastic_agent.status_change", "logs-elastic_agent", "logs-elastic_agent.filebeat", "logs-elastic_agent.metricbeat", "logs-elastic_agent.auditbeat",
         "logs-elastic_agent.fleet_server", "logs-elastic_agent.endpoint_security",
         "logs-fleet_server.output_health", "logs-system.syslog", "logs-system.auth"
       ]
-    }
+    },
+    "endpoint_internal_datasets": [".logs-endpoint.action.responses", ".logs-endpoint.diagnostic.collection"]
   },
   "attacker": {
     "vm_id": 2001,
@@ -115,15 +116,18 @@
       }
     },
     "integrations": {
-      "auditd_manager": { "version": "1.21.0", "file": "auditd_manager-1.21.0.zip", "url": "https://epr.elastic.co/epr/auditd_manager/auditd_manager-1.21.0.zip", "sha256": "3044c6b8e55c0004f1ec56a47f1c0cc680cecbadd3105e6b2c7a6a3526ce245d" },
-      "docker": { "version": "2.16.0", "file": "docker-2.16.0.zip", "url": "https://epr.elastic.co/epr/docker/docker-2.16.0.zip", "sha256": "c68099c709914bd8dd0c6be0e539a2a4cda186068fa47da9c2e7ce972342715c" },
-      "apache": { "version": "3.0.2", "file": "apache-3.0.2.zip", "url": "https://epr.elastic.co/epr/apache/apache-3.0.2.zip", "sha256": "4e678b62c3691c21dd5271dc9b765acbc9bc2bb906cc70609bbcfcce3782cba8" }
+      "auditd_manager": {"version": "1.21.0", "file": "auditd_manager-1.21.0.zip", "url": "https://epr.elastic.co/epr/auditd_manager/auditd_manager-1.21.0.zip", "sha256": "3044c6b8e55c0004f1ec56a47f1c0cc680cecbadd3105e6b2c7a6a3526ce245d"},
+      "docker": {"version": "2.16.0", "file": "docker-2.16.0.zip", "url": "https://epr.elastic.co/epr/docker/docker-2.16.0.zip", "sha256": "c68099c709914bd8dd0c6be0e539a2a4cda186068fa47da9c2e7ce972342715c"},
+      "apache": {"version": "3.0.2", "file": "apache-3.0.2.zip", "url": "https://epr.elastic.co/epr/apache/apache-3.0.2.zip", "sha256": "4e678b62c3691c21dd5271dc9b765acbc9bc2bb906cc70609bbcfcce3782cba8"},
+      "endpoint": {"version": "9.5.0", "file": "endpoint-9.5.0.zip", "url": "https://epr.elastic.co/epr/endpoint/endpoint-9.5.0.zip", "sha256": "0d74d17c06ea50eb766614e3b0c8d5b8fd7d967640f304e2ba77c367ee1f2f56"},
+      "system": {"version": "3.2.0", "file": "system-3.2.0.zip", "url": "https://epr.elastic.co/epr/system/system-3.2.0.zip", "sha256": "9a82c968fed9ef2f352ee30ab543ecadd165d8bff8c14f01790d4d315df0ad62"},
+      "filestream": {"version": "2.5.1", "file": "filestream-2.5.1.zip", "url": "https://epr.elastic.co/epr/filestream/filestream-2.5.1.zip", "sha256": "7775fcfbc5aeeead6fb38eeeab35b24ea403b14822529ffa52d3a3bcee01cc8b"}
     },
-    "bundled_integrations": ["endpoint", "system"]
+    "bundled_integrations": []
   },
   "update_sources": [
     "deb.debian.org", "security.debian.org", "archive.ubuntu.com", "security.ubuntu.com",
-    "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com",
+    "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com", "production.cloudfront.docker.com",
     "ghcr.io", "pkg-containers.githubusercontent.com"
   ],
   "maintenance": { "max_minutes": 120, "initiators": ["attacker", "t1", "t2"] },

@@ -53,6 +53,30 @@
   become: false
   no_log: true
 
+# Fleet 9 supplies its own final pipeline. Its supported global custom hook must stamp
+# integration events; the component final pipeline remains useful for non-Fleet flows.
+- name: Lab stamp through the Fleet custom ingest hook
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_ingest/pipeline/global@custom"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body:
+      description: "Opaleye lab fields through Fleet's supported global hook"
+      _meta: { managed_by: opaleye }
+      processors:
+        - pipeline: { name: "{{ plan.target_stack.stamp_pipeline }}" }
+        - script:
+            description: "Discard Docker metadata guessed from an Apache log filename"
+            if: "ctx.data_stream != null && ctx.data_stream.dataset != null && ctx.data_stream.dataset.startsWith('apache.') && ctx.container != null && ctx.container.id != null && ctx.container.id.length() != 64"
+            source: "ctx.remove('container');"
+  delegate_to: localhost
+  become: false
+  no_log: true
+
 # Fleet integration templates include <data stream>@custom, so this sets the policy per data stream.
 # No replicas: single node. Datasets confirmed against real data at A4; extend plan.json then.
 - name: Per-data-stream lifecycle (@custom component templates)
@@ -113,6 +137,41 @@
     {{ (el.datasets.evidence | map('community.general.dict_kv', 'name') | map('combine', {'class': 'evidence'}) | list)
        + (el.datasets.metrics | map('community.general.dict_kv', 'name') | map('combine', {'class': 'metrics'}) | list) }}
   loop_control: { label: "{{ item.name }}" }
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+# Endpoint's internal action/diagnostic streams are vendor-managed (not hunt
+# evidence), but their default replica cannot be allocated on this single node.
+- name: Internal Endpoint stream replica templates
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/_component_template/{{ item }}@custom"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body:
+      template:
+        settings: { index.number_of_replicas: 0 }
+      _meta: { managed_by: opaleye }
+  loop: "{{ el.endpoint_internal_datasets }}"
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Existing internal Endpoint stream replicas
+  ansible.builtin.uri:
+    url: "{{ api_ctl }}/{{ item }}-*/_settings?expand_wildcards=all&ignore_unavailable=true&allow_no_indices=true"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ secrets_dir }}/ca/ca.crt"
+    body_format: json
+    body: { index.number_of_replicas: 0 }
+  loop: "{{ el.endpoint_internal_datasets }}"
   delegate_to: localhost
   become: false
   no_log: true

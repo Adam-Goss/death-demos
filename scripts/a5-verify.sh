@@ -22,12 +22,12 @@ row() { # name expected actual
 }
 run() { $SSH "$@" 2>/dev/null | tr -d '\r' | head -1; }
 
-row "app image digest" "$app" "$(run "sudo docker inspect --format '{{index .RepoDigests 0}}' \$(sudo docker-compose -f $dir/compose.yml ps -q dvwa)")"
-row "db image digest" "$db" "$(run "sudo docker inspect --format '{{index .RepoDigests 0}}' \$(sudo docker-compose -f $dir/compose.yml ps -q db)")"
+row "app image digest" "$app" "$(run "sudo docker inspect --format '{{.Config.Image}}' \$(sudo docker-compose -f $dir/compose.yml ps -q dvwa)")"
+row "db image digest" "$db" "$(run "sudo docker inspect --format '{{.Config.Image}}' \$(sudo docker-compose -f $dir/compose.yml ps -q db)")"
 row "login page" "200" "$(run "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/login.php")"
 row "security level" "$level" "$(run "sudo docker-compose -f $dir/compose.yml exec -T dvwa printenv DEFAULT_SECURITY_LEVEL" | tr -d '[:space:]')"
 row "database created" "yes" "$(run "test -f /var/lib/opaleye/dvwa-db.done && echo yes || echo no")"
-row "agent state" "HEALTHY" "$(run "sudo elastic-agent status | sed -n 's/^State: *//p'" | tr -d '[:space:]')"
+row "agent state (2=HEALTHY)" "2" "$(run "sudo elastic-agent status --output json | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"state\"])'")"
 # The token is never written by our code. These locations would hold it if a command line or file leaked it.
 row "no enrolment token on disk outside the agent's own store" "0" "$(run "sudo grep -rIl -e '--enrollment-token' -e 'enrollment_token' $dir /etc/lab-ca /var/tmp /home /root /etc/systemd 2>/dev/null | wc -l" | tr -d '[:space:]')"
 echo

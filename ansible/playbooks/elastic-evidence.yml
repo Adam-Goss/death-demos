@@ -8,6 +8,11 @@
     fleetctl: "{{ playbook_dir }}/../../scripts/fleetctl.py"
     targets: "{{ plan.targets | dict2items | selectattr('value.vm_id', 'defined') | map(attribute='key') | list }}"
   tasks:
+    - name: Evidence pipelines and lifecycle templates
+      ansible.builtin.import_role:
+        name: elastic
+        tasks_from: lifecycle
+
     - name: Fetch integration packages (checksum enforced)
       ansible.builtin.command: python3 {{ fleetctl }} fetch-packages
       changed_when: false
@@ -22,7 +27,7 @@
     - name: Agent policy and package policies
       ansible.builtin.command: python3 {{ fleetctl }} ensure-policy {{ item }}
       register: pol
-      changed_when: "'created' in pol.stdout or 'added' in pol.stdout"
+      changed_when: "'created' in pol.stdout or 'added' in pol.stdout or 'updated' in pol.stdout"
       loop: "{{ targets }}"
 
     - name: Ingest-lag rule

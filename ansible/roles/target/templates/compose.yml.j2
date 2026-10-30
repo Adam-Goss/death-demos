@@ -17,7 +17,8 @@ services:
       - DB_SERVER=db
       - DEFAULT_SECURITY_LEVEL={{ ts.dvwa.security_level }}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - dvwa
     ports:
@@ -35,6 +36,12 @@ services:
       - MYSQL_DATABASE=dvwa
       - MYSQL_USER=dvwa
       - MYSQL_PASSWORD=p@ssw0rd
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
     volumes:
       - dvwa:/var/lib/mysql
     networks:

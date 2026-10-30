@@ -45,7 +45,7 @@ class Pins(unittest.TestCase):
         for name in ("auditd_manager", "docker", "apache"):
             self.assertIn(name, TS["integrations"])
             self.assertTrue(any(d.startswith("logs-" + name) for d in datasets), name)
-        self.assertEqual(set(TS["bundled_integrations"]), {"endpoint", "system"})
+        self.assertEqual(set(TS["bundled_integrations"]), set())
 
     def test_ghcr_is_a_maintenance_update_source_for_the_dvwa_image(self):
         self.assertIn("ghcr.io", PLAN["update_sources"])
@@ -141,7 +141,7 @@ class A4Verifier(unittest.TestCase):
     def test_all_sources_present_with_distinct_times_and_no_lag_passes(self):
         rows = self.run_rows()
         self.assertTrue(all(r[-1] for r in rows), [r for r in rows if not r[-1]])
-        self.assertEqual(len([r for r in rows if r[1] in dict(a4_verify.SOURCES)]), 6)
+        self.assertEqual(len([r for r in rows if r[1] in dict(a4_verify.SOURCES)]), 7)
 
     def test_a_silent_source_fails(self):
         self.fake.counts["logs-auditd_manager.auditd-*"] = 0
@@ -169,7 +169,7 @@ class A4Verifier(unittest.TestCase):
 
     def test_manual_rows_are_listed_as_skips_not_passes(self):
         self.assertTrue(all(why.startswith("SKIP") for _, why in a4_verify.MANUAL))
-        self.assertEqual(len(a4_verify.MANUAL), 4)
+        self.assertEqual(len(a4_verify.MANUAL), 3)
 
 
 class TargetShell(unittest.TestCase):

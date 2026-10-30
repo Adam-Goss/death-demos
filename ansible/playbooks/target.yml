@@ -4,5 +4,15 @@
 - name: Target VM
   hosts: "{{ target | default('t1') }}"
   become: true
+  pre_tasks:
+    - name: Wait for the target SSH connection
+      ansible.builtin.wait_for_connection:
+        timeout: 180
+    - name: Wait for cloud-init to finish initial package metadata
+      ansible.builtin.command: cloud-init status --wait
+      register: cloud_init
+      changed_when: false
+      failed_when: >-
+        cloud_init.rc not in [0, 2] or 'status: done' not in cloud_init.stdout
   roles:
     - target
