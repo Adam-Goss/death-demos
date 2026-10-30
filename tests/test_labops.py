@@ -95,6 +95,31 @@ class Watermark(OpsCase):
         self.ops("watermark")
         self.assertEqual(self.audit()[-1]["event"], "watermark-alert")
 
+    def test_an_unassigned_shard_row_does_not_break_the_check(self):
+        self.es.unassigned_row = True
+        self.es.disk_percent = 42
+        r = self.ops("watermark")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("42", r.stdout)
+        self.es.disk_percent = 95
+        r = self.ops("watermark")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("ALERT", r.stderr)
+
+    def test_exercise_start_survives_an_unassigned_shard_row(self):
+        self.es.unassigned_row = True
+        self.start()
+
+    def test_the_check_never_rewrites_the_state_file(self):
+        # Cron runs this beside the other commands: a stale rewrite of labops.json would drop an active exercise.
+        self.start()
+        path = os.path.join(self.state, "labops.json")
+        before = open(path).read()
+        self.es.disk_percent = 95
+        self.ops("watermark")
+        self.assertEqual(open(path).read(), before)
+        self.assertEqual(json.loads(before)["active"]["id"], "ex-001")
+
     def test_an_outage_is_an_error_not_an_ok(self):
         self.es.down = True
         r = self.ops("watermark")

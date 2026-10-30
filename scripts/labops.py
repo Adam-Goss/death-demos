@@ -77,6 +77,10 @@ class Ops:
     def save(self, event, **detail):
         with open(self.path, "w") as f:
             json.dump(self.state, f)
+        self.audit(event, **detail)
+
+    def audit(self, event, **detail):
+        """Audit line only. Commands that run from cron use this so they never rewrite the state file from a stale copy."""
         with open(self.log, "a") as f:
             f.write(json.dumps(dict(ts=stamp(), event=event, user=getpass.getuser(), **detail)) + "\n")
 
@@ -142,7 +146,8 @@ class Ops:
 
     @staticmethod
     def disk_worst(es):
-        return max(float(r["disk.percent"]) for r in es.call("/_cat/allocation?format=json"))
+        # An unassigned shard adds an UNASSIGNED row with a null disk.percent: it has no disk, so it is not a reading.
+        return max(float(r["disk.percent"]) for r in es.call("/_cat/allocation?format=json") if r.get("disk.percent") is not None)
 
     def watermark(self):
         """Scheduled check (cron, every few minutes): the high-watermark alert, as the Basic-license fallback from #9.
@@ -151,7 +156,7 @@ class Ops:
         limit = self.plan["ops"]["high_watermark_pct"]
         worst = self.disk_worst(es)
         if worst >= limit:
-            self.save("watermark-alert", disk_percent=worst, limit=limit)
+            self.audit("watermark-alert", disk_percent=worst, limit=limit)
             print("ALERT: Elasticsearch disk at %g%% (high watermark %d%%): new exercises are blocked; free space via evidence deletion" % (worst, limit), file=sys.stderr)
             return 1
         print("ok: Elasticsearch disk at %g%% (high watermark %d%%)" % (worst, limit))
