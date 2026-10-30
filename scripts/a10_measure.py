@@ -43,13 +43,14 @@ PROCESSES = {  # label -> (host key, pgrep -f pattern)
 
 def store(es, pattern):
     stats = es.call("/%s/_stats/store,docs?expand_wildcards=all&ignore_unavailable=true&allow_no_indices=true" % pattern)
-    total = stats["_all"]["primaries"]
-    return {"docs": total["docs"]["count"], "bytes": total["store"]["size_in_bytes"]}
+    total = stats.get("_all", {}).get("primaries", {})  # empty when the pattern matches no index yet
+    return {"docs": total.get("docs", {}).get("count", 0), "bytes": total.get("store", {}).get("size_in_bytes", 0)}
 
 
 def ps_sample(plan, host_key, pattern):
     ip = plan["hosts"][host_key]["ip"]
-    cmd = "pid=$(pgrep -of %r) && ps -o rss=,pcpu=,etimes= -p $pid" % pattern
+    # [x]yz trick: the remote shell's own command line contains the pattern text and must not match itself.
+    cmd = "pid=$(pgrep -of %r) && ps -o rss=,pcpu=,etimes= -p $pid" % ("[%s]%s" % (pattern[0], pattern[1:]))
     r = subprocess.run(["ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new", "opaleye@" + ip, cmd],
                        capture_output=True, text=True)
     parts = r.stdout.split()
@@ -72,6 +73,8 @@ def snapshot(label):
 
 def report(a, b, hours=None):
     A, B = (json.loads((OUT / (x + ".json")).read_text()) for x in (a, b))
+    if hours is not None and hours <= 0:
+        raise SystemExit("HOURS must be greater than 0")
     scale = (1.0 / hours) if hours else 1.0
     unit = "/h" if hours else ""
     # Store-size deltas go negative when Lucene merges segments, so size is estimated as new docs times the class's
@@ -79,6 +82,9 @@ def report(a, b, hours=None):
     print("| evidence class | docs%s | est. indexed KB%s | avg bytes/doc | raw store delta KB%s |" % (unit, unit, unit))
     print("| --- | --- | --- | --- | --- |")
     for name in CLASSES:
+        if name not in A["classes"] or name not in B["classes"]:
+            print("| %s | n/a (not in both snapshots) | | | |" % name)
+            continue
         d = B["classes"][name]["docs"] - A["classes"][name]["docs"]
         avg = B["classes"][name]["bytes"] / B["classes"][name]["docs"] if B["classes"][name]["docs"] else 0
         raw = (B["classes"][name]["bytes"] - A["classes"][name]["bytes"]) / 1024
@@ -94,7 +100,11 @@ def main(argv):
     if len(argv) >= 3 and argv[1] == "snapshot":
         snapshot(argv[2])
     elif len(argv) >= 4 and argv[1] == "report":
-        report(argv[2], argv[3], float(argv[4]) if len(argv) > 4 else None)
+        try:
+            hours = float(argv[4]) if len(argv) > 4 else None
+        except ValueError:
+            raise SystemExit("HOURS must be a number")
+        report(argv[2], argv[3], hours)
     else:
         print(__doc__)
         return 2

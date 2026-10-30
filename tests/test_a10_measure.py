@@ -48,6 +48,22 @@ class Report(unittest.TestCase):
         row = next(l for l in text.splitlines() if l.startswith("| apache access "))
         self.assertEqual([c.strip() for c in row.strip("|").split("|")][1], "200")
 
+    def test_a_class_missing_from_a_snapshot_is_skipped_not_fatal(self):
+        a = snap("a", 1, 1)
+        del a["classes"]["auditd"]
+        text = self.run_report(a, snap("b", 2, 2))
+        self.assertIn("| auditd | n/a", text)
+
+    def test_hours_must_be_positive(self):
+        with self.assertRaises(SystemExit):
+            self.run_report(snap("a", 1, 1), snap("b", 2, 2), hours=0)
+
+    def test_empty_stats_response_counts_as_zero(self):
+        class Es:
+            def call(self, path):
+                return {"_shards": {}}
+        self.assertEqual(a10_measure.store(Es(), "logs-none-*"), {"docs": 0, "bytes": 0})
+
     def test_process_table_lists_every_component(self):
         text = self.run_report(snap("a", 1, 1), snap("b", 2, 2))
         for name in a10_measure.PROCESSES:
