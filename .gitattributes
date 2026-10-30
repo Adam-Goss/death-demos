@@ -4,3 +4,5 @@
 # Files that run on the firewall or are loaded by it must be LF even on a Windows checkout (a CRLF shebang exits 127)
 scripts/firewall/* text eol=lf
 network/*.xml text eol=lf
+# Role files are copied to Linux guests and may be executed (exercise1 has no extension); keep LF on a Windows checkout
+ansible/roles/*/files/* text eol=lf

@@ -2,7 +2,7 @@
 
 Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Design: [operator commands and target interface](../decisions/operator-commands-and-target-interface.md).
 
-**Status: code and offline tests only. A6 evidence is NOT collected.** Nothing here has run against the live firewall, Proxmox or Elastic: the VPN was unavailable, and neither A3 (M3) nor A4/A5 (M4, merged as code only) has been run live. M6 must not start, and #24 must not close, until the A6 tables below are filled in from a live run. Every Ansible/Tofu/Fleet/Proxmox call here is unverified against the real systems.
+**Status: attacker stack and exercise run live; A6 evidence partly collected (see the A6 section). A6 is NOT passed.** Nothing here has run against the live firewall, Proxmox or Elastic: the VPN was unavailable, and neither A3 (M3) nor A4/A5 (M4, merged as code only) has been run live. M6 must not start, and #24 must not close, until the A6 tables below are filled in from a live run. Every Ansible/Tofu/Fleet/Proxmox call here is unverified against the real systems.
 
 ## What exists
 
@@ -51,14 +51,21 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 
 ## A6 evidence
 
-**Not collected.** Fill in from a live run (format: source, destination/port, mode, expected, actual, enforcement point).
+**Partly collected (live run 2026-10-30, exercise `ex-003`, target t1 generation 1, window 08:08:11.300Z to 08:09:16.730Z from `exercise show`).** The evidence rows below were read from Elasticsearch through the API, **not Kibana**. The Kibana-only hunt and the #7 limitations are still to do, so A6 is not passed. `ex-001` and `ex-002` were aborted runs (attacker script defects, since fixed) and have start/end markers but no usable activity.
 
 | source | destination/port | mode | expected | actual | enforcement point |
 | --- | --- | --- | --- | --- | --- |
-| operator | `exercise start` marker in Elastic | exercise | marker with `lab.exercise_id` | _not run_ | labops.py |
-| attacker | t1:80 `/vulnerabilities/exec/` | exercise | HTTP 200, injected output | _not run_ | firewall allow, DVWA |
-| t1 | Apache request in Elastic | exercise | request found by window / User-Agent | _not run_ | Filestream |
-| t1 | process parent→shell→child, container attribution | exercise | present | _not run_ | Defend |
-| t1 | attacker:4444 outbound attempt | exercise | network event, blocked | _not run_ | Defend, firewall flow log |
-| operator | hunt process→request and request→process in Kibana only | exercise | both within the window | _not run_ | Kibana |
+| operator | `exercise start` marker in Elastic | exercise | marker with `lab.exercise_id` | `exercise-start` 08:08:11.300Z and `exercise-end` 08:09:16.730Z, `lab.exercise_id=ex-003`, target t1, generation 1 (2 markers) | labops.py |
+| attacker | t1:80 `/vulnerabilities/exec/` | exercise | HTTP 200, injected output | login, `/index.php` and `POST /vulnerabilities/exec/` returned 200; `command_output_seen: true` (`uid=` in the response) | firewall allow, DVWA |
+| t1 | Apache request in Elastic | exercise | request found by window / User-Agent | 4 requests, `user_agent.original=opaleye-exercise1/ex-003`, `lab.target_id=t1`, including `POST /vulnerabilities/exec/` (200) | Filestream |
+| t1 | process parent->shell->child, container attribution | exercise | present | Defend: `apache2` (group leader) -> `dash` (`sh -c -- ping -c 4 127.0.0.1; id; timeout 5 bash -c ...`, parent start 08:08:09.700Z) -> `id` (08:08:12.760Z), `timeout` and `bash`; `entry_meta.type=container`. auditd execve for `id`/`timeout` carries `container.name=dvwa-dvwa-1`, `container.id=898bb426...`, image `ghcr.io/digininja/dvwa@sha256:80294506...` | Defend, auditd |
+| t1 | attacker:4444 outbound attempt | exercise | network event, blocked | Defend network: `connection_attempted` 08:08:12.774Z then `disconnect_received` 08:08:17.775Z (bash, 172.18.0.3 -> 10.77.1.10:4444); auditd `connected-to` outcome `failure`; firewall flow log: 5 `block` events t1 -> 10.77.1.10:4444 | Defend, firewall flow log |
+| operator | hunt process->request and request->process in Kibana only | exercise | both within the window | **not done in Kibana.** Via the API the pair links by time and command line: the `sh -c` command line at 08:08:12.76Z matches the injected `ip` value of the `POST /vulnerabilities/exec/` logged at 08:08:10Z (Apache timestamps have 1 s resolution) | Kibana |
 | operator | #7 limitations recorded | n/a | recorded | _not run_ | this file |
+
+Observations from this run:
+
+- The Apache access documents have **no `message` field**; search them by `user_agent.original`, `url.path` and `lab.target_id`.
+- The Defend process events carry no `container.*` fields; container attribution comes from `process.entry_leader.entry_meta.type=container` there, and from `container.*` on the auditd events.
+- The firewall **drops** (not rejects) the callback, so the target's `bash` hangs on the connection; `exercise1` therefore wraps it in `timeout 5` (without it the HTTP POST hits the client's 30 s timeout).
+- `exercise start` then `exercise end` with nothing between them leaves a usable marker pair but an empty window; `exercise show` right after `end` can say "no markers" until Elasticsearch refreshes.
