@@ -23,7 +23,7 @@ class Connections(unittest.TestCase):
         self.c = guacctl.connections(PLAN, "rdp-pw", "KEY")
 
     def test_attacker_is_rdp_and_each_target_vm_is_ssh_at_plan_addresses(self):
-        self.assertEqual(set(self.c), {"attacker", "t1"})  # t2 has no VM yet
+        self.assertEqual(set(self.c), {"attacker", "t1", "remnux"})  # t2 has no VM yet
         self.assertEqual(self.c["attacker"][0], "rdp")
         self.assertEqual(self.c["attacker"][1]["hostname"], PLAN["hosts"]["attacker"]["ip"])
         self.assertEqual(self.c["attacker"][1]["port"], "3389")
@@ -48,7 +48,7 @@ class Connections(unittest.TestCase):
         self.assertTrue(sql.startswith("BEGIN;") and sql.rstrip().endswith("COMMIT;"))
         self.assertIn("DELETE FROM guacamole_connection WHERE connection_name = 'attacker'", sql)
         self.assertIn("'o''neil'", sql)
-        self.assertEqual(sql.count("INSERT INTO guacamole_connection (connection_name"), 2)
+        self.assertEqual(sql.count("INSERT INTO guacamole_connection (connection_name"), 3)
 
     def test_nul_is_refused(self):
         with self.assertRaises(ValueError):
@@ -61,8 +61,8 @@ class AnalysisConnections(unittest.TestCase):
     def setUp(self):
         self.c = guacctl.connections(PLAN, "rdp-pw", "KEY", "flare-pw")
 
-    def test_analysis_connections_only_when_a_flare_password_is_given(self):
-        self.assertEqual(set(guacctl.connections(PLAN, "rdp-pw", "KEY")), {"attacker", "t1"})
+    def test_flare_only_when_a_flare_password_is_given(self):
+        self.assertEqual(set(guacctl.connections(PLAN, "rdp-pw", "KEY")), {"attacker", "t1", "remnux"})
         self.assertEqual(set(self.c), {"attacker", "t1", "flare", "remnux"})
 
     def test_remnux_is_ssh_with_sftp_and_flare_is_rdp_with_a_drive(self):

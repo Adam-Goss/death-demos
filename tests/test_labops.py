@@ -489,11 +489,12 @@ class Analysis(OpsCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.pve.rollbacks, [])
 
-    def test_a_stopped_vm_is_not_drained_and_is_started_after_the_revert(self):
+    def test_a_stopped_vm_is_not_drained_and_stays_off_after_the_revert(self):
         self.pve.vms[self.vm["flare"]] = "stopped"
         r = self.ops("analysis-reset", "flare", STUB_DROP="1")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.pve.vms[self.vm["flare"]], "running")
+        self.assertEqual(self.pve.vms[self.vm["flare"]], "stopped")
+        self.assertEqual(self.pve.rollbacks, [(self.vm["flare"], "clean")])
 
     def test_only_the_analysis_token_is_used_for_the_revert(self):
         self.ops("analysis-reset", "remnux")

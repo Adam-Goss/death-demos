@@ -223,6 +223,13 @@ def package_policy(target, pkg, plan, version=None, log_kind="access"):
 # Best effort by design (#52): a sample can tamper with the agent. Every event carries the zone; lab.sample_id is stamped later.
 ANALYSIS_PROCESSOR = "- add_fields:\n    target: lab\n    fields:\n      zone: analysis\n"
 # Sysmon operational, Security and PowerShell channels on FLARE; no Elastic Defend (it conflicts with the tools and may kill samples).
+def drain_input(log):
+    """The drain log is shipped like the target's, so a drain marker proves forwarding works (labops.py analysis-reset)."""
+    return ("filestream", {"filestream-filestream": {"enabled": True, "streams": {"filestream.filestream": {"enabled": True, "vars": {
+        "paths": [log], "data_stream.dataset": "lab_drain.marker", "fingerprint": True, "fingerprint_length": 64,
+        "processors": ANALYSIS_PROCESSOR}}}}})
+
+
 ANALYSIS_INPUTS = {
     "flare": [("windows", {"windows-winlog": {"enabled": True, "streams": {
                   "windows.sysmon_operational": {"enabled": True, "vars": {"processors": ANALYSIS_PROCESSOR}},
@@ -238,6 +245,11 @@ ANALYSIS_INPUTS = {
 }
 
 
+def analysis_inputs(plan, host):
+    log = plan["analysis"]["drain"]["log_windows" if plan["analysis"]["hosts"][host]["os"] == "windows" else "log_linux"]
+    return ANALYSIS_INPUTS[host] + [drain_input(log)]
+
+
 def cmd_analysis_policy(args, plan):
     pid, host = policy_id(plan, args.target), args.target
     kb = kibana()
@@ -249,7 +261,7 @@ def cmd_analysis_policy(args, plan):
         print("created policy " + pid)
     _, existing = kb.call("GET", "/api/fleet/package_policies?perPage=500")
     have = {p["name"]: p for p in existing.get("items", []) if p.get("policy_id") == pid}
-    for pkg, inputs in ANALYSIS_INPUTS[host]:
+    for pkg, inputs in analysis_inputs(plan, host):
         name = "%s-%s" % (host, pkg)
         code, info = kb.call("GET", "/api/fleet/epm/packages/" + pkg, ok=(200, 404))
         if code == 404 or info.get("item", {}).get("status") != "installed":

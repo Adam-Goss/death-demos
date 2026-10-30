@@ -120,7 +120,7 @@ class AnalysisPolicy(Base):
     """#52: the analysis hosts get their own `analysis`-namespace policy, no Elastic Defend, every stream tagged lab.zone."""
     def setUp(self):
         super().setUp()
-        self.fake.installed.update({"windows": "3.1.0", "system": "3.2.0", "auditd_manager": "1.21.0"})
+        self.fake.installed.update({"windows": "3.1.0", "system": "3.2.0", "auditd_manager": "1.21.0", "filestream": "2.5.1"})
 
     def test_flare_gets_sysmon_powershell_and_security_without_defend(self):
         r = self.run_cli("ensure-policy", "flare")
@@ -128,7 +128,7 @@ class AnalysisPolicy(Base):
         pid = PLAN["analysis"]["agent_policy_prefix"] + "flare"
         self.assertEqual(self.fake.policies[pid]["namespace"], "analysis")
         pkgs = sorted(p["package"]["name"] for p in self.fake.package_policies)
-        self.assertEqual(pkgs, ["system", "windows"])
+        self.assertEqual(pkgs, ["filestream", "system", "windows"])
         text = json.dumps(self.fake.package_policies)
         for stream in ("windows.sysmon_operational", "windows.powershell_operational", "system.security"):
             self.assertIn(stream, text)
@@ -137,11 +137,11 @@ class AnalysisPolicy(Base):
 
     def test_remnux_gets_auditd_and_system_logs(self):
         self.assertEqual(self.run_cli("ensure-policy", "remnux").returncode, 0)
-        self.assertEqual(sorted(p["package"]["name"] for p in self.fake.package_policies), ["auditd_manager", "system"])
+        self.assertEqual(sorted(p["package"]["name"] for p in self.fake.package_policies), ["auditd_manager", "filestream", "system"])
 
     def test_every_stream_stamps_the_zone(self):
         self.run_cli("ensure-policy", "flare")
-        self.assertEqual(json.dumps(self.fake.package_policies).count("zone: analysis"), 3)
+        self.assertEqual(json.dumps(self.fake.package_policies).count("zone: analysis"), 4)
 
     def test_second_run_creates_nothing(self):
         self.run_cli("ensure-policy", "flare")

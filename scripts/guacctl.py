@@ -10,8 +10,8 @@ reaches an argv. Secrets come from the operator environment, never the repo.
   guacctl.py check       exit 1 if the default password still works, or TOTP is not being asked for
 
 Env: GUAC_ADMIN_PASSWORD (>= 16 chars), ATTACKER_RDP_PASSWORD (the attacker user's RDP login; same value the attacker
-role sets). FLARE_RDP_PASSWORD (optional): when set, the analysis connections (#52) are created too: remnux over SSH with SFTP,
-flare over RDP. Download and clipboard-out are disabled on both (enable one
+role sets). FLARE_RDP_PASSWORD (optional): the analysis connections (#52) are always created for remnux (SSH with SFTP); flare (RDP)
+only when this is set. Download and clipboard-out are disabled on both (enable one
 connection by hand in the Guacamole admin UI when a result must leave). The targets' SSH key is read from secrets/gateway/ (fetched by the gateway role).
 TOTP is enrolled by the operator at first browser login (scan the QR code); there is no second account and no IdP.
 """
@@ -60,6 +60,8 @@ def analysis_connections(plan, flare_password, private_key):
     for h, v in plan["analysis"]["hosts"].items():
         ip = plan["hosts"][h]["ip"]
         if v["guac"] == "rdp":
+            if not flare_password:
+                continue  # no RDP login given: leave FLARE out, REMnux needs only the key
             out[h] = ("rdp", {"hostname": ip, "port": "3389", "username": user, "password": flare_password,
                               "security": "any", "ignore-cert": "true", "resize-method": "display-update",
                               "enable-wallpaper": "false", "enable-drive": "true", "drive-path": "/tmp/guac-drive-" + h,
@@ -82,8 +84,7 @@ def connections(plan, rdp_password, private_key, flare_password=None):
         if "vm_id" in v:
             out[t] = ("ssh", {"hostname": plan["hosts"][t]["ip"], "port": "22", "username": plan["ops"]["ssh_user"],
                               "private-key": private_key, "color-scheme": "green-black"})
-    if flare_password:
-        out.update(analysis_connections(plan, flare_password, private_key))
+    out.update(analysis_connections(plan, flare_password, private_key))
     return out
 
 

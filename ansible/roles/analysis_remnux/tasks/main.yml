@@ -39,7 +39,7 @@
     path: "{{ an.drain.log_linux }}"
     state: touch
     owner: opaleye
-    mode: "0666"
+    mode: "0644"
     modification_time: preserve
     access_time: preserve
 

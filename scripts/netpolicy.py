@@ -259,8 +259,8 @@ def main(argv):
     elif cmd == "rules":
         print(json.dumps(render_rules(plan, mode, sel, online), indent=1))
     elif cmd == "lint":
-        bad = lint(plan, mode, sel)
-        print("\n".join(bad) or "ok: rules match the probe matrix (%s)" % mode)
+        bad = lint(plan, mode, sel, online=online)
+        print("\n".join(bad) or "ok: rules match the probe matrix (%s%s)" % (mode, ", analysis online" if online else ""))
         return 1 if bad else 0
     elif cmd == "check":
         errs = plan_errors(plan)

@@ -411,11 +411,13 @@ class Ops:
         fleetctl = shlex.split(os.environ.get("LABOPS_FLEETCTL") or "") or [sys.executable, os.path.join(ROOT, "scripts/fleetctl.py")]
         for h in hosts:
             vmid = cfg["hosts"][h]["vm_id"]
+            was_running = h in running
             client.rollback(vmid, cfg["snapshot"])
             client.wait(vmid, "stopped", wait, min(self.poll, 2))  # a rollback leaves the guest stopped
-            if client.status(vmid) != "running":
-                client.start(vmid)
-            if not client.wait(vmid, "running", wait, min(self.poll, 2)):
+            if not was_running:
+                print("%s reverted; it was off, so it stays off (generation not enrolled until it runs: re-run analysis-reset %s after starting it)" % (h, h))
+                continue
+            if not self.start_after_rollback(client, vmid, wait):
                 print("%s did not start after the revert" % h, file=sys.stderr)
                 return 1
             generation = self.analysis_generation(h) + 1
@@ -428,6 +430,19 @@ class Ops:
         self.save("analysis-reset", hosts=hosts, acknowledged_loss=ack)
         print("Analysis Internet is off. Tool updates: go online, update, then take a new snapshot (runbook).")
         return 0
+
+    def start_after_rollback(self, client, vmid, wait):
+        """The rollback task may still hold the VM lock when the API has already returned: retry the start until it takes."""
+        end = time.time() + wait
+        while True:
+            try:
+                if client.status(vmid) != "running":
+                    client.start(vmid)
+                return client.wait(vmid, "running", max(end - time.time(), 0), min(self.poll, 2))
+            except pve.PveError:
+                if time.time() >= end:
+                    return False
+                time.sleep(self.poll)
 
     def enrol(self, host, generation, fleetctl):
         """Fresh token (retires the old agent), enrol the snapshot's unenrolled agent over SSH, register for lab fields."""
