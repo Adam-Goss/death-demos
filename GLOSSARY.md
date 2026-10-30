@@ -54,3 +54,12 @@ The isolated network (`10.77.2.0/24`) holding the Gateway VM; the firewall allow
 
 **Brokered access**:
 GUI or terminal access to a lab guest through the Gateway VM. The firewall VM and Elastic are not brokered; they keep their direct VPN routes.
+
+**Analysis zone**:
+The isolated network (`10.77.20.0/24`) holding FLARE-VM and REMnux; only the Gateway VM may open a connection into it, it reaches only the ingestion endpoint, and it has no Internet unless the operator switches it on for a limited time (`labops.py analysis-online`).
+
+**Analysis reset**:
+Reverting FLARE-VM and REMnux to their clean Proxmox snapshot (`labops.py analysis-reset`): Internet forced off, drain marker confirmed first, fresh Agent enrolment afterwards, `lab.rebuild_generation` incremented; no rebuild and it never touches Elastic evidence.
+
+**Sample ID**:
+The operator-set identifier (`lab.sample_id`) for one malware sample under analysis, written to Elastic with marker events so analysis-zone evidence is searchable per sample.

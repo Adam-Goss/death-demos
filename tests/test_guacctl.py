@@ -23,7 +23,7 @@ class Connections(unittest.TestCase):
         self.c = guacctl.connections(PLAN, "rdp-pw", "KEY")
 
     def test_attacker_is_rdp_and_each_target_vm_is_ssh_at_plan_addresses(self):
-        self.assertEqual(set(self.c), {"attacker", "t1"})  # t2 has no VM yet
+        self.assertEqual(set(self.c), {"attacker", "t1", "remnux"})  # t2 has no VM yet
         self.assertEqual(self.c["attacker"][0], "rdp")
         self.assertEqual(self.c["attacker"][1]["hostname"], PLAN["hosts"]["attacker"]["ip"])
         self.assertEqual(self.c["attacker"][1]["port"], "3389")
@@ -48,11 +48,53 @@ class Connections(unittest.TestCase):
         self.assertTrue(sql.startswith("BEGIN;") and sql.rstrip().endswith("COMMIT;"))
         self.assertIn("DELETE FROM guacamole_connection WHERE connection_name = 'attacker'", sql)
         self.assertIn("'o''neil'", sql)
-        self.assertEqual(sql.count("INSERT INTO guacamole_connection (connection_name"), 2)
+        self.assertEqual(sql.count("INSERT INTO guacamole_connection (connection_name"), 3)
 
     def test_nul_is_refused(self):
         with self.assertRaises(ValueError):
             guacctl.lit("a\x00b")
+
+
+class AnalysisConnections(unittest.TestCase):
+    """#52: REMnux over SSH+SFTP, FLARE over RDP; nothing leaves by default."""
+
+    def setUp(self):
+        self.c = guacctl.connections(PLAN, "rdp-pw", "KEY", "flare-pw")
+
+    def test_flare_only_when_a_flare_password_is_given(self):
+        self.assertEqual(set(guacctl.connections(PLAN, "rdp-pw", "KEY")), {"attacker", "t1", "remnux"})
+        self.assertEqual(set(self.c), {"attacker", "t1", "flare", "remnux"})
+
+    def test_remnux_is_ssh_with_sftp_and_flare_is_rdp_with_a_drive(self):
+        self.assertEqual(self.c["remnux"][0], "ssh")
+        self.assertEqual(self.c["remnux"][1]["enable-sftp"], "true")
+        self.assertEqual(self.c["flare"][0], "rdp")
+        self.assertEqual(self.c["flare"][1]["enable-drive"], "true")
+        for h in ("flare", "remnux"):
+            self.assertEqual(self.c[h][1]["hostname"], PLAN["hosts"][h]["ip"])
+
+    def test_download_and_clipboard_out_are_disabled_by_default(self):
+        self.assertEqual(self.c["remnux"][1]["sftp-disable-download"], "true")
+        self.assertEqual(self.c["flare"][1]["disable-download"], "true")
+        for h in ("flare", "remnux"):
+            self.assertEqual(self.c[h][1]["disable-copy"], "true")
+            self.assertNotIn("disable-upload", self.c[h][1])
+            self.assertNotIn("sftp-disable-upload", self.c[h][1])
+
+    def test_only_firewall_allowed_destinations_are_brokered(self):
+        import netpolicy
+        for online in (False, True):
+            rules = netpolicy.render_rules(PLAN, "exercise", None, online)
+            for h in ("flare", "remnux"):
+                port = int(self.c[h][1]["port"])
+                self.assertEqual(netpolicy.evaluate(PLAN, rules, {"src": "gateway", "dst": h, "proto": "tcp", "port": port}), "allow", h)
+
+    def test_the_rdp_drive_is_not_a_shared_folder(self):
+        self.assertTrue(self.c["flare"][1]["drive-path"].startswith("/tmp/"))
+        self.assertNotIn("/srv", self.c["flare"][1]["drive-path"])
+
+    def test_password_for_flare_is_not_in_the_repo_role(self):
+        self.assertNotIn("flare-pw", read("scripts/guacctl.py"))
 
 
 class Passwords(unittest.TestCase):

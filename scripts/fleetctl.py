@@ -3,8 +3,10 @@
 
   upload-packages            verify the staged integration zips against plan.json and upload them to Kibana
   fetch-packages             download the zips on the workstation (Elastic has no Internet; this host does)
-  ensure-policy <target>     agent policy and package policies for one target (idempotent)
-  issue-token <target> <n>   retire the target's old tokens and agents, print a fresh enrolment token (stdout only)
+  ensure-policy <target>     agent policy and package policies for one target (idempotent); for flare/remnux (#52) the
+                             `analysis` namespace policy: Windows + Sysmon / auditd + system, tagged lab.zone=analysis
+  issue-token <target> <n>   retire the target's old tokens and agents, print a fresh enrolment token (stdout only);
+                             also for the analysis hosts flare and remnux
   ensure-pipeline            create the lab-stamp pipeline if absent (never touches an existing registry)
   register-agent <target> <n>  record the enrolled agent id -> target_id / rebuild_generation in lab-stamp
   ingest-lag                 fail if events were indexed more than ingest_lag_seconds after their @timestamp
@@ -84,7 +86,13 @@ def elastic():
     return Client(os.environ.get("FLEET_ES_URL") or "https://127.0.0.1:19200")
 
 
+def analysis_hosts(plan):
+    return plan.get("analysis", {}).get("hosts", {})
+
+
 def policy_id(plan, target):
+    if target in analysis_hosts(plan):
+        return plan["analysis"]["agent_policy_prefix"] + target
     if target not in plan["targets"] or "vm_id" not in plan["targets"][target]:
         die("unknown target %r (no VM in plan.json targets)" % target)
     return plan["target_stack"]["agent_policy_prefix"] + target
@@ -212,8 +220,69 @@ def package_policy(target, pkg, plan, version=None, log_kind="access"):
     return base
 
 
+# Best effort by design (#52): a sample can tamper with the agent. Every event carries the zone; lab.sample_id is stamped later.
+ANALYSIS_PROCESSOR = "- add_fields:\n    target: lab\n    fields:\n      zone: analysis\n"
+# Sysmon operational, Security and PowerShell channels on FLARE; no Elastic Defend (it conflicts with the tools and may kill samples).
+def drain_input(log):
+    """The drain log is shipped like the target's, so a drain marker proves forwarding works (labops.py analysis-reset)."""
+    return ("filestream", {"filestream-filestream": {"enabled": True, "streams": {"filestream.filestream": {"enabled": True, "vars": {
+        "paths": [log], "data_stream.dataset": "lab_drain.marker", "fingerprint": True, "fingerprint_length": 64,
+        "processors": ANALYSIS_PROCESSOR}}}}})
+
+
+ANALYSIS_INPUTS = {
+    "flare": [("windows", {"windows-winlog": {"enabled": True, "streams": {
+                  "windows.sysmon_operational": {"enabled": True, "vars": {"processors": ANALYSIS_PROCESSOR}},
+                  "windows.powershell_operational": {"enabled": True, "vars": {"processors": ANALYSIS_PROCESSOR}}}}}),
+              ("system", {"system-winlog": {"enabled": True, "streams": {
+                  "system.security": {"enabled": True, "vars": {"processors": ANALYSIS_PROCESSOR}}}}})],
+    "remnux": [("auditd_manager", {"auditd-audit/auditd": {"enabled": True, "streams": {"auditd_manager.auditd": {
+                  "enabled": True, "vars": {"audit_rules": AUDIT_RULES, "socket_type": "unicast", "resolve_ids": True,
+                                            "failure_mode": "log", "processors": ANALYSIS_PROCESSOR}}}}}),
+               ("system", {"system-logfile": {"enabled": True, "streams": {
+                  "system.syslog": {"enabled": True, "vars": {"processors": ANALYSIS_PROCESSOR}},
+                  "system.auth": {"enabled": True, "vars": {"processors": ANALYSIS_PROCESSOR}}}}})],
+}
+
+
+def analysis_inputs(plan, host):
+    log = plan["analysis"]["drain"]["log_windows" if plan["analysis"]["hosts"][host]["os"] == "windows" else "log_linux"]
+    return ANALYSIS_INPUTS[host] + [drain_input(log)]
+
+
+def cmd_analysis_policy(args, plan):
+    pid, host = policy_id(plan, args.target), args.target
+    kb = kibana()
+    code, _ = kb.call("GET", "/api/fleet/agent_policies/" + pid, ok=(200, 404))
+    if code == 404:
+        kb.call("POST", "/api/fleet/agent_policies?sys_monitoring=false", {
+            "id": pid, "name": pid, "namespace": plan["analysis"]["namespace"], "monitoring_enabled": ["logs", "metrics"],
+            "description": "Opaleye analysis zone %s; managed by scripts/fleetctl.py" % host})
+        print("created policy " + pid)
+    _, existing = kb.call("GET", "/api/fleet/package_policies?perPage=500")
+    have = {p["name"]: p for p in existing.get("items", []) if p.get("policy_id") == pid}
+    for pkg, inputs in analysis_inputs(plan, host):
+        name = "%s-%s" % (host, pkg)
+        code, info = kb.call("GET", "/api/fleet/epm/packages/" + pkg, ok=(200, 404))
+        if code == 404 or info.get("item", {}).get("status") != "installed":
+            die("package %s is not installed in Kibana (run upload-packages or install it from the registry mirror)" % pkg)
+        body = {"name": name, "namespace": plan["analysis"]["namespace"], "policy_id": pid,
+                "package": {"name": pkg, "version": info["item"]["version"]}, "inputs": inputs}
+        digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+        body["description"] = "Managed by scripts/fleetctl.py; config-sha256=" + digest
+        if name in have:
+            if have[name].get("description") != body["description"]:
+                kb.call("PUT", "/api/fleet/package_policies/" + have[name]["id"], body)
+                print("updated " + name)
+        else:
+            kb.call("POST", "/api/fleet/package_policies", body)
+            print("added " + name)
+
+
 def cmd_policy(args):
     plan = load_plan()
+    if args.target in analysis_hosts(plan):
+        return cmd_analysis_policy(args, plan)
     pid = policy_id(plan, args.target)
     kb = kibana()
     code, _ = kb.call("GET", "/api/fleet/agent_policies/" + pid, ok=(200, 404))
@@ -314,6 +383,11 @@ def cmd_register(args):
     for a in found:
         agents[a["id"]] = {"target_id": args.target, "rebuild_generation": gen}
     params = body["processors"][0]["script"]["params"]
+    if args.target in analysis_hosts(plan):
+        # Analysis hosts get the agent mapping only: firewall_targets is the exercise targets' flow attribution.
+        es.call("PUT", "/_ingest/pipeline/" + name, body)
+        print("registered %s as %s gen %d (analysis; no firewall flow attribution)" % (", ".join(a["id"] for a in found), args.target, gen))
+        return
     config = params.setdefault("firewall_targets", {}).setdefault(args.target, {
         "ip": plan["hosts"][args.target]["ip"], "generations": []})
     if not any(g["generation"] == gen for g in config["generations"]):

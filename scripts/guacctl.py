@@ -10,7 +10,9 @@ reaches an argv. Secrets come from the operator environment, never the repo.
   guacctl.py check       exit 1 if the default password still works, or TOTP is not being asked for
 
 Env: GUAC_ADMIN_PASSWORD (>= 16 chars), ATTACKER_RDP_PASSWORD (the attacker user's RDP login; same value the attacker
-role sets). The targets' SSH key is read from secrets/gateway/ (fetched by the gateway role).
+role sets). FLARE_RDP_PASSWORD (optional): the analysis connections (#52) are always created for remnux (SSH with SFTP); flare (RDP)
+only when this is set. Download and clipboard-out are disabled on both (enable one
+connection by hand in the Guacamole admin UI when a result must leave). The targets' SSH key is read from secrets/gateway/ (fetched by the gateway role).
 TOTP is enrolled by the operator at first browser login (scan the QR code); there is no second account and no IdP.
 """
 import hashlib
@@ -49,8 +51,31 @@ def lit(value):
     return "'" + value.replace("'", "''") + "'"
 
 
-def connections(plan, rdp_password, private_key):
-    """name -> (protocol, parameters). Attacker over RDP; each target a key-only SSH terminal."""
+def analysis_connections(plan, flare_password, private_key):
+    """Analysis zone (#52). Samples go in by SFTP (REMnux) or the RDP drive (FLARE); nothing comes out by default: Guacamole
+    download and clipboard-out (disable-copy) are off, and no connection is a shared folder across zones (the RDP drive path
+    lives inside the guacd container)."""
+    user = plan["analysis"]["ssh_user"]
+    out = {}
+    for h, v in plan["analysis"]["hosts"].items():
+        ip = plan["hosts"][h]["ip"]
+        if v["guac"] == "rdp":
+            if not flare_password:
+                continue  # no RDP login given: leave FLARE out, REMnux needs only the key
+            out[h] = ("rdp", {"hostname": ip, "port": "3389", "username": user, "password": flare_password,
+                              "security": "any", "ignore-cert": "true", "resize-method": "display-update",
+                              "enable-wallpaper": "false", "enable-drive": "true", "drive-path": "/tmp/guac-drive-" + h,
+                              "create-drive-path": "true", "disable-download": "true", "disable-copy": "true"})
+        else:
+            out[h] = ("ssh", {"hostname": ip, "port": "22", "username": user, "private-key": private_key,
+                              "color-scheme": "green-black", "enable-sftp": "true", "sftp-disable-download": "true",
+                              "disable-copy": "true"})
+    return out
+
+
+def connections(plan, rdp_password, private_key, flare_password=None):
+    """name -> (protocol, parameters). Attacker over RDP; each target a key-only SSH terminal; with a FLARE password, the
+    analysis hosts too."""
     user = plan["attacker"]["ssh_user"]
     out = {"attacker": ("rdp", {
         "hostname": plan["hosts"]["attacker"]["ip"], "port": "3389", "username": user, "password": rdp_password,
@@ -59,6 +84,7 @@ def connections(plan, rdp_password, private_key):
         if "vm_id" in v:
             out[t] = ("ssh", {"hostname": plan["hosts"][t]["ip"], "port": "22", "username": plan["ops"]["ssh_user"],
                               "private-key": private_key, "color-scheme": "green-black"})
+    out.update(analysis_connections(plan, flare_password, private_key))
     return out
 
 
@@ -126,7 +152,7 @@ def do_connections(plan):
         raise SystemExit("no %s: run playbooks/gateway.yml first" % os.path.relpath(KEY_FILE, ROOT))
     with open(KEY_FILE) as f:
         key = f.read()
-    conns = connections(plan, rdp, key)
+    conns = connections(plan, rdp, key, os.environ.get("FLARE_RDP_PASSWORD") or None)
     gateway_run(plan, connection_sql(conns))
     print("connections: " + ", ".join(conns))
 

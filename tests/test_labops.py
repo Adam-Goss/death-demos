@@ -5,6 +5,7 @@ Run as the operator runs them (CLI), against fake Elasticsearch/Proxmox and stub
 import datetime
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import tempfile
@@ -415,6 +416,156 @@ class AttackerClean(OpsCase):
         (call,) = [json.loads(c) for c in self.stub_calls()]
         self.assertIn("opaleye@10.77.1.10", call)
         self.assertIn("/srv/exercise", call[-1])
+
+
+class Analysis(OpsCase):
+    """#52: analysis zone commands. labmode.py / fleetctl.py are stubbed; ssh, Proxmox and Elasticsearch are fakes."""
+
+    def setUp(self):
+        super().setUp()
+        self.vm = {h: v["vm_id"] for h, v in PLAN["analysis"]["hosts"].items()}
+        for vmid in self.vm.values():
+            self.pve.vms[vmid] = "running"
+        self.env.update(
+            LABOPS_LABMODE="%s %s" % (pathlib.Path(sys.executable).as_posix(), pathlib.Path(HERE, "stub_labmode.py").as_posix()),
+            LABOPS_FLEETCTL="%s %s" % (pathlib.Path(sys.executable).as_posix(), pathlib.Path(HERE, "stub_fleetctl.py").as_posix()),
+            LABOPS_SSH="%s %s" % (pathlib.Path(sys.executable).as_posix(), pathlib.Path(HERE, "stub_ssh.py").as_posix()),
+            PROXMOX_VE_API_TOKEN_ANALYSIS="an!t=6", LABOPS_SHUTDOWN_WAIT="2")
+
+    def lines(self, prefix):
+        return [c for c in self.stub_calls() if c.startswith(prefix)]
+
+    def test_online_delegates_to_labmode_and_is_audited(self):
+        r = self.ops("analysis-online", "on", "--minutes", "10")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.lines("labmode|"), ["labmode|analysis on --minutes 10"])
+        self.assertIn("BEFORE detonating", r.stdout)
+        self.assertEqual(self.audit()[-1]["event"], "analysis-online-on")
+
+    def test_online_failure_is_passed_on(self):
+        self.assertNotEqual(self.ops("analysis-online", "off", STUB_FAIL="labmode").returncode, 0)
+
+    def test_reset_forces_internet_off_first_then_drains_reverts_and_re_enrols_each_host(self):
+        r = self.ops("analysis-reset")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = self.stub_calls()
+        self.assertEqual(calls[0], "labmode|analysis off")
+        self.assertEqual(sorted(self.pve.rollbacks), sorted((vmid, "clean") for vmid in self.vm.values()))
+        self.assertEqual(sorted(self.lines("fleetctl|issue-token")), ["fleetctl|issue-token flare 2", "fleetctl|issue-token remnux 2"])
+        self.assertEqual(sorted(self.lines("fleetctl|register-agent")), ["fleetctl|register-agent flare 2", "fleetctl|register-agent remnux 2"])
+        self.assertEqual([e["generation"] for e in self.audit() if e["event"] == "analysis-reverted"], [2, 2])
+        self.assertTrue(all(status == "running" for status in (self.pve.vms[v] for v in self.vm.values())))
+
+    def test_generation_increments_on_each_reset(self):
+        self.ops("analysis-reset", "remnux")
+        self.ops("analysis-reset", "remnux")
+        self.assertEqual(self.lines("fleetctl|issue-token"), ["fleetctl|issue-token remnux 2", "fleetctl|issue-token remnux 3"])
+
+    def test_hosts_are_reached_through_the_gateway_only(self):
+        self.ops("analysis-reset", "flare")
+        ssh = [json.loads(c) for c in self.stub_calls() if c.startswith("[")]
+        self.assertTrue(ssh)
+        for argv in ssh:
+            self.assertIn("-J", argv)
+            self.assertEqual(argv[argv.index("-J") + 1], "opaleye@" + PLAN["hosts"]["gateway"]["ip"])
+            self.assertTrue(argv[-2].endswith("@" + PLAN["hosts"]["flare"]["ip"]))
+
+    def test_the_enrolment_token_travels_on_stdin_never_in_an_argument(self):
+        self.ops("analysis-reset", "remnux")
+        self.assertEqual(self.lines("stdin|"), ["stdin|TOKEN-remnux-2"])
+        self.assertNotIn("TOKEN-remnux-2", "\n".join(c for c in self.stub_calls() if c.startswith("[")))
+
+    def test_a_failed_drain_blocks_the_revert_unless_the_loss_is_acknowledged(self):
+        r = self.ops("analysis-reset", STUB_DROP="1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("drain check failed", r.stderr)
+        self.assertEqual(self.pve.rollbacks, [])
+        r = self.ops("analysis-reset", "remnux", "--acknowledge-loss", "forwarding broken", STUB_DROP="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.pve.rollbacks, [(self.vm["remnux"], "clean")])
+
+    def test_if_internet_cannot_be_switched_off_nothing_is_reverted(self):
+        r = self.ops("analysis-reset", STUB_FAIL="labmode")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.pve.rollbacks, [])
+
+    def test_a_stopped_vm_is_not_drained_and_stays_off_after_the_revert(self):
+        self.pve.vms[self.vm["flare"]] = "stopped"
+        r = self.ops("analysis-reset", "flare", STUB_DROP="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.pve.vms[self.vm["flare"]], "stopped")
+        self.assertEqual(self.pve.rollbacks, [(self.vm["flare"], "clean")])
+
+    def test_only_the_analysis_token_is_used_for_the_revert(self):
+        self.ops("analysis-reset", "remnux")
+        snap = [t for m, p, t in self.pve.calls if "/snapshot/" in p]
+        self.assertEqual(snap, ["PVEAPIToken=an!t=6"])
+
+    def test_unknown_host_is_refused(self):
+        r = self.ops("analysis-reset", "t1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.pve.rollbacks, [])
+
+    def test_a_token_failure_is_reported_after_the_revert(self):
+        r = self.ops("analysis-reset", "remnux", STUB_FAIL="token")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("enrolment failed", r.stderr)
+
+    def test_sample_markers_and_stamping(self):
+        self.assertEqual(self.ops("analysis-sample", "start", "emotet-001").returncode, 0)
+        self.es.add("logs-system.syslog-analysis", {"@timestamp": "2099-01-01T00:00:00.000Z", "lab": {"zone": "analysis"}})
+        self.es.add("logs-apache.access-default", {"@timestamp": "2099-01-01T00:00:00.000Z", "lab": {"zone": "other"}})
+        # widen the window past the fake events: end writes its marker "now", so back-date the start
+        path = os.path.join(self.state, "labops.json")
+        st = json.load(open(path))
+        st["sample"]["started"] = "2000-01-01T00:00:00.000Z"
+        json.dump(st, open(path, "w"))
+        self.es.docs["logs-system.syslog-analysis"][0]["@timestamp"] = "2020-01-01T00:00:00.000Z"
+        self.es.docs["logs-apache.access-default"][0]["@timestamp"] = "2020-01-01T00:00:00.000Z"
+        r = self.ops("analysis-sample", "end")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.es.docs["logs-system.syslog-analysis"][0]["lab"]["sample_id"], "emotet-001")
+        self.assertNotIn("sample_id", self.es.docs["logs-apache.access-default"][0]["lab"])
+        actions = [m["event"]["action"] for m in self.markers()]
+        self.assertEqual(actions, ["sample-start", "sample-end"])
+
+    def test_tag_stamps_events_that_arrived_after_end_and_is_repeatable(self):
+        self.ops("analysis-sample", "start", "emotet-001")
+        path = os.path.join(self.state, "labops.json")
+        st = json.load(open(path))
+        st["sample"]["started"] = "2000-01-01T00:00:00.000Z"
+        json.dump(st, open(path, "w"))
+        self.ops("analysis-sample", "end")
+        self.es.add("logs-system.syslog-analysis", {"@timestamp": "2020-01-01T00:00:00.000Z", "lab": {"zone": "analysis"}})
+        # the start marker is back-dated in the store too, so tag sees the same window
+        self.markers()[0]["@timestamp"] = "2000-01-01T00:00:00.000Z"
+        for _ in range(2):
+            r = self.ops("analysis-sample", "tag", "emotet-001")
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.es.docs["logs-system.syslog-analysis"][0]["lab"]["sample_id"], "emotet-001")
+        self.assertIn("tagged 0 events", r.stdout)  # the second run finds nothing left to stamp
+
+    def test_tag_needs_both_markers(self):
+        self.assertNotEqual(self.ops("analysis-sample", "tag", "unknown-001").returncode, 0)
+
+    def test_a_sample_cannot_start_while_the_analysis_internet_is_on(self):
+        with open(os.path.join(self.state, "labmode.json"), "w") as f:
+            json.dump({"mode": "exercise", "selected": None, "expires": None, "reverify_required": False,
+                       "analysis_online_until": 32503680000}, f)  # year 3000
+        r = self.ops("analysis-sample", "start", "emotet-001")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("analysis-online off", r.stderr)
+        self.assertEqual(self.markers(), [])
+
+    def test_one_sample_at_a_time_and_reset_refuses_during_one(self):
+        self.ops("analysis-sample", "start", "emotet-001")
+        self.assertNotEqual(self.ops("analysis-sample", "start", "other-002").returncode, 0)
+        r = self.ops("analysis-reset")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.pve.rollbacks, [])
+
+    def test_sample_id_must_be_well_formed(self):
+        self.assertNotEqual(self.ops("analysis-sample", "start", "Bad ID").returncode, 0)
 
 
 if __name__ == "__main__":

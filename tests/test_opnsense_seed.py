@@ -59,7 +59,7 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(self.root.findtext("interfaces/opt4/if"), "wg0")
 
     def test_dns_ntp_on_lab_interfaces_only(self):
-        want = "lan,opt1,opt2,opt3,opt5"
+        want = "lan,opt1,opt2,opt3,opt5,opt6"
         self.assertEqual(self.root.findtext("OPNsense/unboundplus/general/active_interface"), want)
         self.assertEqual(self.root.findtext("ntpd/interface"), want)
 

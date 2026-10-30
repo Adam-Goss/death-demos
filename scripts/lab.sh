@@ -26,7 +26,8 @@ if [ "$target" = all ]; then
   # Single quotes: in double quotes bash expands `$!` and the sed script collapses to "delete everything".
   if [ "$cmd" = destroy ]; then stacks=$(echo $ORDER | tr ' ' '\n' | grep -v '^elastic$' | sed '1!G;h;$!d' | tr '\n' ' '); fi
 else
-  case " $ORDER " in *" $target "*) stacks=$target;; *) echo "unknown stack" >&2; exit 1;; esac
+  # analysis (#52) is run by name only: its VMs are off by default and `all` must not build or destroy them.
+  case " $ORDER analysis " in *" $target "*) stacks=$target;; *) echo "unknown stack" >&2; exit 1;; esac
   if [ "$cmd" = destroy ] && [ "$target" = elastic ]; then
     echo "refused: Elastic destroy is evidence deletion; use its guarded command (M3)" >&2; exit 1
   fi

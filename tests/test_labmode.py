@@ -224,6 +224,64 @@ class LabMode(unittest.TestCase):
         self.assertNotEqual(self.run_cli("exercise", "t1").returncode, 0)
         self.assertTrue(all(v == "0" for v in self.enabled("exercise-t1@lan").values()))
 
+    def internet(self):
+        return {d: r["enabled"] for d, r in ((r["description"], r) for r in self.fw.rules.values())
+                if d.startswith("opaleye:analysis-internet@")}
+
+    def test_analysis_internet_is_off_after_a_mode_push(self):
+        self.run_cli("exercise")
+        rules = self.internet()
+        self.assertTrue(rules and all(v == "0" for v in rules.values()))
+        self.assertIn("off", self.run_cli("analysis", "status").stdout)
+
+    def test_analysis_on_enables_only_the_online_rules_and_expires_after_the_default(self):
+        self.run_cli("exercise")
+        r = self.run_cli("analysis", "on")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(all(v == "1" for v in self.internet().values()))
+        self.assertTrue(all(v == "1" for v in self.enabled("analysis-block-private").values()))
+        self.assertEqual(self.state_json()["analysis_online_until"], T0 + 30 * 60)
+        self.assertEqual(self.audit()[-1]["event"], "analysis-on")
+
+    def test_analysis_on_again_extends_without_a_push(self):
+        self.run_cli("exercise")
+        self.run_cli("analysis", "on")
+        applies = self.fw.names().count("apply")
+        self.run_cli("analysis", "on", "--minutes", "60", now=T0 + 600)
+        self.assertEqual(self.state_json()["analysis_online_until"], T0 + 600 + 3600)
+        self.assertEqual(self.fw.names().count("apply"), applies)
+
+    def test_analysis_minutes_are_capped(self):
+        self.run_cli("exercise")
+        self.assertNotEqual(self.run_cli("analysis", "on", "--minutes", "121").returncode, 0)
+        self.assertNotEqual(self.run_cli("analysis", "on", "--minutes", "0").returncode, 0)
+
+    def test_analysis_off_disables_the_online_rules(self):
+        self.run_cli("exercise")
+        self.run_cli("analysis", "on")
+        self.assertEqual(self.run_cli("analysis", "off").returncode, 0)
+        self.assertTrue(all(v == "0" for v in self.internet().values()))
+        self.assertIsNone(self.state_json()["analysis_online_until"])
+
+    def test_tick_switches_analysis_internet_off_at_expiry_only(self):
+        self.run_cli("exercise")
+        self.run_cli("analysis", "on")
+        self.run_cli("tick", now=T0 + 29 * 60)
+        self.assertTrue(all(v == "1" for v in self.internet().values()))
+        self.run_cli("tick", now=T0 + 30 * 60)
+        self.assertTrue(all(v == "0" for v in self.internet().values()))
+        self.assertEqual(self.audit()[-1]["event"], "analysis-off")
+
+    def test_a_mode_change_while_online_keeps_the_internet_on(self):
+        self.run_cli("exercise")
+        self.run_cli("analysis", "on")
+        self.run_cli("maintenance", "--minutes", "30", "--reason", "updates", now=T0 + 60)
+        self.assertTrue(all(v == "1" for v in self.internet().values()))
+
+    def test_analysis_on_before_any_mode_push_is_refused_but_off_is_fine(self):
+        self.assertNotEqual(self.run_cli("analysis", "on").returncode, 0)
+        self.assertEqual(self.run_cli("analysis", "off").returncode, 0)
+
     def test_refuses_without_credentials(self):
         r = self.run_cli("exercise", "t1", creds=False)
         self.assertNotEqual(r.returncode, 0)

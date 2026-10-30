@@ -80,7 +80,83 @@ class GuacamoleGateway(unittest.TestCase):
     def test_gateway_is_not_on_the_home_bridge_and_has_its_own_zone(self):
         self.assertEqual(PLAN["hosts"]["gateway"]["zone"], "gateway")
         self.assertNotEqual(PLAN["zones"]["gateway"]["bridge"], PLAN["zones"]["home"]["bridge"])
-        self.assertEqual(PLAN["nic_order"][-1], "gateway")
+        self.assertEqual(PLAN["nic_order"][-2:], ["gateway", "analysis"])
+
+
+class AnalysisZone(unittest.TestCase):
+    """#52: isolated analysis zone; Internet only while the operator toggle is on."""
+
+    def verdict(self, mode, sel, online, src, dst, port, proto="tcp"):
+        rules = netpolicy.render_rules(PLAN, mode, sel, online)
+        return netpolicy.evaluate(PLAN, rules, {"src": src, "dst": dst, "proto": proto, "port": port})
+
+    def test_rules_match_the_probe_matrix_in_every_mode_and_toggle_state(self):
+        for mode, sel in (("exercise", "t1"), ("exercise", None), ("maintenance", None)):
+            for online in (False, True):
+                self.assertEqual(netpolicy.lint(PLAN, mode, sel, online=online), [], (mode, sel, online))
+
+    def test_only_the_gateway_initiates_into_the_zone(self):
+        for mode, sel in (("exercise", "t1"), ("maintenance", None)):
+            for online in (False, True):
+                for src, dst, port, want in (
+                        ("gateway", "flare", 3389, "allow"), ("gateway", "remnux", 22, "allow"),
+                        ("gateway", "remnux", 3389, "deny"),
+                        ("operator", "flare", 3389, "deny"), ("operator", "remnux", 22, "deny"),
+                        ("attacker", "flare", 3389, "deny"), ("t1", "remnux", 22, "deny"), ("elastic", "flare", 3389, "deny")):
+                    self.assertEqual(self.verdict(mode, sel, online, src, dst, port), want, (mode, online, src, dst, port))
+
+    def test_zone_reaches_no_lab_or_home_host_in_either_state(self):
+        for online in (False, True):
+            for dst, port in (("attacker", 22), ("t1", 80), ("t2", 80), ("gateway", 443), ("proxmox", 8006), ("proxmox", 22),
+                              ("home_router", 80), ("workstation", 445), ("elastic", 5601), ("elastic", 22), ("fw", 443), ("fw", 22)):
+                for src in ("flare", "remnux"):
+                    self.assertEqual(self.verdict("exercise", "t1", online, src, dst, port), "deny", (online, src, dst, port))
+
+    def test_zone_reaches_only_the_ingestion_ports_on_elastic(self):
+        for online in (False, True):
+            for src in ("flare", "remnux"):
+                for port, want in ((9200, "allow"), (8220, "allow"), (5601, "deny")):
+                    self.assertEqual(self.verdict("exercise", None, online, src, "elastic", port), want)
+
+    def test_internet_is_off_by_default_and_on_only_when_toggled(self):
+        for src in ("flare", "remnux"):
+            self.assertEqual(self.verdict("exercise", None, False, src, "internet", 443), "deny")
+            self.assertEqual(self.verdict("exercise", None, True, src, "internet", 443), "allow")
+        self.assertEqual(self.verdict("exercise", None, False, "flare", "fw", 53, "udp"), "deny")
+        self.assertEqual(self.verdict("exercise", None, True, "flare", "fw", 53, "udp"), "allow")
+
+    def test_online_rules_are_present_but_disabled_when_offline(self):
+        off = {r["id"]: r["enabled"] for r in netpolicy.render_rules(PLAN, "exercise", None, False)}
+        on = {r["id"]: r["enabled"] for r in netpolicy.render_rules(PLAN, "exercise", None, True)}
+        key = "analysis-internet@opt6@flare"
+        self.assertEqual((off[key], on[key]), (False, True))
+
+    def test_private_ranges_are_blocked_before_the_internet_allow(self):
+        rules = [r for r in netpolicy.render_rules(PLAN, "exercise", None, True) if r["iface"] == "opt6"]
+        ids = [r["id"] for r in rules]
+        allow = ids.index("analysis-internet@opt6@flare")
+        for r in PLAN["analysis"]["private_ranges"]:
+            blk = next(i for i, x in enumerate(rules) if x["action"] == "block" and x["dst"] == r and x["src"].startswith("10.77.20.10"))
+            self.assertLess(blk, allow)
+            self.assertTrue(rules[blk]["enabled"] and rules[blk]["log"])
+        self.assertTrue(rules[allow]["log"])
+
+    def test_telemetry_allow_precedes_the_private_blocks(self):
+        # 10.0.0.0/8 covers Elastic: the ingestion allow must stay ahead of the block or telemetry silently stops.
+        ids = [r["id"] for r in netpolicy.render_rules(PLAN, "exercise", None, False) if r["iface"] == "opt6"]
+        tele = ids.index("analysis-telemetry@opt6@flare")
+        self.assertTrue(all(tele < i for i, x in enumerate(ids) if x.startswith("analysis-block")))
+        self.assertLess(ids.index("analysis-dns@opt6@flare"), ids.index("analysis-block-fw@opt6@flare"))
+
+    def test_internet_flows_are_logged(self):
+        for r in netpolicy.render_rules(PLAN, "exercise", None, True):
+            if r["id"].startswith("analysis-internet"):
+                self.assertTrue(r["log"])
+
+    def test_zone_has_its_own_bridge_and_both_vms_share_it(self):
+        self.assertEqual(PLAN["hosts"]["flare"]["zone"], PLAN["hosts"]["remnux"]["zone"], "analysis")
+        self.assertNotEqual(PLAN["zones"]["analysis"]["bridge"], PLAN["zones"]["home"]["bridge"])
+        self.assertEqual(netpolicy.plan_errors(PLAN), [])
 
 
 class MatrixShape(unittest.TestCase):
@@ -91,7 +167,7 @@ class MatrixShape(unittest.TestCase):
 
     def test_ipv6_is_probed_from_every_zone_and_expected_absent(self):
         v6 = [r for r in netpolicy.matrix(PLAN, "exercise", "t1") if r["family"] == "inet6"]
-        self.assertEqual({r["src"] for r in v6}, {"attacker", "elastic", "t1", "t2", "gateway", "operator", "workstation"})
+        self.assertEqual({r["src"] for r in v6}, {"attacker", "elastic", "t1", "t2", "gateway", "flare", "operator", "workstation"})
         self.assertTrue(all(r["expected"] == "deny" and r["kind"] == "no-ipv6" for r in v6))
 
 
@@ -157,9 +233,9 @@ class BridgeStanzas(unittest.TestCase):
     def test_lab_bridges_are_isolated_and_exclude_home_bridge(self):
         text = netpolicy.bridge_stanzas(PLAN)
         self.assertNotIn("iface vmbr0", text)
-        for name in ("vmbr2001", "vmbr2002", "vmbr2003", "vmbr2011", "vmbr2012"):
+        for name in ("vmbr2001", "vmbr2002", "vmbr2003", "vmbr2011", "vmbr2012", "vmbr2020"):
             self.assertIn("iface %s inet manual" % name, text)
-        self.assertEqual(text.count("bridge-ports none"), 5)
+        self.assertEqual(text.count("bridge-ports none"), 6)
         self.assertNotIn("address", text)
 
 

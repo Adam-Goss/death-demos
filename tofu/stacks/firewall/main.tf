@@ -40,7 +40,7 @@ variable "firewall_template_vm_id" {
 }
 
 variable "probe_vms" {
-  description = "Create throwaway A2 probe guests in the attacker, elastic and target zones. Destroy after A2."
+  description = "Create throwaway A2 probe guests in the attacker, elastic, target and (flare, remnux) analysis zones. Destroy after A2."
   type        = bool
   default     = false
 }
@@ -69,7 +69,11 @@ locals {
   from_template = var.firewall_template_vm_id > 0
   zones         = local.plan.zones
   probe_zones   = var.probe_zones
-  probe_prefix  = { for z in ["attacker", "elastic", "t1", "t2"] : z => split("/", local.zones[z].cidr)[1] }
+  # A probe guest is keyed by the host whose address it takes; flare and remnux (#52, analysis zone) are off by default, so the
+  # probe stands in for either while their zone is verified. Other keys are zones named like their host.
+  probe_zone_of = { flare = "analysis", remnux = "analysis" }
+  probe_zone    = { for h in ["attacker", "elastic", "t1", "t2", "flare", "remnux"] : h => lookup(local.probe_zone_of, h, h) }
+  probe_prefix  = { for h, z in local.probe_zone : h => split("/", local.zones[z].cidr)[1] }
 }
 
 # Proves the stack token can read its own pool, and nothing else.
@@ -188,7 +192,7 @@ resource "proxmox_virtual_environment_vm" "probe" {
   }
 
   network_device {
-    bridge   = local.zones[each.key].bridge
+    bridge   = local.zones[local.probe_zone[each.key]].bridge
     model    = "virtio"
     firewall = false
   }
@@ -196,12 +200,12 @@ resource "proxmox_virtual_environment_vm" "probe" {
   initialization {
     datastore_id = var.datastore_id
     dns {
-      servers = [cidrhost(local.zones[each.key].cidr, 1)]
+      servers = [cidrhost(local.zones[local.probe_zone[each.key]].cidr, 1)]
     }
     ip_config {
       ipv4 {
         address = "${local.plan.hosts[each.key].ip}/${local.probe_prefix[each.key]}"
-        gateway = cidrhost(local.zones[each.key].cidr, 1)
+        gateway = cidrhost(local.zones[local.probe_zone[each.key]].cidr, 1)
       }
     }
     user_account {

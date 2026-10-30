@@ -1,0 +1,100 @@
+- name: Hostname
+  ansible.builtin.hostname:
+    name: opaleye-remnux
+
+# The analysis zone has no Internet in its default state: packages need `labops.py analysis-online on` first.
+- name: Tools for the Agent and the drain marker
+  ansible.builtin.apt:
+    name: [curl, ca-certificates, auditd]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: remnux_apt
+  until: remnux_apt is succeeded
+  retries: 4
+  delay: 20
+
+- name: Lab CA directory
+  ansible.builtin.file:
+    path: /etc/lab-ca
+    state: directory
+    mode: "0755"
+
+- name: Lab CA certificate (public part)
+  ansible.builtin.copy:
+    src: "{{ secrets_dir }}/ca/ca.crt"
+    dest: /etc/lab-ca/ca.crt
+    mode: "0644"
+
+# The Agent ships this file (analysis policy, filestream); labops.py analysis-reset writes the drain marker into it.
+- name: Drain log directory
+  ansible.builtin.file:
+    path: "{{ an.drain.log_linux | dirname }}"
+    state: directory
+    owner: opaleye
+    mode: "0755"
+
+- name: Drain log
+  ansible.builtin.file:
+    path: "{{ an.drain.log_linux }}"
+    state: touch
+    owner: opaleye
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+
+# Fake services for the offline default.
+- name: INetSim configuration
+  ansible.builtin.template:
+    src: inetsim.conf.j2
+    dest: /etc/inetsim/inetsim.conf
+    mode: "0644"
+  notify: restart inetsim
+
+- name: INetSim enabled
+  ansible.builtin.systemd:
+    name: inetsim
+    enabled: true
+    state: started
+
+- name: Is the Agent installed?
+  ansible.builtin.stat:
+    path: /opt/Elastic/Agent/elastic-agent
+  register: agent
+
+- name: Package cache (controller)
+  ansible.builtin.file:
+    path: "{{ cache_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+
+- name: Download the Agent (controller, checksum enforced)
+  ansible.builtin.get_url:
+    url: "{{ agent_pkg.url }}"
+    dest: "{{ cache_dir }}/{{ agent_pkg.file }}"
+    checksum: "sha512:{{ agent_pkg.sha512 }}"
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+  when: not agent.stat.exists
+
+- name: Unpack the Agent
+  ansible.builtin.unarchive:
+    src: "{{ cache_dir }}/{{ agent_pkg.file }}"
+    dest: /var/tmp
+    creates: "/var/tmp/elastic-agent-{{ el.version }}-linux-x86_64/elastic-agent"
+  when: not agent.stat.exists
+
+# Installed standalone and left UNENROLLED: the clean snapshot carries no enrolment. labops.py analysis-reset enrols it
+# after every revert with a fresh token (which retires the previous agent), so a revert never resurrects an old identity.
+- name: Install the Agent (unenrolled)
+  ansible.builtin.command:
+    argv: ["/var/tmp/elastic-agent-{{ el.version }}-linux-x86_64/elastic-agent", install, --non-interactive]
+  when: not agent.stat.exists
+
+- name: Agent staging removed
+  ansible.builtin.file:
+    path: "/var/tmp/elastic-agent-{{ el.version }}-linux-x86_64"
+    state: absent
