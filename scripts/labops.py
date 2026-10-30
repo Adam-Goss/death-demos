@@ -2,7 +2,8 @@
 """Operator commands for the lab (issue #24). Run from the workstation, VPN up, Elastic tunnel open for 9200.
 
   labops.py exercise start ID --target T   set lab.exercise_id: writes the exercise-start marker event
-  labops.py exercise end                   writes the exercise-end marker event
+  labops.py exercise end                   writes the exercise-end marker event, then stamps lab.exercise_id on that target's events in the window
+  labops.py exercise tag ID                repeat the stamping (events still in transit at `end`); safe to re-run
   labops.py exercise show ID               time window and target of an exercise, from its markers
   labops.py generation T                   show the lab.rebuild_generation of target T (owned by scripts/target.sh)
   labops.py drain T                        emit a drain marker on target T and confirm it in Elasticsearch
@@ -44,6 +45,9 @@ from labcommon import ROOT, die, load_plan, state_dir  # noqa: E402
 EXERCISE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
 EXERCISE_DIR = "/srv/exercise"  # attacker-side working directory (ansible/roles/attacker)
 MIN_REASON = 5
+
+
+DRAIN_AGENT = "opaleye-drain/"
 
 
 def stamp():
@@ -104,10 +108,12 @@ class Ops:
         return subprocess.run(argv).returncode
 
     def marker(self, es, action, exercise_id, target, generation):
+        when = stamp()
         es.call("/%s/_doc" % self.plan["ops"]["marker_stream"], {
-            "@timestamp": stamp(), "message": "%s %s %s" % (action, exercise_id, target),
+            "@timestamp": when, "message": "%s %s %s" % (action, exercise_id, target),
             "event": {"action": action, "dataset": "lab_marker.events", "kind": "event"},
             "lab": {"exercise_id": exercise_id, "target_id": target, "rebuild_generation": generation}})
+        return when
 
     def exercise_start(self, exercise_id, target):
         if not EXERCISE_ID.match(exercise_id):
@@ -128,8 +134,8 @@ class Ops:
         if worst >= limit:
             die("Elasticsearch disk at %g%% (high watermark %d%%): new exercises are blocked; free space via evidence deletion" % (worst, limit))
         generation = self.generation_of(target)
-        self.marker(es, "exercise-start", exercise_id, target, generation)
-        self.state["active"] = {"id": exercise_id, "target": target, "generation": generation, "started": stamp()}
+        started = self.marker(es, "exercise-start", exercise_id, target, generation)
+        self.state["active"] = {"id": exercise_id, "target": target, "generation": generation, "started": started}
         self.save("exercise-start", exercise_id=exercise_id, target=target)
         print("exercise %s started on %s (generation %d). On the attacker VM: exercise1 --exercise-id %s" % (exercise_id, target, generation, exercise_id))
 
@@ -137,10 +143,45 @@ class Ops:
         active = self.state["active"]
         if not active:
             die("no active exercise")
-        self.marker(self.need_elastic(), "exercise-end", active["id"], active["target"], active["generation"])
+        es = self.need_elastic()
+        ended = self.marker(es, "exercise-end", active["id"], active["target"], active["generation"])
         self.state["active"] = None
         self.save("exercise-end", exercise_id=active["id"], target=active["target"])
         print("exercise %s ended. Next: drain %s, then reset %s" % (active["id"], active["target"], active["target"]))
+        try:
+            self.stamp_window(es, active["id"], active["target"], active["generation"], active["started"], ended)
+        except elastic_api.EsError as e:
+            print("warning: events not tagged (%s): re-run `exercise tag %s`" % (e, active["id"]), file=sys.stderr)
+
+    def stamp_window(self, es, exercise_id, target, generation, started, ended):
+        """Stamp lab.exercise_id on the target's events (this generation) between the markers; safe to repeat.
+
+        The window is widened by plan ops.tag_slack_s each side: hosts' clocks differ by about a second and Apache
+        logs whole seconds, so the first request of an exercise can carry a time just before the start marker."""
+        slack = datetime.timedelta(seconds=self.plan["ops"]["tag_slack_s"])
+        def widen(ts, sign):
+            when = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")) + sign * slack
+            return when.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        started, ended = widen(started, -1), widen(ended, 1)
+        res = es.call("/logs-*,metrics-*/_update_by_query?conflicts=proceed&refresh=true&ignore_unavailable=true", {
+            "query": {"bool": {
+                "filter": [{"term": {"lab.target_id": target}}, {"term": {"lab.rebuild_generation": generation}},
+                           {"range": {"@timestamp": {"gte": started, "lte": ended}}}],
+                "must_not": [{"exists": {"field": "lab.exercise_id"}}, {"term": {"event.dataset": "lab_marker.events"}}]}},
+            "script": {"lang": "painless", "params": {"id": exercise_id},
+                       "source": "if (ctx._source.lab == null) { ctx._source.lab = new HashMap(); } ctx._source.lab.exercise_id = params.id"}})
+        print("tagged %d events with lab.exercise_id=%s (events still in transit: run `exercise tag %s` later)"
+              % (res.get("updated", 0), exercise_id, exercise_id))
+
+    def exercise_tag(self, exercise_id):
+        es = self.need_elastic()
+        res = es.call("/%s/_search" % self.plan["ops"]["marker_stream"], {
+            "query": {"bool": {"filter": [{"term": {"lab.exercise_id": exercise_id}}]}}, "size": 10})
+        docs = {h["_source"]["event"]["action"]: h["_source"] for h in res["hits"]["hits"]}
+        if "exercise-start" not in docs or "exercise-end" not in docs:
+            die("exercise %s needs both its start and end markers" % exercise_id)
+        s, e = docs["exercise-start"], docs["exercise-end"]
+        self.stamp_window(es, exercise_id, s["lab"]["target_id"], s["lab"]["rebuild_generation"], s["@timestamp"], e["@timestamp"])
 
     def exercise_show(self, exercise_id):
         res = elastic_api.es_client().call("/%s/_search" % self.plan["ops"]["marker_stream"], {
@@ -163,14 +204,17 @@ class Ops:
         es = es or elastic_api.es_client()
         generation = self.generation_of(target)
         token = secrets.token_hex(8)
-        line = "OPALEYE_DRAIN_MARKER token=%s target_id=%s rebuild_generation=%d" % (token, target, generation)
+        # A valid Apache combined-log line: the Apache access pipeline rejects anything else (no `message`, no lab-stamp),
+        # and as a real record it is parsed and stamped like the evidence it vouches for. The token is the User-Agent.
+        line = '127.0.0.1 - - [%s] "GET /opaleye-drain?target_id=%s&rebuild_generation=%d HTTP/1.1" 200 0 "-" "%s%s"' % (
+            time.strftime("%d/%b/%Y:%H:%M:%S +0000", time.gmtime()), target, generation, DRAIN_AGENT, token)
         cmd = "printf '%%s\\n' %s | sudo -n tee -a %s >/dev/null" % (shlex.quote(line), shlex.quote(self.drain_cfg["log"]))
         if self.ssh(target, cmd) != 0:
             print("drain marker could not be written on %s (ssh failed)" % target, file=sys.stderr)
             return False
         end = time.time() + float(os.environ.get("LABOPS_DRAIN_TIMEOUT") or self.drain_cfg["timeout_s"])
         query = {"query": {"bool": {"filter": [{"term": {"lab.rebuild_generation": generation}},
-                                                {"match_phrase": {"message": "token=" + token}}]}}, "size": 1}
+                                                {"term": {"user_agent.original": DRAIN_AGENT + token}}]}}, "size": 1}
         while True:
             try:
                 if es.call("/logs-*/_search", query)["hits"]["hits"]:
@@ -262,6 +306,7 @@ def main(argv):
     start.add_argument("id"), start.add_argument("--target", required=True)
     exercise.add_parser("end")
     exercise.add_parser("show").add_argument("id")
+    exercise.add_parser("tag").add_argument("id")
     sub.add_parser("generation").add_argument("target")
     sub.add_parser("drain").add_argument("target")
     reset = sub.add_parser("reset")
@@ -281,6 +326,8 @@ def main(argv):
             ops.exercise_start(a.id, a.target)
         elif a.cmd == "exercise" and a.sub == "end":
             ops.exercise_end()
+        elif a.cmd == "exercise" and a.sub == "tag":
+            ops.exercise_tag(a.id)
         elif a.cmd == "exercise":
             ops.exercise_show(a.id)
         elif a.cmd == "generation":

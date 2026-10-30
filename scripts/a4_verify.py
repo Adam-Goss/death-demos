@@ -97,7 +97,7 @@ def main():
     for src, dst, mode, exp, act, enf, ok in rows:
         if not ok:
             fail = 1
-        print("| %s | %s | %s | %s | %s | %s |" % (src, dst, mode, exp, act, enf))
+        print("| %s | %s | %s | %s | %s | %s (%s) |" % (src, dst, mode, exp, act, enf, "OK" if ok else "FAIL"))
     for name, why in MANUAL:
         print("| %s | %s | exercise | recorded by hand | %s | - |" % (a.target, name, why))
     print("\nphase=A4 target=%s generation=%s rows=%d manual=%d %s" % (a.target, gen, len(rows), len(MANUAL), "FAIL" if fail else "PASS-WITH-SKIPS"))

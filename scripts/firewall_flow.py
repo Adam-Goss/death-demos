@@ -81,7 +81,7 @@ def index_events(es, records):
     return indexed, duplicates
 
 
-def collect():
+def collect(ensured):
     es = fleetctl.elastic()
     plan = fleetctl.load_plan()
     _, pipeline = es.call("GET", "/_ingest/pipeline/" + plan["target_stack"]["stamp_pipeline"])
@@ -89,16 +89,18 @@ def collect():
     targets = params.get("firewall_targets", {})
     if not targets:
         fleetctl.die("no firewall generation boundaries; run register-agent after target enrolment", 1)
-    es.call("PUT", "/_index_template/lab-firewall-flows", {
-        "index_patterns": ["logs-lab_firewall.flow-*"], "priority": 300, "data_stream": {},
-        "composed_of": ["logs-lab_firewall.flow@custom"],
-        "template": {"mappings": {"properties": {
-            "@timestamp": {"type": "date"},
-            "event": {"properties": {"created": {"type": "date"}, "ingested": {"type": "date"}}},
-            "source": {"properties": {"ip": {"type": "ip"}, "port": {"type": "long"}}},
-            "destination": {"properties": {"ip": {"type": "ip"}, "port": {"type": "long"}}},
-        }}},
-    })
+    if not ensured:
+        es.call("PUT", "/_index_template/lab-firewall-flows", {
+            "index_patterns": ["logs-lab_firewall.flow-*"], "priority": 300, "data_stream": {},
+            "composed_of": ["logs-lab_firewall.flow@custom"],
+            "template": {"mappings": {"properties": {
+                "@timestamp": {"type": "date"},
+                "event": {"properties": {"created": {"type": "date"}, "ingested": {"type": "date"}}},
+                "source": {"properties": {"ip": {"type": "ip"}, "port": {"type": "long"}}},
+                "destination": {"properties": {"ip": {"type": "ip"}, "port": {"type": "long"}}},
+            }}},
+        })
+        ensured.append(True)
     fw = opnsense.Client(os.environ["OPNSENSE_URL"], os.environ["OPNSENSE_API_KEY"],
                          os.environ["OPNSENSE_API_SECRET"], os.environ.get("OPNSENSE_INSECURE") == "true")
     rows = fw.call("diagnostics/firewall/log?limit=100", method="GET")
@@ -113,9 +115,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--watch-seconds", type=int, default=0)
     args = parser.parse_args()
+    ensured = []  # the index template is put once per run, not on every poll
     deadline = time.monotonic() + args.watch_seconds
     while True:
-        collect()
+        collect(ensured)
         if time.monotonic() + 5 >= deadline:
             return
         time.sleep(5)

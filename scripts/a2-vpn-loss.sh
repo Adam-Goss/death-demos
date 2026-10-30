@@ -38,9 +38,9 @@ cleanup() {
   fi
   if [ "$lowered" = 1 ]; then
     ip link set dev "$vpn_if" up || rc=1
-    # Local routes can survive link-down; restore ignores those duplicates.
-    # The caller compares the full route snapshot after restoration.
-    ip -4 route restore < "$saved" || rc=1
+    # Local routes can survive link-down, so restore may exit non-zero on those duplicates. That is not a failure:
+    # the caller compares the full route snapshot after restoration, and cleanup must run to completion.
+    ip -4 route restore < "$saved" || true
     lowered=0
   fi
   return "$rc"

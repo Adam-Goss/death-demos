@@ -5,6 +5,10 @@
   evidence-delete exercise:ID            one exercise: its window on its target, plus its markers
   add --confirm "<phrase>"                  the phrase is printed by the dry run (scope and document count); without
                                             --confirm nothing is deleted and the exit status is 2
+  all --before T --confirm "<phrase>"       `all` only touches documents up to the cutoff T, which the dry run chooses a few
+                                            minutes in the past and prints. Agents keep shipping, so without a fixed cutoff the
+                                            count in the phrase would change between the dry run and the confirmation. Newer
+                                            documents are kept; run the command again later to remove them.
 
 Drain-marker lines live in whatever stream the agent ships them to and are not deleted here.
 Not imported by, and not callable from, reset, shutdown or lab.sh. Metrics are never touched. Refused while an exercise is
@@ -16,12 +20,14 @@ import getpass
 import json
 import os
 import sys
+import datetime
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import elastic_api  # noqa: E402
 from labcommon import active_exercise, die, load_plan, state_dir  # noqa: E402
 
+SETTLE_S = 180  # longer than the ingest-lag limit, so documents at or before the cutoff have all arrived
 FLOW = "logs-lab_firewall.flow"  # firewall flow rows carry no lab.target_id: matched by the window alone (one exercise at a time)
 
 
@@ -29,6 +35,7 @@ def main(argv):
     ap = argparse.ArgumentParser(prog="evidence_delete.py")
     ap.add_argument("scope", help="all | exercise:<id>")
     ap.add_argument("--confirm", default=None)
+    ap.add_argument("--before", default=None, help="cutoff for `all` (UTC, from the dry run)")
     a = ap.parse_args(argv[1:])
     plan = load_plan()
     state = state_dir()
@@ -38,6 +45,10 @@ def main(argv):
     kind, _, ex = a.scope.partition(":")
     if kind not in ("all", "exercise") or (kind == "exercise") != bool(ex):
         die("scope is `all` or `exercise:<id>`")
+    if kind == "exercise" and a.before:
+        die("--before only applies to `all`; an exercise has its own window")
+    if kind == "all" and a.confirm is not None and not a.before:
+        die("pass the --before cutoff printed by the dry run along with --confirm")
     active = active_exercise(state)
     if active:
         die("exercise %s is active: end it first" % active["id"])
@@ -49,6 +60,11 @@ def main(argv):
     if n["exercise-start"] != n["exercise-end"]:
         die("markers show an exercise without an end (%d starts, %d ends): end it first" % (n["exercise-start"], n["exercise-end"]))
     query = window = {"match_all": {}}
+    before = None
+    if kind == "all":
+        before = a.before or (datetime.datetime.now(datetime.timezone.utc)
+                              - datetime.timedelta(seconds=SETTLE_S)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        query = window = {"range": {"@timestamp": {"lte": before}}}
     if kind == "exercise":
         res = es.call("/%s/_search" % marker, {"query": {"bool": {"filter": [{"term": {"lab.exercise_id": ex}}]}}, "size": 10})
         docs = [h["_source"] for h in res["hits"]["hits"]]
@@ -69,9 +85,11 @@ def main(argv):
     for p, n in counts.items():
         print("%8d  %s" % (n, p))
     # The phrase carries the previewed total, so a confirmation only matches what the operator was shown.
-    phrase = "DELETE EVIDENCE %s (%d documents)" % (a.scope, sum(counts.values()))
+    upto = " up to %s" % before if before else ""
+    phrase = "DELETE EVIDENCE %s%s (%d documents)" % (a.scope, upto, sum(counts.values()))
     if a.confirm is None:
-        print("nothing deleted. To delete, re-run with: --confirm \"%s\"" % phrase)
+        cutoff = " --before \"%s\"" % before if before else ""
+        print("nothing deleted. To delete, re-run with:%s --confirm \"%s\"" % (cutoff, phrase))
         return 2
     if a.confirm != phrase:
         die("confirmation must be exactly: %s" % phrase)

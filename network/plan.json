@@ -64,6 +64,7 @@
     "marker_stream": "logs-lab_marker.events-default",
     "high_watermark_pct": 90,
     "callback_port": 4444,
+    "tag_slack_s": 3,
     "drain": { "log": "/var/log/dvwa/apache2/drain.log", "timeout_s": 180, "poll_s": 5 }
   },
   "nic_order": ["home", "attacker", "elastic", "t1", "t2"],

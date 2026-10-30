@@ -2,6 +2,7 @@
 
 Run as the operator runs them (CLI), against fake Elasticsearch/Proxmox and stub ssh/lab.sh/ansible.
 """
+import datetime
 import json
 import os
 import subprocess
@@ -119,6 +120,50 @@ class ExerciseMarkers(OpsCase):
         self.assertEqual(self.ops("exercise", "end").returncode, 0)
         self.assertEqual([m["event"]["action"] for m in self.markers()], ["exercise-start", "exercise-end"])
         self.start("ex-002")
+
+    def target_event(self, ts, target="t1", generation=1):
+        doc = {"@timestamp": ts, "lab": {"target_id": target, "rebuild_generation": generation}}
+        self.es.add("logs-apache.access-default", doc)
+        return doc
+
+    def test_end_stamps_the_exercise_id_on_that_targets_events_inside_the_window_only(self):
+        before = self.target_event("2000-01-01T00:00:00.000Z")
+        self.start()
+        started = self.markers()[0]["@timestamp"]
+        inside = self.target_event(started)
+        other_target = self.target_event(started, target="t2")
+        old_generation = self.target_event(started, generation=0)
+        r = self.ops("exercise", "end")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        after = self.target_event("2999-01-01T00:00:00.000Z")
+        self.assertEqual(inside["lab"]["exercise_id"], "ex-001")
+        for untouched in (before, other_target, old_generation, after):
+            self.assertNotIn("exercise_id", untouched["lab"])
+        self.assertIn("tagged 1 events", r.stdout)
+
+    def test_tagging_allows_for_clock_skew_just_outside_the_markers(self):
+        self.start()
+        started = datetime.datetime.fromisoformat(self.markers()[0]["@timestamp"].replace("Z", "+00:00"))
+
+        def at(seconds):
+            return (started + datetime.timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        just_before, far_before = self.target_event(at(-2)), self.target_event(at(-60))
+        self.ops("exercise", "end")
+        self.assertEqual(just_before["lab"].get("exercise_id"), "ex-001")
+        self.assertNotIn("exercise_id", far_before["lab"])
+
+    def test_tag_picks_up_events_that_arrived_after_the_end(self):
+        self.start()
+        self.ops("exercise", "end")
+        late = self.target_event(self.markers()[0]["@timestamp"])
+        r = self.ops("exercise", "tag", "ex-001")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(late["lab"]["exercise_id"], "ex-001")
+
+    def test_tag_refuses_an_exercise_without_both_markers(self):
+        self.start()
+        self.assertNotEqual(self.ops("exercise", "tag", "ex-001").returncode, 0)
+        self.assertNotEqual(self.ops("exercise", "tag", "nope").returncode, 0)
 
     def test_end_without_an_active_exercise_is_refused(self):
         self.assertNotEqual(self.ops("exercise", "end").returncode, 0)

