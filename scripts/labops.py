@@ -16,7 +16,7 @@
   labops.py watermark                      high-watermark check for cron: exit 1 and ALERT at the plan limit (Basic-license fallback for the alert)
   labops.py analysis-online on|off|status [--minutes N]
                                            malware analysis zone (#52): Internet on (30 min default, auto-expires, `on` again extends) or off
-  labops.py analysis-sample start ID | end set lab.sample_id on analysis-zone events (markers + stamping, like an exercise)
+  labops.py analysis-sample start ID | end | tag ID   set lab.sample_id on analysis-zone events (markers + stamping, like an exercise)
   labops.py analysis-reset [HOST ...] [--acknowledge-loss REASON]
                                            force analysis Internet off, drain check, revert flare/remnux to the clean snapshot, fresh enrolment
   labops.py status
@@ -331,6 +331,13 @@ class Ops:
             die("sample id must match %s" % EXERCISE_ID.pattern)
         if self.state.get("sample"):
             die("sample %s is still active (one at a time): run `analysis-sample end`" % self.state["sample"]["id"])
+        try:
+            with open(self.labmode_path) as f:
+                until = json.load(f).get("analysis_online_until")
+        except FileNotFoundError:
+            until = None
+        if until is not None and time.time() < until:
+            die("analysis Internet is on: run `analysis-online off` before starting a sample (C2 and home-IP risk)")
         es = self.need_elastic()
         started = self.sample_marker(es, "sample-start", sample_id)
         self.state["sample"] = {"id": sample_id, "started": started}
@@ -345,11 +352,26 @@ class Ops:
         ended = self.sample_marker(es, "sample-end", active["id"])
         self.state["sample"] = None
         self.save("sample-end", sample_id=active["id"])
+        print("sample %s ended. Events still in transit: run `analysis-sample tag %s` again later (safe to repeat)" % (active["id"], active["id"]))
+        self.stamp_sample(es, active["id"], active["started"], ended)
+
+    def analysis_sample_tag(self, sample_id):
+        """Repeat the stamping for a finished sample (events that arrived after `end`); safe to re-run."""
+        es = self.need_elastic()
+        res = es.call("/%s/_search" % self.plan["ops"]["marker_stream"], {
+            "query": {"bool": {"filter": [{"term": {"lab.sample_id": sample_id}}]}}, "size": 10})
+        docs = {h["_source"]["event"]["action"]: h["_source"] for h in res["hits"]["hits"]}
+        if "sample-start" not in docs or "sample-end" not in docs:
+            die("sample %s needs both its start and end markers" % sample_id)
+        self.stamp_sample(es, sample_id, docs["sample-start"]["@timestamp"], docs["sample-end"]["@timestamp"])
+
+    def stamp_sample(self, es, sample_id, started, ended):
         slack = datetime.timedelta(seconds=self.plan["ops"]["tag_slack_s"])
 
         def widen(ts, sign):
             when = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")) + sign * slack
             return when.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        active = {"id": sample_id, "started": started}
         try:
             res = es.call("/logs-*,metrics-*/_update_by_query?conflicts=proceed&refresh=true&ignore_unavailable=true", {
                 "query": {"bool": {
@@ -358,9 +380,9 @@ class Ops:
                     "must_not": [{"exists": {"field": "lab.sample_id"}}, {"term": {"event.dataset": "lab_marker.events"}}]}},
                 "script": {"lang": "painless", "params": {"id": active["id"]},
                            "source": "if (ctx._source.lab == null) { ctx._source.lab = new HashMap(); } ctx._source.lab.sample_id = params.id"}})
-            print("sample %s ended: tagged %d events with lab.sample_id" % (active["id"], res.get("updated", 0)))
+            print("tagged %d events with lab.sample_id=%s" % (res.get("updated", 0), sample_id))
         except elastic_api.EsError as e:
-            print("warning: events not tagged (%s): see the analysis runbook to repeat the stamping" % e, file=sys.stderr)
+            print("warning: events not tagged (%s): re-run `analysis-sample tag %s`" % (e, sample_id), file=sys.stderr)
 
     def analysis_generation(self, host):
         return self.state.get("analysis_generation", {}).get(host, 1)
@@ -519,6 +541,7 @@ def main(argv):
     sample = sub.add_parser("analysis-sample").add_subparsers(dest="sub", required=True)
     sample.add_parser("start").add_argument("id")
     sample.add_parser("end")
+    sample.add_parser("tag").add_argument("id")
     ar = sub.add_parser("analysis-reset")
     ar.add_argument("hosts", nargs="*"), ar.add_argument("--acknowledge-loss", metavar="REASON", default=None)
     for name in ("attacker-clean", "status", "watermark"):
@@ -547,6 +570,8 @@ def main(argv):
             return ops.analysis_online(a.action, a.minutes)
         elif a.cmd == "analysis-sample" and a.sub == "start":
             ops.analysis_sample_start(a.id)
+        elif a.cmd == "analysis-sample" and a.sub == "tag":
+            ops.analysis_sample_tag(a.id)
         elif a.cmd == "analysis-sample":
             ops.analysis_sample_end()
         elif a.cmd == "analysis-reset":

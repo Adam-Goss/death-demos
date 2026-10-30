@@ -383,6 +383,11 @@ def cmd_register(args):
     for a in found:
         agents[a["id"]] = {"target_id": args.target, "rebuild_generation": gen}
     params = body["processors"][0]["script"]["params"]
+    if args.target in analysis_hosts(plan):
+        # Analysis hosts get the agent mapping only: firewall_targets is the exercise targets' flow attribution.
+        es.call("PUT", "/_ingest/pipeline/" + name, body)
+        print("registered %s as %s gen %d (analysis; no firewall flow attribution)" % (", ".join(a["id"] for a in found), args.target, gen))
+        return
     config = params.setdefault("firewall_targets", {}).setdefault(args.target, {
         "ip": plan["hosts"][args.target]["ip"], "generations": []})
     if not any(g["generation"] == gen for g in config["generations"]):

@@ -141,6 +141,13 @@ class AnalysisZone(unittest.TestCase):
             self.assertTrue(rules[blk]["enabled"] and rules[blk]["log"])
         self.assertTrue(rules[allow]["log"])
 
+    def test_telemetry_allow_precedes_the_private_blocks(self):
+        # 10.0.0.0/8 covers Elastic: the ingestion allow must stay ahead of the block or telemetry silently stops.
+        ids = [r["id"] for r in netpolicy.render_rules(PLAN, "exercise", None, False) if r["iface"] == "opt6"]
+        tele = ids.index("analysis-telemetry@opt6@flare")
+        self.assertTrue(all(tele < i for i, x in enumerate(ids) if x.startswith("analysis-block")))
+        self.assertLess(ids.index("analysis-dns@opt6@flare"), ids.index("analysis-block-fw@opt6@flare"))
+
     def test_internet_flows_are_logged(self):
         for r in netpolicy.render_rules(PLAN, "exercise", None, True):
             if r["id"].startswith("analysis-internet"):

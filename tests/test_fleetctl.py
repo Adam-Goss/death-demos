@@ -214,6 +214,16 @@ class Stamp(Base):
         self.assertEqual(agents["gen1-agent"], {"target_id": "t1", "rebuild_generation": 1})
         self.assertEqual(agents["gen2-agent"], {"target_id": "t1", "rebuild_generation": 2})
 
+    def test_registering_an_analysis_agent_stays_out_of_the_exercise_flow_registry(self):
+        self.run_cli("ensure-pipeline")
+        pid = PLAN["analysis"]["agent_policy_prefix"] + "flare"
+        self.fake.policies[pid] = {"id": pid}
+        self.fake.enrol(pid, "opaleye-flare", agent_id="fl-agent")
+        self.assertEqual(self.run_cli("register-agent", "flare", "2").returncode, 0)
+        params = self.fake.pipelines[TS["stamp_pipeline"]]["processors"][0]["script"]["params"]
+        self.assertEqual(params["agents"]["fl-agent"], {"target_id": "flare", "rebuild_generation": 2})
+        self.assertNotIn("flare", params.get("firewall_targets", {}))
+
     def test_register_agent_fails_when_nothing_enrolled(self):
         self.run_cli("ensure-pipeline")
         r = self.run_cli("register-agent", "t1", "1", "--wait", "0")

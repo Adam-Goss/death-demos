@@ -529,6 +529,34 @@ class Analysis(OpsCase):
         actions = [m["event"]["action"] for m in self.markers()]
         self.assertEqual(actions, ["sample-start", "sample-end"])
 
+    def test_tag_stamps_events_that_arrived_after_end_and_is_repeatable(self):
+        self.ops("analysis-sample", "start", "emotet-001")
+        path = os.path.join(self.state, "labops.json")
+        st = json.load(open(path))
+        st["sample"]["started"] = "2000-01-01T00:00:00.000Z"
+        json.dump(st, open(path, "w"))
+        self.ops("analysis-sample", "end")
+        self.es.add("logs-system.syslog-analysis", {"@timestamp": "2020-01-01T00:00:00.000Z", "lab": {"zone": "analysis"}})
+        # the start marker is back-dated in the store too, so tag sees the same window
+        self.markers()[0]["@timestamp"] = "2000-01-01T00:00:00.000Z"
+        for _ in range(2):
+            r = self.ops("analysis-sample", "tag", "emotet-001")
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.es.docs["logs-system.syslog-analysis"][0]["lab"]["sample_id"], "emotet-001")
+        self.assertIn("tagged 0 events", r.stdout)  # the second run finds nothing left to stamp
+
+    def test_tag_needs_both_markers(self):
+        self.assertNotEqual(self.ops("analysis-sample", "tag", "unknown-001").returncode, 0)
+
+    def test_a_sample_cannot_start_while_the_analysis_internet_is_on(self):
+        with open(os.path.join(self.state, "labmode.json"), "w") as f:
+            json.dump({"mode": "exercise", "selected": None, "expires": None, "reverify_required": False,
+                       "analysis_online_until": 32503680000}, f)  # year 3000
+        r = self.ops("analysis-sample", "start", "emotet-001")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("analysis-online off", r.stderr)
+        self.assertEqual(self.markers(), [])
+
     def test_one_sample_at_a_time_and_reset_refuses_during_one(self):
         self.ops("analysis-sample", "start", "emotet-001")
         self.assertNotEqual(self.ops("analysis-sample", "start", "other-002").returncode, 0)
