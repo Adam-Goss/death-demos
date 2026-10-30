@@ -43,7 +43,7 @@
     jar=$(mktemp)
     tok=$(curl -fsS -c "$jar" http://127.0.0.1/setup.php | sed -n "s/.*name=['\"]user_token['\"] value=['\"]\([a-f0-9]*\)['\"].*/\1/p" | head -1)
     [ -n "$tok" ] || { echo "no user_token on setup.php" >&2; exit 1; }
-    curl -fsS -b "$jar" -c "$jar" -o /tmp/dvwa-setup.html --data-urlencode "create_db=Create / Reset Database" --data-urlencode "user_token=$tok" http://127.0.0.1/setup.php
+    curl -fsSL -b "$jar" -c "$jar" -o /tmp/dvwa-setup.html --data-urlencode "create_db=Create / Reset Database" --data-urlencode "user_token=$tok" http://127.0.0.1/setup.php
     grep -q "Setup successful" /tmp/dvwa-setup.html
     rm -f "$jar" /tmp/dvwa-setup.html
     touch /var/lib/opaleye/dvwa-db.done

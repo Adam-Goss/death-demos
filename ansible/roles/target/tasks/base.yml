@@ -14,7 +14,7 @@
     name: [docker.io, docker-compose, curl, ca-certificates]
     state: present
     update_cache: true
-    cache_valid_time: 300
+    cache_valid_time: 0
 
 - name: Docker enabled
   ansible.builtin.systemd:
