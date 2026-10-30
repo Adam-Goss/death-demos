@@ -2,7 +2,7 @@
 
 Issue #25. Exit = checks A6-A10 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Design: [operator commands and target interface](../decisions/operator-commands-and-target-interface.md).
 
-**Status (2026-10-30): run from scratch. Not closed.** The whole lab was wiped and rebuilt from code with newly generated secrets, then A6-A10 were run against it. Three items need a person or more time and are listed under "Open". Nothing below used the earlier lab, its Tofu state or its secrets.
+**Status (2026-10-30): run from scratch. Not closed.** The whole lab was wiped and rebuilt from code with newly generated secrets, then A6-A10 were run against it. The remaining open items are listed under "Open" (A10's idle day was waived by Adam, see A10). Nothing below used the earlier lab, its Tofu state or its secrets.
 
 ## From-scratch rebuild
 
@@ -95,7 +95,7 @@ Evidence deletion was **not** run to completion (it is the only destructive path
 
 ## A10 Measurement
 
-`scripts/a10_measure.py snapshot LABEL` / `report A B [HOURS]` (tested in `tests/test_a10_measure.py`). **Recorded, non-blocking.** Window: a **10-minute idle sample scaled to an hour, not a full idle day**, plus three Exercise 1 runs (`ex-101..103`, t1 generation 3). Store-size deltas go negative when Lucene merges segments, so size is estimated as new documents x average bytes per document; raw deltas are in `.state/a10/`.
+`scripts/a10_measure.py snapshot LABEL` / `report A B [HOURS]` (tested in `tests/test_a10_measure.py`). **Recorded, non-blocking. Accepted by Adam on 2026-10-30 on the shorter run: no 24-hour idle day will be run.** Window: a **10-minute idle sample scaled to an hour, not a full idle day**, plus three Exercise 1 runs (`ex-101..103`, t1 generation 3). Store-size deltas go negative when Lucene merges segments, so size is estimated as new documents x average bytes per document; raw deltas are in `.state/a10/`.
 
 Average bytes per document and exercise cost (three runs agree within about 10%):
 
@@ -122,7 +122,7 @@ Component CPU/RAM (point sample; CPU is the lifetime average of the process):
 | Elastic Agent supervisor / otel collector | ~72 / ~350 | ~0.2 / ~0.3 |
 | Defend (`elastic-endpoint`) on t1 | ~100 | ~1.3 |
 
-Placeholders to replace in #9 from these numbers: ~0.6 GB/day idle plus ~2 MB per Exercise 1 run against a 100 GB data disk means retention is dominated by idle host telemetry, not exercises. Revisit after the real idle day.
+Placeholders to replace in #9 from these numbers: ~0.6 GB/day idle plus ~2 MB per Exercise 1 run against a 100 GB data disk means retention is dominated by idle host telemetry, not exercises. The idle rate is a 10-minute extrapolation, so treat the daily figure as an estimate and revisit retention if real usage disagrees.
 
 ## Findings from this run (fixed in code unless noted)
 
@@ -136,5 +136,4 @@ Placeholders to replace in #9 from these numbers: ~0.6 GB/day idle plus ~2 MB pe
 
 - **A6 Kibana hunt** in both directions on `ex-002` (or a new exercise): a person must do it in Kibana and sign off.
 - **A2 VPN path loss** (`a2-vpn-loss.sh`, needs root) was not re-run on the rebuilt firewall; every other A2 phase was (lab, maintenance, fail-closed, `vpn`, `home`).
-- **A10 idle day**: only a 10-minute idle window was measured.
 - Final lab state: firewall and Elastic running; attacker and t1 torn down (A9). `labmode.py` is in `exercise` mode with no selected target. Rebuild with `lab.sh apply all` and the target and attacker playbooks above.
