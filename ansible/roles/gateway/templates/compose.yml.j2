@@ -36,7 +36,7 @@ services:
       - POSTGRESQL_HOSTNAME=postgres
       - POSTGRESQL_DATABASE=guacamole
       - POSTGRESQL_USER=guacamole
-      - EXTENSIONS=auth-totp
+      - TOTP_ENABLED=true
       - TOTP_ISSUER=Opaleye lab
       - WEBAPP_CONTEXT=ROOT
     depends_on: [postgres, guacd]

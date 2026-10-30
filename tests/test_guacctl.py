@@ -103,7 +103,7 @@ class PlanWiring(unittest.TestCase):
     def test_compose_publishes_only_the_proxy_and_enables_totp(self):
         y = read("ansible/roles/gateway/templates/compose.yml.j2")
         self.assertEqual(y.count("ports:"), 1)
-        self.assertIn("EXTENSIONS=auth-totp", y)
+        self.assertIn("TOTP_ENABLED=true", y)
         self.assertNotIn("guacadmin", y)
 
     def test_no_secret_literals_in_the_role(self):

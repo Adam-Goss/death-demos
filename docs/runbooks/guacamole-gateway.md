@@ -2,7 +2,7 @@
 
 Issue #51. Part of #2; not part of M6. Foundation for the malware-analysis zone (follow-up issue).
 
-**Status: code and offline checks only. Nothing here has run against the live firewall, Proxmox or the gateway.** Every Ansible, Tofu, Proxmox and Guacamole step is unverified against the real systems, and the "Done when" items below are open until a live run fills in the evidence table.
+**Status: deployed and verified live on 2026-10-30, except the browser steps.** TOTP enrolment and the browser RDP and SSH sessions are the operator's to do; everything else below ran against the real firewall, Proxmox and gateway.
 
 ## Design
 
@@ -29,7 +29,7 @@ The firewall VM and Elastic are not brokered; they keep their direct VPN routes.
 
 **Telemetry impact of the desktop:** none expected. The attacker is the adversary and is deliberately not enrolled in Fleet (only targets ingest, `p16`/`p17`/`p51`), so the desktop adds no events to the evidence store. It adds RAM and disk use on the attacker only; targets get no desktop, so DVWA's telemetry is unchanged. The one new target-side event source is the operator's SSH login from the gateway, in the target's auditd/auth streams. Confirm live (see evidence).
 
-## Provision (live, not yet done)
+## Provision
 
 Secrets stay in the operator environment: `GUAC_ADMIN_PASSWORD` (16+ chars), `ATTACKER_RDP_PASSWORD`.
 
@@ -63,16 +63,26 @@ Add the host to `connections()` in `scripts/guacctl.py` (and a firewall flow and
 - **Target rebuilt:** its host key changes; Guacamole does not pin SSH host keys here, so nothing to clear.
 - **Rotating the RDP password:** change `ATTACKER_RDP_PASSWORD`, re-run the attacker playbook and `guacctl.py connections`.
 
-## Done-when evidence (to fill from a live run)
+## Done-when evidence (live run 2026-10-30)
 
 | Done when | Evidence | Result |
 | --- | --- | --- |
-| Reachable only through the VPN, not from the home LAN | A2 `p53` allow, `p55` deny (home phase) | pending live run |
-| TOTP required, default password gone | `guacctl.py check` | pending live run |
-| RDP to the attacker desktop from the browser | manual | pending live run |
-| SSH terminal to each target from the browser | manual (t1; t2 has no VM) | pending live run |
-| A2 covers the new flows, both modes | `p53`-`p71` in exercise and maintenance | pending live run |
-| `netpolicy.py lint` and `tests/static-checks.sh` | offline | lint passes; static checks pass except the Windows-only baseline failures (see PR) |
+| Reachable only through the VPN, not from the home LAN | A2 `p53` (operator to gateway:443) allow in both modes; `https://10.77.2.10/` answers 200 through the proxy. The home phase (`p55`, `p72`) was **not** run (needs host routes from the home segment) | VPN side passed; home-LAN denies not probed live |
+| TOTP required, default password gone | `scripts/guacctl.py check`: "default password gone, TOTP demanded". The check caught that `EXTENSIONS=auth-totp` loaded nothing; `TOTP_ENABLED=true` fixed it | passed; enrolment happens at the operator's first login |
+| RDP to the attacker desktop from the browser | gateway to attacker:3389 allowed (`p59`), xrdp listening; the `attacker` connection exists. Browser session not driven | port path passed; browser session pending |
+| SSH terminal to each target from the browser | the gateway key logs in to t1 as `opaleye`; the `t1` connection exists. t2 has no VM | t1 path passed; browser session pending |
+| A2 covers the new flows, both modes | `scripts/a2-verify.sh` lab phase: exercise none, exercise t1 and maintenance, 55 rows each, 0 skipped, **PASS** (gateway rows `p53`-`p71` included; t2 probed with a throwaway probe guest, since removed) | passed |
+| `netpolicy.py lint` and `tests/static-checks.sh` | lint passes; the suite has the same 32 Windows-only failures as before this change | passed |
+
+The VPN phase reports FAIL on two older rows only (`proxmox:8006`, `internet:443`): they cannot be sourced from WSL, which has a direct LAN route. Every gateway and operator row in that phase passes.
+
+## Live-run notes
+
+- The firewall VM needs a **sixth NIC**: rebuild template 2101 from the new seed (`opnsense_seed.py iso`), then `tofu apply -replace` the firewall. On the node, grant the new bridge to every stack token that needs it: `pveum acl modify /sdn/zones/localnetwork/vmbr2002 --tokens '<user>!deploy' --roles OpaleyeNet`. Privilege-separated tokens need their own ACL, and in an interactive shell run `set +H` first or `!deploy` is history-expanded.
+- ICMP to the firewall is blocked by design, so ping is not a VPN health check: test TCP 443 on `10.77.9.1`.
+- Run Ansible and the scripts from a WSL-native checkout: CRLF line endings on a Windows checkout break shell tasks.
+- `labmode.py exercise <target>` refuses to leave maintenance until denies are re-verified: `labmode.py exercise none`, then `REVERIFY=1 scripts/a2-verify.sh exercise none lab`, then `labmode.py select t1`.
+- `labops.py startup` and `shutdown` now include the gateway, so they report an error for it until the gateway stack is applied.
 
 ## Known gaps
 
