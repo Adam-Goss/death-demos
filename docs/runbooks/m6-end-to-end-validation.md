@@ -20,6 +20,23 @@ Prerequisite checks on the new lab: A3 services **27/27 PASS** (after the failur
 
 Probe guests share the real VMs' addresses, so every full re-verification (the flag only clears on an unfiltered, unskipped `exercise/lab` run) was done by gracefully powering off the real attacker, t1 and Elastic, creating probes, verifying, destroying the probes and starting the real VMs again.
 
+## A2 `vpn` and `home` phases on the rebuilt firewall
+
+Run after the A9 teardown, on the freshly rebuilt firewall (exercise mode, t1 selected). Probe guests in attacker, t1 and t2 (the real Elastic VM owns its address). `vpn`: Windows tunnel `AllowedIPs` temporarily `10.77.0.0/16, 192.168.0.161/32, 1.1.1.1/32`, restored afterwards. `home`: aliases `192.168.0.50`, `203.0.113.55` and host routes to the lab addresses via the firewall WAN `192.168.0.82`, removed afterwards. Probes destroyed afterwards.
+
+| source | destination/port | mode | expected | actual | enforcement point |
+| --- | --- | --- | --- | --- | --- |
+| operator | attacker:22, elastic:22, elastic:5601, t1:22, fw:443 | exercise | allow | allow (5 rows) | firewall:opt4 |
+| operator | t1:80, proxmox:8006, internet:443, elastic:9200, elastic:8220 | exercise | deny, logged | deny, deny logged: yes (5 rows) | firewall:opt4 |
+| operator | fw:0 (ICMP) | exercise | deny | deny | firewall:opt4 |
+| workstation | fw:51820 | exercise | allow | allow | firewall:wan |
+| workstation | fw:443, t1:80, attacker:22, elastic:5601 | exercise | deny, logged | deny, deny logged: yes (4 rows) | firewall:wan |
+| home_other | fw:51820 | exercise | deny, logged | deny, deny logged: yes | firewall:wan |
+| public | t1:80 | exercise | deny, logged | deny, deny logged: yes | firewall:wan |
+| workstation | fw:0 (ICMP) | exercise | deny | deny | firewall:wan |
+
+`phase=vpn` 11 rows, 0 skipped, **PASS**; `phase=home` 8 rows, 0 skipped, **PASS**. Not re-run: `a2-vpn-loss.sh` (VPN path loss, needs root route changes), recorded in the M2 runbook.
+
 ## A6 Manual hunt exercise
 
 Exercise `ex-002` on t1, generation 1 (attacker script `exercise1`, DVWA `low`). Read from Elasticsearch through the API.
@@ -118,6 +135,6 @@ Placeholders to replace in #9 from these numbers: ~0.6 GB/day idle plus ~2 MB pe
 ## Open (needs you or more time)
 
 - **A6 Kibana hunt** in both directions on `ex-002` (or a new exercise): a person must do it in Kibana and sign off.
-- **A2 `vpn` and `home` phases** were not re-run on the rebuilt firewall (they need workstation route and address changes with sudo). The lab, maintenance and fail-closed phases were.
+- **A2 VPN path loss** (`a2-vpn-loss.sh`, needs root) was not re-run on the rebuilt firewall; every other A2 phase was (lab, maintenance, fail-closed, `vpn`, `home`).
 - **A10 idle day**: only a 10-minute idle window was measured.
 - Final lab state: firewall and Elastic running; attacker and t1 torn down (A9). `labmode.py` is in `exercise` mode with no selected target. Rebuild with `lab.sh apply all` and the target and attacker playbooks above.
