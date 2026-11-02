@@ -3,15 +3,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
+CRONTAB=${CRONTAB:-crontab}  # override for tests
 TAG="# opaleye-firewall-flow"
-current=$(crontab -l 2>/dev/null | grep -vF "$TAG" || true)
+current=$($CRONTAB -l 2>/dev/null | grep -vF "$TAG" || true)
 if [ "${1:-}" = --remove ]; then
-  printf '%s\n' "$current" | crontab -
+  printf '%s\n' "$current" | $CRONTAB -
   echo "firewall flow timer removed"
   exit 0
 fi
 [ -f secrets/env.sh ] || { echo "missing secrets/env.sh" >&2; exit 1; }
 mkdir -p .state
 LINE="* * * * * set -a; . '$ROOT/secrets/env.sh'; set +a; cd '$ROOT' && flock -n .state/firewall-flow.lock python3 scripts/firewall_flow.py --watch-seconds 55 >> .state/firewall-flow.log 2>&1 $TAG"
-printf '%s\n%s\n' "$current" "$LINE" | sed '/^$/d' | crontab -
+printf '%s\n%s\n' "$current" "$LINE" | sed '/^$/d' | $CRONTAB -
 echo "firewall flow timer installed; keep WSL, cron, VPN and the Elastic SSH tunnel running"

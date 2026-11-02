@@ -418,6 +418,62 @@ class AttackerClean(OpsCase):
         self.assertIn("/srv/exercise", call[-1])
 
 
+class Doctor(OpsCase):
+    """`labops.py doctor`: the workstation side of the lab (timers, tunnel, firewall log shipping) fails loudly."""
+
+    def setUp(self):
+        super().setUp()
+        self.env["LABOPS_OPS_TIMERS"] = "%s %s" % (pathlib.Path(sys.executable).as_posix(), pathlib.Path(HERE, "stub_timers.py").as_posix())
+
+    def flow_event(self, minutes_ago=1):
+        when = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=minutes_ago)
+        self.es.add("logs-lab_firewall.flow-default", {"@timestamp": when.strftime("%Y-%m-%dT%H:%M:%S.000Z")})
+
+    def test_healthy_when_timers_are_installed_and_flow_events_are_arriving(self):
+        self.flow_event()
+        r = self.ops("doctor")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("doctor: ok", r.stdout)
+        self.assertIn("flow events in the last 15 minutes: 1", r.stdout)
+
+    def test_a_running_firewall_with_no_recent_flow_events_is_a_problem(self):
+        self.flow_event(minutes_ago=120)
+        r = self.ops("doctor")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no flow event arrived in 15 minutes", r.stderr)
+
+    def test_a_stopped_firewall_is_not_expected_to_log(self):
+        self.pve.vms[FW] = "stopped"
+        r = self.ops("doctor")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("firewall is off", r.stdout)
+
+    def test_unhealthy_timers_are_a_problem_with_the_fix(self):
+        self.flow_event()
+        r = self.ops("doctor", STUB_TIMERS="bad")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("scripts/ops-timers.sh install", r.stderr)
+        self.assertIn("STALE opaleye-firewall-flow", r.stdout)
+
+    def test_an_elastic_outage_is_a_problem(self):
+        self.es.down = True
+        r = self.ops("doctor")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Elastic is not reachable", r.stderr)
+
+    def test_without_a_firewall_token_freshness_is_skipped_not_failed(self):
+        env = dict(self.env)
+        env.pop("PROXMOX_VE_API_TOKEN_FIREWALL")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "labops.py"), "doctor"], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("not checked", r.stdout)
+
+    def test_startup_warns_when_the_timers_are_unhealthy_and_still_succeeds(self):
+        r = self.ops("startup", STUB_TIMERS="bad")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("scripts/ops-timers.sh install", r.stderr)
+
+
 class Analysis(OpsCase):
     """#52: analysis zone commands. labmode.py / fleetctl.py are stubbed; ssh, Proxmox and Elasticsearch are fakes."""
 

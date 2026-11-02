@@ -106,6 +106,7 @@
     "high_watermark_pct": 90,
     "callback_port": 4444,
     "tag_slack_s": 3,
+    "flow_stale_minutes": 15,
     "drain": { "log": "/var/log/dvwa/apache2/drain.log", "timeout_s": 180, "poll_s": 5 }
   },
   "nic_order": ["home", "attacker", "elastic", "t1", "t2", "gateway", "analysis"],

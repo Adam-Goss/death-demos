@@ -46,3 +46,9 @@ for s in $stacks; do
       destroy) tofu destroy -input=false -auto-approve ;;
     esac )
 done
+
+# The workstation timers (labmode tick, firewall flow shipper, Elastic tunnel) belong to a deployed lab: (re)install them
+# for this checkout. A failure here never fails the deployment.
+if [ "$cmd" = apply ] && [ "$target" = all ]; then
+  bash scripts/ops-timers.sh install || echo "warning: ops timers not installed: run scripts/ops-timers.sh install" >&2
+fi

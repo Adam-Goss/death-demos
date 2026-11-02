@@ -102,4 +102,8 @@ check "analysis plan, labmode toggle, reset, fleet policy and connection tests p
 check "no secrets in the analysis role, runbook or ops commands" bash -c "! grep -REn 'PASSWORD *[=:] *[A-Za-z0-9]{12,}' ansible/roles/analysis_remnux docs/runbooks/malware-analysis.md scripts/labops.py"
 check "analysis playbook passes syntax-check (if ansible is installed)" bash -c "! command -v ansible-playbook >/dev/null || (cd ansible && ansible-playbook playbooks/analysis.yml --syntax-check)"
 
+# Workstation timers (ops-timers.sh): one install/status/remove for tick, flow shipper and tunnel.
+check "ops timer scripts are valid shell" bash -n scripts/ops-timers.sh scripts/install-tunnel-timer.sh scripts/tunnel-keepalive.sh scripts/install-tick-timer.sh scripts/install-flow-timer.sh scripts/elastic-tunnel.sh
+check "ops timers install, status and stale detection" python3 -m unittest tests.test_ops_timers
+
 exit $fail
