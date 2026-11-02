@@ -506,6 +506,18 @@ class Analysis(OpsCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.pve.rollbacks, [])
 
+    def test_enrolment_retries_while_sshd_comes_up_after_the_revert(self):
+        r = self.ops("analysis-reset", "remnux", STUB_REFUSE="2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.lines("stdin|")), 3)  # the token is sent again on each attempt
+        attempts = [c for c in self.stub_calls() if c.startswith("[") and "--enrollment-token" in c]
+        self.assertEqual(len(attempts), 3)
+
+    def test_enrolment_gives_up_when_ssh_never_answers(self):
+        r = self.ops("analysis-reset", "remnux", STUB_REFUSE="999", LABOPS_SSH_WAIT="1")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("enrolment failed", r.stderr)
+
     def test_a_token_failure_is_reported_after_the_revert(self):
         r = self.ops("analysis-reset", "remnux", STUB_FAIL="token")
         self.assertEqual(r.returncode, 1)

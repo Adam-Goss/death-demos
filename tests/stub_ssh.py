@@ -25,4 +25,10 @@ if "drain.log" in cmd and m and not os.environ.get("STUB_DROP"):
 if "--enrollment-token" in cmd:  # the token arrives on stdin, never in the argument list
     with open(os.environ["STUB_LOG"], "a") as f:
         f.write("stdin|" + sys.stdin.read().strip() + "\n")
+if os.environ.get("STUB_REFUSE") and "--enrollment-token" in cmd:  # sshd not up yet: the first N enrolment attempts are refused (exit 255)
+    counter = os.environ["STUB_LOG"] + ".refused"
+    n = int(open(counter).read()) if os.path.exists(counter) else 0
+    if n < int(os.environ["STUB_REFUSE"]):
+        open(counter, "w").write(str(n + 1))
+        sys.exit(255)
 sys.exit(int(os.environ.get("STUB_RC") or 0))

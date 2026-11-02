@@ -28,6 +28,7 @@ Shutdown leaves Elastic running unless --include-elastic is given, and then only
 Env: LABMODE_STATE_DIR (default .state, shared with labmode.py), LAB_PLAN, the ELASTIC_* variables of
      scripts/elastic_api.py, PROXMOX_VE_ENDPOINT, PVE_NODE, PROXMOX_VE_INSECURE, PROXMOX_VE_API_TOKEN_<STACK>
      (shutdown/startup), LABOPS_SSH / LABOPS_TARGET_SH (command overrides, used by tests),
+     LABOPS_SSH_WAIT (seconds to retry the post-revert enrolment while sshd comes up, default 240),
      LABOPS_LABMODE / LABOPS_FLEETCTL (command overrides, used by tests), PROXMOX_VE_API_TOKEN_ANALYSIS (analysis-reset: the token
      with snapshot rights on the analysis pool only),
      LABOPS_POLL (seconds, default plan ops.drain.poll_s), LABOPS_DRAIN_TIMEOUT, LABOPS_SHUTDOWN_WAIT.
@@ -480,7 +481,14 @@ class Ops:
         else:
             cmd = ('sudo -n elastic-agent enroll --force --non-interactive --url=%s '
                    '--certificate-authorities=/etc/lab-ca/ca.crt --enrollment-token="$(cat)"' % url)
-        if self.ssh(host, cmd, stdin=token + "\n") != 0:  # the token travels on stdin, never in an argument list
+        # A reverted VM is `running` before its sshd answers: ssh exit 255 (connection refused/timed out) is retried.
+        end = time.time() + float(os.environ.get("LABOPS_SSH_WAIT") or 240)
+        while True:
+            rc = self.ssh(host, cmd, stdin=token + "\n")  # the token travels on stdin, never in an argument list
+            if rc != 255 or time.time() >= end:
+                break
+            time.sleep(max(self.poll, 2))
+        if rc != 0:
             return 1
         return subprocess.run(fleetctl + ["register-agent", host, str(generation)], cwd=ROOT).returncode
 
