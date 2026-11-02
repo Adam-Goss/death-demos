@@ -114,10 +114,15 @@ def package_dir():
     return pathlib.Path(os.environ.get("FLEET_PACKAGE_DIR") or ROOT / "secrets/elastic/packages")
 
 
+def all_integrations(plan):
+    """Integration zips Kibana needs: the targets' (policy loop) and the analysis zone's extras (#52, e.g. windows)."""
+    return {**plan["target_stack"]["integrations"], **plan.get("analysis", {}).get("integrations", {})}
+
+
 def cmd_fetch(_args):
     d = package_dir()
     d.mkdir(parents=True, exist_ok=True)
-    for name, p in load_plan()["target_stack"]["integrations"].items():
+    for name, p in all_integrations(load_plan()).items():
         f = d / p["file"]
         if not f.exists():
             urllib.request.urlretrieve(p["url"], f)  # pinned https URL from plan.json; checked below
@@ -128,7 +133,7 @@ def cmd_fetch(_args):
 
 
 def cmd_upload(_args):
-    integrations = load_plan()["target_stack"]["integrations"]
+    integrations = all_integrations(load_plan())
     d = package_dir()
     for name, p in integrations.items():  # verify everything before sending anything
         f = d / p["file"]

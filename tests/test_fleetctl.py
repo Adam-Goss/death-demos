@@ -30,7 +30,7 @@ class Base(unittest.TestCase):
         return subprocess.run([sys.executable, str(ROOT / "scripts/fleetctl.py"), *args], env=env, capture_output=True, text=True)
 
     def stage_packages(self, only=None):
-        for name, p in TS["integrations"].items():
+        for name, p in fleetctl.all_integrations(PLAN).items():
             if only is None or name in only:
                 pathlib.Path(self.pkgs, p["file"]).write_bytes(package_zip(name, p["version"]))
 
@@ -38,7 +38,7 @@ class Base(unittest.TestCase):
         """The staged zips are fakes, so their sha256 cannot match the plan: tests use a plan copy with their hashes."""
         import hashlib
         plan = json.loads(json.dumps(PLAN))
-        for name, p in plan["target_stack"]["integrations"].items():
+        for name, p in fleetctl.all_integrations(plan).items():
             p["sha256"] = hashlib.sha256(package_zip(name, p["version"])).hexdigest()
         f = pathlib.Path(tempfile.mkdtemp(), "plan.json")
         f.write_text(json.dumps(plan))
@@ -53,7 +53,7 @@ class Packages(Base):
         r = self.run_cli("upload-packages", FLEET_PLAN=plan)
         self.assertEqual(r.returncode, 0, r.stderr)
         posts = [c for c in self.fake.names() if c == "POST /api/fleet/epm/packages"]
-        self.assertEqual(len(posts), 4)  # auditd, Apache, System and Filestream; Docker and Endpoint already installed
+        self.assertEqual(len(posts), 5)  # auditd, Apache, System, Filestream and the analysis zone's Windows; Docker and Endpoint already installed
         self.assertEqual(self.fake.installed["apache"], TS["integrations"]["apache"]["version"])
 
     def test_refuses_a_zip_that_does_not_match_the_pinned_sha256(self):

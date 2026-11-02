@@ -85,6 +85,10 @@
     "online": { "default_minutes": 30, "max_minutes": 120 },
     "private_ranges": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "127.0.0.0/8", "224.0.0.0/3"],
     "namespace": "analysis",
+    "integrations": {
+      "windows": {"version": "3.12.1", "file": "windows-3.12.1.zip", "url": "https://epr.elastic.co/epr/windows/windows-3.12.1.zip", "sha256": "a385258dd4e17b1bdb66e2a74ba1a89e90288b86d33bd232a42b4a6c19e86ebd"}
+    },
+    "agent_windows": {"file": "elastic-agent-9.5.5-windows-x86_64.zip", "url": "https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-9.5.5-windows-x86_64.zip", "sha512": "5e8512336046c3f516e2455ff436c15265666269c26af0d2b3c8211fbd29cfa817c5cadc2145df5a28846bbabbcc80dd95465d60dde6d90d7d68f10df491ea49"},
     "ingest_key": "lab-analysis-ingest",
     "agent_policy_prefix": "lab-analysis-",
     "drain": { "log_linux": "/var/log/opaleye/drain.log", "log_windows": "C:/ProgramData/opaleye/drain.log" },
