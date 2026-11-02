@@ -455,17 +455,21 @@ class Ops:
         return 0
 
     def start_after_rollback(self, client, vmid, wait):
-        """The rollback task may still hold the VM lock when the API has already returned: retry the start until it takes."""
+        """The rollback task may still hold the VM lock when the API has already returned. A start then 'succeeds' as a
+        request and fails as a task (VM is locked), so a request that does not produce a running VM is repeated."""
         end = time.time() + wait
         while True:
             try:
-                if client.status(vmid) != "running":
-                    client.start(vmid)
-                return client.wait(vmid, "running", max(end - time.time(), 0), min(self.poll, 2))
+                if client.status(vmid) == "running":
+                    return True
+                client.start(vmid)
+                if client.wait(vmid, "running", min(max(self.poll * 4, 1), max(end - time.time(), 0)), min(self.poll, 2)):
+                    return True
             except pve.PveError:
-                if time.time() >= end:
-                    return False
-                time.sleep(self.poll)
+                pass
+            if time.time() >= end:
+                return False
+            time.sleep(self.poll)
 
     def enrol(self, host, generation, fleetctl):
         """Fresh token (retires the old agent), enrol the snapshot's unenrolled agent over SSH, register for lab fields."""

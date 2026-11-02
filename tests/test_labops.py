@@ -506,6 +506,14 @@ class Analysis(OpsCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.pve.rollbacks, [])
 
+    def test_a_start_that_fails_as_a_task_while_the_rollback_holds_the_lock_is_repeated(self):
+        self.pve.start_ignored = 2
+        r = self.ops("analysis-reset", "remnux", LABOPS_SHUTDOWN_WAIT="10")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.pve.vms[self.vm["remnux"]], "running")
+        starts = [p for m, p in self.pve.paths() if p.endswith("/status/start") and "/%d/" % self.vm["remnux"] in p]
+        self.assertEqual(len(starts), 3)
+
     def test_enrolment_retries_while_sshd_comes_up_after_the_revert(self):
         r = self.ops("analysis-reset", "remnux", STUB_REFUSE="2")
         self.assertEqual(r.returncode, 0, r.stderr)
