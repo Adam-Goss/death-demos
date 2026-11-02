@@ -476,10 +476,10 @@ class Ops:
             return 1
         url = "https://%s:8220" % self.plan["hosts"]["elastic"]["ip"]
         if self.plan["analysis"]["hosts"][host]["os"] == "windows":
-            cmd = ('powershell -NoProfile -Command "& \'C:\\Program Files\\Elastic\\Agent\\elastic-agent.exe\' enroll --force --non-interactive '
+            cmd = ('powershell -NoProfile -Command "& \'C:\\Program Files\\Elastic\\Agent\\elastic-agent.exe\' enroll --force '
                    '--url=%s --certificate-authorities=C:\\ProgramData\\opaleye\\ca.crt --enrollment-token ([Console]::In.ReadLine())"' % url)
         else:
-            cmd = ('sudo -n elastic-agent enroll --force --non-interactive --url=%s '
+            cmd = ('sudo -n elastic-agent enroll --force --url=%s '
                    '--certificate-authorities=/etc/lab-ca/ca.crt --enrollment-token="$(cat)"' % url)
         # A reverted VM is `running` before its sshd answers: ssh exit 255 (connection refused/timed out) is retried.
         end = time.time() + float(os.environ.get("LABOPS_SSH_WAIT") or 240)
