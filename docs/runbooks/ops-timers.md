@@ -21,6 +21,14 @@ python3 scripts/labops.py doctor # timers + Elastic reachable + firewall flow ev
 
 Needs: the cron service (WSL: `sudo service cron start`), `secrets/env.sh` (the tick and flow jobs read it; `unset ELASTIC_PASSWORD` in it so `fleetctl.py` uses `secrets/elastic/elastic.password`), the VPN, and an SSH key for the Elastic VM without a passphrase (the tunnel runs unattended with `BatchMode`).
 
+## Setup by skill
+
+`/lab-workstation-setup` (`.claude/skills/lab-workstation-setup/SKILL.md`) does the whole setup in the live checkout and proves it: finds the checkout, brings its scripts current, refreshes `secrets/env.sh`, checks cron, the VPN and the tunnel key, installs the timers and confirms with `labops.py doctor`. Run it after a deployment, after the live checkout moves, or when `doctor` reports a problem. It is user-invoked only: it edits the crontab, and the agent prints the command for you to run when that edit is refused.
+
+## Known issue: silent stale timers
+
+Hand-installed timers name the checkout they were installed from. When that checkout is removed or renamed, cron fails silently every minute: firewall flow logs stop reaching Elastic and the analysis Internet window and maintenance mode never expire. Detect it with `scripts/ops-timers.sh status` (`STALE`) or `labops.py doctor`; fix it by running `scripts/ops-timers.sh install` from the live checkout.
+
 ## What happened without this
 
 The three lines were installed by hand and named a checkout that was later removed, so cron failed silently every minute: no firewall events reached Elastic after 2026-10-30, and the analysis Internet window would not have closed itself. `ops-timers.sh status` reports exactly that as `STALE`.

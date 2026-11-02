@@ -109,6 +109,21 @@ class Hooks(unittest.TestCase):
         self.assertIn('[ "$cmd" = apply ] && [ "$target" = all ]', text)
         self.assertIn("ops-timers.sh install ||", text)
 
+    def test_the_setup_skill_is_user_invoked_and_names_only_files_that_exist(self):
+        import re
+        text = (ROOT / ".claude" / "skills" / "lab-workstation-setup" / "SKILL.md").read_text(encoding="utf-8")
+        head = text.split("---")[1]
+        self.assertIn("name: lab-workstation-setup", head)
+        self.assertIn("disable-model-invocation: true", head)  # it edits the crontab: only the operator starts it
+        for path in set(re.findall(r"(?:scripts|docs)/[\w./-]+\.(?:sh|py|md)", text)):
+            self.assertTrue((ROOT / path).exists(), path)
+
+    def test_the_runbooks_describe_the_known_issue_and_the_skill(self):
+        ops = (ROOT / "docs" / "runbooks" / "ops-timers.md").read_text(encoding="utf-8")
+        self.assertIn("/lab-workstation-setup", ops)
+        self.assertIn("Known issue", ops)
+        self.assertIn("ops-timers.md", (ROOT / "docs" / "runbooks" / "malware-analysis.md").read_text(encoding="utf-8"))
+
     def test_the_tunnel_script_runs_unattended(self):
         text = (ROOT / "scripts" / "elastic-tunnel.sh").read_text()
         for opt in ("BatchMode=yes", "ServerAliveInterval=30", "ExitOnForwardFailure=yes"):
