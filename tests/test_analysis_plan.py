@@ -100,6 +100,12 @@ class Scoping(unittest.TestCase):
         self.assertNotIn("--enrollment-token", tasks)
         self.assertNotIn("--url", tasks)
 
+    def test_remnux_trusts_the_gateway_key_only_from_the_gateway_address(self):
+        tasks = read("ansible/roles/analysis_remnux/tasks/main.yml")
+        self.assertIn("ansible.posix.authorized_key", tasks)
+        self.assertIn("from=", tasks)
+        self.assertIn("gateway_key", tasks)  # tag: applied alone, no Internet window needed
+
     def test_no_secrets_in_the_analysis_role_or_runbook(self):
         for rel in ("ansible/roles/analysis_remnux/tasks/main.yml", "docs/runbooks/malware-analysis.md", "scripts/labops.py"):
             self.assertNotRegex(read(rel), r"(?i)password\s*[=:]\s*['\"]?[A-Za-z0-9]{12,}")
