@@ -127,6 +127,24 @@ labmode: exercise-mode denies re-verified
 
 `labmode.py select t1` applied, both probe guests destroyed (`0 added, 0 changed, 2 destroyed`), FLARE powered back on, analysis Internet `off`, `doctor: ok` with 1,154 firewall flow events. **No `labmode.py reverified` bypass was used.** This is the first full-matrix A2 pass that includes the analysis zone — the existing evidence in the [malware-analysis runbook](malware-analysis.md) is per-vantage — and it corrects the earlier conclusion recorded here: `REVERIFY=1` is not unachievable, it simply cannot be satisfied by the stock invocation. The recipe is four things, now in `/lab-teardown` step 0: probe guests for every zone with no running **Linux** VM (so `flare` as well as `t2`, because Windows cannot run the POSIX probes), the gateway as the vantage for every zone the operator may not enter, `ssh-keygen -R` on each probe address, and the gateway, Elastic, attacker and `t1` up for their own rows. Issue #64 remains the repo-side fix: `a2-verify.sh` takes one global `PROBE_SSH`, so the per-source routing needs a wrapper until it honours a vantage per source — and the probe path should clear host keys the way `target.sh` already does after a rebuild.
 
-**Coverage after this session.** `/lab-status`, `/lab-troubleshoot`, `/lab-exercise-run`, `/lab-maintenance` and `/lab-teardown` (shutdown excepted) have been run live end to end, `/lab-deploy` live for `plan`, `init` and the probe-guest applies, and `/lab-malware-analysis` for everything except `analysis-reset`. `/lab-workstation-setup` was verified under #61.
+**`labops.py analysis-reset`, run live (the last unexercised step).** Exit 0 in about two minutes for both hosts: Internet forced off first (already off), drain markers from REMnux and FLARE confirmed in Elasticsearch, both VMs reverted to `clean`, powered on, re-enrolled with a fresh token and registered — **REMnux generation 7 → 8** (agent `8fd0802f…`) and **FLARE 3 → 4** (agent `1f9356f9…`), each reported as `analysis; no firewall flow attribution`. No `--acknowledge-loss` was needed, since both agents were already enrolled. Two details for whoever reads the output next:
 
-**Still to do, live:** `labops.py analysis-reset` (needs the gateway and Elastic up, which they are, and no `--acknowledge-loss` since both agents are enrolled), and `labops.py shutdown`, which is only sensible at the end of a session. Note anything a skill gets wrong about the live commands as a correction to the skill, not as a local workaround.
+- `channel 0: open failed: connect failed: Connection refused` / `stdio forwarding failed` appears before each successful enrolment. That is the documented retry — a reverted VM is `running` before sshd answers — and **not** a failure. Do not re-issue starts.
+- the host keys were cleared (`ssh-keygen -R 10.77.20.10 10.77.20.11`) **before** the run, and the output shows both keys being learned fresh. A rollback restores the snapshot's host keys, and `labops.py` SSHes with `StrictHostKeyChecking=accept-new`, which does not override a *conflicting* entry — so without that clearing the enrolment step can fail exactly like the A2 probes did. `labops.py` could do this itself, as `target.sh` does after a rebuild.
+
+**Coverage: every skill has now been exercised live at least once**, which is the acceptance criterion of #60.
+
+| Skill | Live evidence |
+| --- | --- |
+| `/lab-status` | All ten steps, twice; found the dead tunnel and the missing analysis token |
+| `/lab-troubleshoot` | Dead tunnel, broken `env.sh`, the A2 probe route and host keys, the half-reset |
+| `/lab-deploy` | `plan` on all five stacks, `init targets`, and three reviewed probe-guest applies |
+| `/lab-exercise-run` | `ex-skill-001` on `t1` end to end; 309 events tagged |
+| `/lab-maintenance` | 30-minute window with `playbooks/gateway.yml` (`ok=24 changed=3`) |
+| `/lab-teardown` | Full `t1` reset to generation 6, A5 PASS, `attacker-clean`, and the re-verify exit path (`rows=82 skipped=0 PASS`) |
+| `/lab-malware-analysis` | Isolation, Guacamole, the Internet window, sample markers (665 events), and `analysis-reset` (generations 8 and 4) |
+| `/lab-workstation-setup` | Verified under #61; `doctor: ok` throughout this session |
+
+`labops.py shutdown` is the one command inside these skills not exercised, since it powers the lab off; it is the same `labpower` path as `startup`, which was.
+
+**Lab left as:** exercise mode with `t1` selected (rebuilt at generation 6, A5 PASS), denies re-verified, analysis zone reverted to `clean` and offline, probe guests destroyed, `doctor: ok`.
