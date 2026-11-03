@@ -52,7 +52,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import elastic_api  # noqa: E402
 import labpower  # noqa: E402
 import pve  # noqa: E402
-from labcommon import ROOT, die, load_plan, state_dir  # noqa: E402
+from labcommon import BASH, ROOT, die, load_plan, state_dir  # noqa: E402
 
 EXERCISE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
 EXERCISE_DIR = "/srv/exercise"  # attacker-side working directory (ansible/roles/attacker)
@@ -104,7 +104,7 @@ class Ops:
     def target_sh(self):
         """Through bash: a checkout synced from /mnt/c or unzipped on Windows has no exec bits (#65)."""
         path = os.environ.get("LABOPS_TARGET_SH") or pathlib.Path(ROOT, "scripts/target.sh").as_posix()
-        return ["bash", path]
+        return [BASH, path]
 
     def generation_of(self, target):
         """scripts/target.sh owns the counter (it also feeds Tofu and Ansible)."""
@@ -534,7 +534,7 @@ class Ops:
 
     def timers_status(self):
         """(ok, lines) from scripts/ops-timers.sh status: the tick, flow-shipper and tunnel timers of THIS checkout."""
-        argv = shlex.split(os.environ.get("LABOPS_OPS_TIMERS") or "") or ["bash", pathlib.Path(ROOT, "scripts/ops-timers.sh").as_posix(), "status"]
+        argv = shlex.split(os.environ.get("LABOPS_OPS_TIMERS") or "") or [BASH, pathlib.Path(ROOT, "scripts/ops-timers.sh").as_posix(), "status"]
         try:
             r = subprocess.run(argv, capture_output=True, text=True, cwd=ROOT)
         except OSError as e:

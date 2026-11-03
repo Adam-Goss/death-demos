@@ -167,6 +167,7 @@ class SeedTest(unittest.TestCase):
         for label, (old, new) in cases.items():
             self.assertTrue(seed.problems(self.tpl.replace(old, new, 1)), label)
 
+    @unittest.skipIf(os.name == "nt", "POSIX file modes do not exist on Windows (#69); the seed is rendered on Linux")
     def test_render_file_is_owner_only(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.xml")

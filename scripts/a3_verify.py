@@ -19,6 +19,9 @@ import time
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from labcommon import BASH  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLAN = json.load(open(ROOT / "network/plan.json"))
 EL = PLAN["elastic"]
@@ -187,7 +190,7 @@ def check_backup():
 
 def check_guard():
     env = dict(os.environ, OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij", PROXMOX_VE_ENDPOINT="https://invalid.example:8006/")
-    r = subprocess.run(["bash", str(ROOT / "scripts/lab.sh"), "destroy", "elastic"], env=env, capture_output=True, text=True)
+    r = subprocess.run([BASH, str(ROOT / "scripts/lab.sh"), "destroy", "elastic"], env=env, capture_output=True, text=True)
     row("operator", "lab.sh destroy elastic", "refused", "refused" if r.returncode != 0 and "refused" in r.stderr else "ran",
         "scripts/lab.sh guard")
     guard = "prevent_destroy = true" in (ROOT / "tofu/stacks/elastic/main.tf").read_text()
