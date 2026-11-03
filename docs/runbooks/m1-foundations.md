@@ -4,7 +4,7 @@ Issue #20. Exit = check A1 in [acceptance checks](../decisions/acceptance-checks
 
 ## Layout
 
-- `tofu/stacks/{firewall,elastic,targets}`: one OpenTofu stack each, own encrypted local state in `.state/<stack>.tfstate` (gitignored, workstation only), own pool `lab-<stack>`, own token. Attacker VM lives in `targets` (M5), as separate resources.
+- `tofu/stacks/{firewall,elastic,targets,attacker,gateway}`: one OpenTofu stack each, own encrypted local state in `.state/<stack>.tfstate` (gitignored, workstation only), own pool `lab-<stack>`, own token. The attacker (M5) and the Guacamole gateway (#51) were first planned inside `targets` and are separate stacks, so a target reset can never rebuild them.
 - `ansible/`: in-guest config only; never targets the Proxmox node.
 - `scripts/bootstrap-proxmox.sh`: one-time, root, node shell. Pools, role `OpaleyeDeploy`, per-stack user + privilege-separated token. No `Sys.*`/`Permissions.*`. Storage `iso-files`, never `local` (see inventory).
 - `scripts/lab.sh`: ordered runner (firewall, elastic, targets). `destroy all` skips Elastic; `destroy elastic` is refused (evidence deletion is a separate guarded command, M3).

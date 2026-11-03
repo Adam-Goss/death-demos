@@ -2,6 +2,21 @@
 
 Supports [Define acceptance checks and the implementation handoff](https://github.com/Adam-Goss/death-demos/issues/10). **Status: confirmed by Adam, 2026-10-27.** Consolidates, and links rather than duplicates, ADR 0001, [#6 flow contract](https://github.com/Adam-Goss/death-demos/issues/6), `first-targets-and-hunt-outcomes.md` (#7), `deployment-and-reset-lifecycle.md` (#8), `telemetry-contracts-and-budgets.md` (#9). This plans validation; it deploys nothing.
 
+## Status
+
+All milestones are built and validated live; evidence is in each runbook. The Guacamole gateway ([ADR 0002](../adr/0002-guacamole-gateway-for-browser-access.md), #51) was added after M6 and extends A2 with its own flows.
+
+| Milestone | Checks | Status | Evidence |
+| --- | --- | --- | --- |
+| M0 | A0 | done | [site inventory](../inventory/site-inventory.md) |
+| M1 | A1 | done | [M1](../runbooks/m1-foundations.md) |
+| M2 | A2 | done (VPN-path-loss script not re-run on the rebuilt firewall) | [M2](../runbooks/m2-firewall-and-networks.md), [M6](../runbooks/m6-end-to-end-validation.md) |
+| M3 | A3 | done | [M3](../runbooks/m3-elastic.md) |
+| M4 | A4, A5 | done | [M4](../runbooks/m4-target.md) |
+| M5 | A6 (operator commands) | done | [M5](../runbooks/m5-attacker-operator.md) |
+| M6 | A6-A9, A10 | done; A10 measured on a shorter run, accepted by Adam 2026-10-30 | [M6](../runbooks/m6-end-to-end-validation.md) |
+| Gateway (#51) | A2 gateway flows | done | [gateway](../runbooks/guacamole-gateway.md) |
+
 ## Build milestones (dependency order)
 
 | # | Milestone | Depends on | Exit = acceptance checks |

@@ -1,6 +1,6 @@
 # M4 Target VM with DVWA and evidence arrival
 
-Issue #23. A4 and A5 live checks completed **2026-10-30** on target `t1`, rebuild generation **1**. M3/#22 was accepted before this deployment. M5 has not been started.
+Issue #23. A4 and A5 live checks completed **2026-10-30** on target `t1`, rebuild generation **1**. M3/#22 was accepted before this deployment. M5 ([#24](m5-attacker-operator.md)) and M6 ([#25](m6-end-to-end-validation.md)) followed and are complete.
 
 The target is VM **2011**, `10.77.11.10`, in `lab-targets`, with one NIC on `vmbr2011`, 2 vCPU, 4 GB RAM and a 30 GB disk. It was cloned from bare Debian template **2301**. Docker Compose runs the two digest-pinned DVWA/MariaDB images in `network/plan.json`, with DVWA security `low`, the default seeded database, HTTP port 80 and no published database port. MariaDB's health check gates application startup. The enrolment token was issued during provisioning; the template contains no Agent or token.
 

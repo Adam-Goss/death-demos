@@ -2,7 +2,7 @@
 
 Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks-and-build-plan.md). Design: [operator commands and target interface](../decisions/operator-commands-and-target-interface.md).
 
-**Status: attacker stack and exercise run live; A6 evidence partly collected (see the A6 section). A6 is NOT passed.** Nothing here has run against the live firewall, Proxmox or Elastic: the VPN was unavailable, and neither A3 (M3) nor A4/A5 (M4, merged as code only) has been run live. M6 must not start, and #24 must not close, until the A6 tables below are filled in from a live run. Every Ansible/Tofu/Fleet/Proxmox call here is unverified against the real systems.
+**Status: complete.** The attacker stack and operator commands ran live, and the A6 evidence that was still open here was collected in the [M6 runbook](m6-end-to-end-validation.md) (from-scratch rebuild, A6-A10 all recorded). The notes below are the M5-time record; where they say A6 was open, M6 closed it.
 
 ## What exists
 
@@ -15,7 +15,7 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 | Evidence deletion (separate on purpose) | `scripts/evidence_delete.py` |
 | Offline tests (fakes for Elastic, Proxmox, DVWA; stub ssh/lab.sh/ansible) | `tests/test_labops.py`, `test_evidence_delete.py`, `test_exercise1.py`, `test_m5_plan.py` |
 
-## Run (live, not yet done)
+## Run (live)
 
 1. Node, as root: `BRIDGES="... vmbr2001" scripts/bootstrap-proxmox.sh` (creates pool `lab-attacker` and its token; **re-issue nothing else**), then `scripts/make-attacker-template.sh`.
 2. Workstation: `export PROXMOX_VE_API_TOKEN_ATTACKER=...`, `TF_VAR_node_name`, `TF_VAR_ssh_public_key`; `scripts/lab.sh apply attacker`. Re-apply is a no-op.
