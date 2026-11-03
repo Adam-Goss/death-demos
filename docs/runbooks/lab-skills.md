@@ -129,6 +129,24 @@ labmode: exercise-mode denies re-verified
 
 **Issue #64 is now fixed in the repo (no wrapper needed).** `netpolicy.py vantage <mode>` derives one probe vantage per lab-zone source from the probe table — a source whose SSH port the operator may not reach is probed through the single host the firewall does let in, which is the gateway for `t2`, `flare` and `remnux` — and `a2-verify.sh` builds each source's SSH command from that map, so the stock `REVERIFY=1 scripts/a2-verify.sh exercise none lab` covers every zone. `PROBE_SSH_<SOURCE>` (e.g. `PROBE_SSH_FLARE`) still replaces one source's command for an unusual run, and a `PROBE_SSH` that already jumps is left alone rather than jumped twice. The second gap in the comments is closed too: `RESET_HOST_KEYS="t2 flare"` clears those sources' stale `known_hosts` entries before probing, as `target.sh` does after a rebuild (nothing is cleared unasked — silently dropping a conflicting key for a real VM would hide the one thing that check is for), and the verifier prints the SSH error behind each unreachable source once, so the stale-host-key failure above no longer reads as a dead probe guest. The rest of the recipe is unchanged: probe guests for every zone with no running Linux VM (FLARE is Windows and can never be a probe source) and the real VMs up for their own rows.
 
+**The fix, verified live on 2026-11-03 against the running lab.** The stock invocation now passes — **no SSH wrapper and no `ssh-keygen` by hand**:
+
+```
+RESET_HOST_KEYS="t2 flare" REVERIFY=1 bash scripts/a2-verify.sh exercise none lab
+
+phase=lab mode=exercise selected=none rows=82 skipped=0 PASS
+labmode: exercise-mode denies re-verified
+```
+
+Exit 0, **stderr empty** (no source went unreachable), and every row probed: attacker 15 deny (selected `none`, so it has no allow row), t1 4 allow / 14 deny, gateway 6 / 10, elastic 1 / 8, **t2 2 / 2, flare 2 / 13, remnux 2 / 3** — **zero `ERROR`, zero `SKIP`**. The analysis and `t2` rows went through the gateway in the **same run** as the direct admin-path rows, which is exactly what one global `PROBE_SSH` could not express. `REMnux stayed up` and was probed as itself; only `flare` and `t2` needed probe guests.
+
+Sequence: FLARE shut down **gracefully** (`status/shutdown`, not `stop`, so its Agent flushes) → `TF_VAR_probe_vms=true TF_VAR_probe_zones='["t2","flare"]' TF_VAR_probe_ssh_public_key="$TF_VAR_ssh_public_key"` apply, plan reviewed as `2 to add, 0 to change, 0 to destroy` → `labmode.py exercise none` → the run above → `labmode.py select t1` → `TF_VAR_probe_vms=false` apply (`2 destroyed`) → FLARE started → `doctor: ok` with 1,082 firewall flow events, mode `exercise`, selected `t1`, `reverify_required: false`. **No `labmode.py reverified` bypass.**
+
+Two things to expect next time:
+
+- for about a minute after the apply, the gateway hop answers `channel 0: open failed: connect failed: Connection refused` / `stdio forwarding failed` while the probe guest's sshd starts. That is **boot timing**, not the 2026-11-03 host-key failure — `RESET_HOST_KEYS` has already cleared the keys by then. Wait, do not re-apply.
+- in the live WSL checkout `tofu` is `/snap/bin/tofu`, which is **not** on a non-login shell's `PATH`; `scripts/lab.sh` then dies with `tofu: command not found`.
+
 **`labops.py analysis-reset`, run live (the last unexercised step).** Exit 0 in about two minutes for both hosts: Internet forced off first (already off), drain markers from REMnux and FLARE confirmed in Elasticsearch, both VMs reverted to `clean`, powered on, re-enrolled with a fresh token and registered — **REMnux generation 7 → 8** (agent `8fd0802f…`) and **FLARE 3 → 4** (agent `1f9356f9…`), each reported as `analysis; no firewall flow attribution`. No `--acknowledge-loss` was needed, since both agents were already enrolled. Two details for whoever reads the output next:
 
 - `channel 0: open failed: connect failed: Connection refused` / `stdio forwarding failed` appears before each successful enrolment. That is the documented retry — a reverted VM is `running` before sshd answers — and **not** a failure. Do not re-issue starts.
