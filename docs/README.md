@@ -33,6 +33,9 @@ Start with the [project README](../README.md) for the architecture and the day-t
 | [M5 attacker and operator commands](runbooks/m5-attacker-operator.md) | Attacker VM, markers, drain, reset, shutdown | A6 (partial) |
 | [M6 end-to-end validation](runbooks/m6-end-to-end-validation.md) | From-scratch rebuild, hunt, reset, outage, teardown, measurement | A6-A10 |
 | [Guacamole gateway](runbooks/guacamole-gateway.md) | Browser GUI/terminal access, TOTP, live evidence | #51 |
+| [Malware analysis zone](runbooks/malware-analysis.md) | FLARE-VM and REMnux, isolation, Internet window, snapshot reset | #52 |
+| [Workstation timers](runbooks/ops-timers.md) | `labmode tick`, firewall flow shipper, Elastic tunnel | #61 |
+| [Lab skills](runbooks/lab-skills.md) | The operating procedures as Claude Code skills, and their drift guard | #60 |
 
 ## Working on the repo
 

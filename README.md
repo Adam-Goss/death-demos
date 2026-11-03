@@ -151,6 +151,21 @@ python3 scripts/labops.py attacker-clean                             # clear att
 
 If the drain check fails (Elastic down, forwarding behind), the reset is refused unless you accept the loss: `--acknowledge-loss "reason"`. A reset is also refused during an active exercise on that target.
 
+### Driving the lab with skills
+
+The procedures in this guide are also packaged as Claude Code skills in [`.claude/skills/`](.claude/skills), so an agent can run them with you. Each one cites the README section or runbook it follows, confirms every destructive, mode-changing or power step with you first, and never loosens the lab's isolation. They are user-invoked only.
+
+| Skill | What it does |
+| --- | --- |
+| [`/lab-status`](.claude/skills/lab-status/SKILL.md) | Read-only health sweep: VPN, guest power, mode and target, ingest and disk, firewall policy, NICs, gateway. Start here. |
+| [`/lab-deploy`](.claude/skills/lab-deploy/SKILL.md) | Power a powered-off lab on, or build/rebuild stacks and their in-guest configuration, then verify (A2 first). |
+| [`/lab-teardown`](.claude/skills/lab-teardown/SKILL.md) | Graceful shutdown, destroying a stack (never Elastic), or the full target reset flow. |
+| [`/lab-exercise-run`](.claude/skills/lab-exercise-run/SKILL.md) | Preflight, exercise markers, the attack (scripted or by hand), tagging, and the Kibana filters to hunt with. |
+| [`/lab-maintenance`](.claude/skills/lab-maintenance/SKILL.md) | A time-limited maintenance window: updates, then exercise mode and the re-verified denies. |
+| [`/lab-troubleshoot`](.claude/skills/lab-troubleshoot/SKILL.md) | Symptom to diagnosis to fix, from the [troubleshooting table](#troubleshooting) and the runbooks. |
+| [`/lab-malware-analysis`](.claude/skills/lab-malware-analysis/SKILL.md) | Operate the analysis zone: power on, isolation, the Internet window, sample tagging, snapshot reset. |
+| [`/lab-workstation-setup`](.claude/skills/lab-workstation-setup/SKILL.md) | Install and prove the workstation timers in the live checkout ([ops timers](docs/runbooks/ops-timers.md)). |
+
 ### Switching modes and selecting a target
 
 | Command | Effect |
@@ -271,6 +286,7 @@ The lab is code. A full rebuild follows the milestone runbooks in order, each wi
 | `tests/` | Unit tests with fakes (Proxmox, Elastic, OPNsense) and `static-checks.sh`. |
 | `docs/` | [Index](docs/README.md): ADRs, decisions, research, site inventory, milestone runbooks. |
 | `GLOSSARY.md` | The lab's vocabulary. |
+| `.claude/skills/` | Claude Code skills that run these procedures with you ([skills runbook](docs/runbooks/lab-skills.md)). |
 | `secrets/`, `.state/` | Gitignored: secrets, encrypted Tofu state, evidence files. |
 
 Run the offline tests with `python3 -m unittest discover -s tests` and `bash tests/static-checks.sh`. A few tests that call shell scripts fail on a Windows checkout; use Linux or WSL.

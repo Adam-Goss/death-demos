@@ -61,5 +61,11 @@ The isolated network (`10.77.20.0/24`) holding FLARE-VM and REMnux; only the Gat
 **Analysis reset**:
 Reverting FLARE-VM and REMnux to their clean Proxmox snapshot (`labops.py analysis-reset`): Internet forced off, drain marker confirmed first, fresh Agent enrolment afterwards, `lab.rebuild_generation` incremented; no rebuild and it never touches Elastic evidence.
 
+**Resting state**:
+The state the lab is left in between sessions: exercise mode, a target selected, the exercise-mode denies re-verified, and the analysis zone's Internet off.
+
+**Analysis Internet window**:
+A time-limited period in which the analysis zone may reach TCP 80/443 on public addresses (`labops.py analysis-online on`, 30 minutes by default and 120 at most). It closes itself at expiry through the workstation `tick` timer, and is the only state in which that zone has egress.
+
 **Sample ID**:
 The operator-set identifier (`lab.sample_id`) for one malware sample under analysis, written to Elastic with marker events so analysis-zone evidence is searchable per sample.
