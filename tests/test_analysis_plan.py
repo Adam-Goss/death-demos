@@ -38,9 +38,9 @@ class Resources(unittest.TestCase):
             self.assertEqual(PLAN["hosts"][h]["zone"], "analysis")
             self.assertIn(ipaddress.ip_address(PLAN["hosts"][h]["ip"]), net)
 
-    def test_images_are_pinned_by_sha256_or_carry_the_explicit_placeholder(self):
+    def test_images_are_pinned_by_sha256(self):
         for h, v in AN["hosts"].items():
-            self.assertRegex(v["image"]["sha256"], r"^([0-9a-f]{64}|REPLACE-WITH-PINNED-SHA256-[A-Z-]+)$", h)
+            self.assertRegex(v["image"]["sha256"], r"^[0-9a-f]{64}$", h)
 
 
 class Isolation(unittest.TestCase):

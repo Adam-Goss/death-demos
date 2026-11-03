@@ -95,9 +95,9 @@
     "snapshot": "clean",
     "hosts": {
       "remnux": { "vm_id": 2305, "template_vm_id": 2306, "vcpu": 4, "memory_mb": 8192, "disk_gb": 50, "os": "linux", "guac": "ssh+sftp",
-                  "image": { "file": "remnux-v7-focal.ova", "sha256": "REPLACE-WITH-PINNED-SHA256-FROM-REMNUX-RELEASE" } },
+                  "image": { "file": "remnux-noble-amd64-proxmox.qcow2", "sha256": "9ef87306cd9b982de9109d08627040a15b2eb9d75040c9ceeffabce1a0004568" } },
       "flare":  { "vm_id": 2020, "template_vm_id": 2304, "vcpu": 4, "memory_mb": 8192, "disk_gb": 100, "os": "windows", "guac": "rdp",
-                  "image": { "file": "windows-eval-enterprise.iso", "sha256": "REPLACE-WITH-PINNED-SHA256-FROM-OPERATOR-DOWNLOAD" } }
+                  "image": { "file": "22621.525.220925-0207.ni_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso", "sha256": "ebbc79106715f44f5020f77bd90721b17c5a877cbc15a3535b99155493a1bb3f" } }
     }
   },
   "ops": {
