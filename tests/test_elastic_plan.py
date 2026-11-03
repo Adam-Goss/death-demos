@@ -40,8 +40,11 @@ class ElasticPlan(unittest.TestCase):
         ids = {PLAN["firewall"]["vm_id"], EL["vm_id"], EL["template_vm_id"], 2100}
         self.assertEqual(len(ids), 4)
 
-    def test_placeholders_from_the_budget(self):
-        self.assertEqual((EL["vcpu"], EL["memory_mb"], EL["heap_gb"], EL["data_disk_gb"]), (4, 8192, 4, 100))
+    def test_sizing_after_measuring(self):
+        # 16 GB after the 8 GB VM ran at 6.8 GB with no swap and API timeouts (#52 live run); heap stays at half of RAM
+        # so the page cache and Kibana have room.
+        self.assertEqual((EL["vcpu"], EL["memory_mb"], EL["heap_gb"], EL["data_disk_gb"]), (4, 16384, 8, 100))
+        self.assertLessEqual(EL["heap_gb"] * 1024 * 2, EL["memory_mb"])
 
 
 class DestroyGuard(unittest.TestCase):

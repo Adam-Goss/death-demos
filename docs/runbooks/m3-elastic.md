@@ -9,7 +9,7 @@ Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks
 | Item | Choice |
 | --- | --- |
 | Stack pin | Elasticsearch, Kibana, Elastic Agent (Fleet Server) **9.5.5**, Basic license, single node. Package sha512 in `network/plan.json` `elastic.packages` (taken from artifacts.elastic.co `.sha512` files, 2026-10-28); Ansible refuses a mismatch |
-| VM | VMID 2003, pool `lab-elastic`, `10.77.3.10` on `vmbr2003`, 4 vCPU / 8 GB (heap 4 GB), disks on `iso-files`: OS 20 GB (`vda`), data 100 GB (`vdb`, `/var/lib/elasticsearch`), snapshots 100 GB (`vdc`, `/srv/es-snapshots`). The #9 placeholders; replaced after A10 |
+| VM | VMID 2003, pool `lab-elastic`, `10.77.3.10` on `vmbr2003`, 4 vCPU / 16 GB (heap 8 GB), disks on `iso-files`: OS 20 GB (`vda`), data 100 GB (`vdb`, `/var/lib/elasticsearch`), snapshots 100 GB (`vdc`, `/srv/es-snapshots`). The #9 placeholders; replaced after A10 |
 | Image | Debian cloud image to a template (VMID 2300, pool `lab-elastic`) with `scripts/make-elastic-template.sh`, cloned over the API |
 | Packages | Elastic has **no Internet, even in maintenance mode**. Ansible downloads on the workstation, checks the pinned sha512, copies over SSH |
 | TLS | Lab CA generated on the workstation under `secrets/elastic/ca/` (gitignored, never in the repo or an image). Server cert SAN `10.77.3.10`, `elastic.lab`. Agents pin the CA SHA-256 fingerprint (set on the Fleet output); the CA file is passed at enrolment (M4) |
@@ -129,3 +129,15 @@ ok: rules match the probe matrix (exercise)
 | workstation | elastic:5601 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 
 phase=home mode=exercise selected=t1 rows=1 skipped=0 PASS
+
+## Resizing the Elastic VM
+
+The VM size (`vcpu`, `memory_mb`, disk sizes) and the JVM heap (`heap_gb`) come from `elastic` in `network/plan.json`: Tofu reads the first, the Ansible role the second, so a rebuilt VM gets the same size. Keep the heap at or below half of the RAM.
+
+1. Edit `network/plan.json`, the expectations in `tests/test_elastic_plan.py` and the capacity table in `docs/decisions/telemetry-contracts-and-budgets.md`; commit.
+2. Check the host has the RAM (`free -m` on the node against the running VMs).
+3. Gracefully stop only the Elastic VM, then `scripts/lab.sh apply elastic`, then start it. Raising memory is an in-place change that takes effect after a restart. The Proxmox provider also queues a reboot after the update: when the VM was stopped and the provider started it, that reboot task timed out and Tofu printed `error waiting for VM reboot`. The change had landed; `scripts/lab.sh plan elastic` then reports no changes, so the error is safe to ignore after that check.
+4. `ansible-playbook playbooks/elastic.yml --tags heap` (only after the VM has the RAM; it restarts Elasticsearch).
+5. Verify: `labops.py doctor`, `free -m` on the VM, and the heap maximum in `_nodes/stats/jvm`.
+
+Raised from 8 GB to 16 GB (heap 4 to 8 GB) on 2026-11-03 after the 8 GB VM ran at 6.8 GB with no swap and intermittent API timeouts. Disk growth needs a filesystem resize in the guest as well (the mounts are not grown by the play); the data disk was not changed.
