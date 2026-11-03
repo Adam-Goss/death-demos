@@ -61,6 +61,9 @@ The isolated network (`10.77.20.0/24`) holding FLARE-VM and REMnux; only the Gat
 **Analysis reset**:
 Reverting FLARE-VM and REMnux to their clean Proxmox snapshot (`labops.py analysis-reset`): Internet forced off, drain marker confirmed first, fresh Agent enrolment afterwards, `lab.rebuild_generation` incremented; no rebuild and it never touches Elastic evidence.
 
+**Probe vantage**:
+The host an A2 probe runs on, which must be the source address the probe row names. Each source has one: the operator's workstation for its own rows, the guest (or probe guest) that owns a lab address, and for a zone only the Gateway VM may enter (`t2` and the analysis zone), that address reached through the gateway. `netpolicy.py vantage` derives the map from the probe table and `a2-verify.sh` follows it.
+
 **Resting state**:
 The state the lab is left in between sessions: exercise mode, a target selected, the exercise-mode denies re-verified, and the analysis zone's Internet off.
 
