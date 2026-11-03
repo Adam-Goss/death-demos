@@ -31,8 +31,8 @@ The guests a command needs may also be off: **Elastic** for policies, drains and
 Four more things the live checkout imposes, all found by running the skills on 2026-11-03:
 
 - **Use a login shell.** `tofu` is at `/snap/bin/tofu`, which a non-login `bash -c` does not have on `PATH`: `lab.sh plan` then fails with `tofu: command not found`. Check `command -v tofu` before any Tofu step.
-- **Call shell scripts with `bash`.** In the live checkout `scripts/lab.sh`, `scripts/ops-timers.sh` and `scripts/tunnel-keepalive.sh` are not executable (`-rw-r--r--`), so `scripts/lab.sh plan x` gives `Permission denied`. `bash scripts/lab.sh plan x` always works, so the skills use that form.
-- **The env file may be missing variables that matter.** `PROXMOX_VE_API_TOKEN_ANALYSIS` is absent from the live `secrets/env.sh`, so `nicaudit.py` aborts with `KeyError: 'PROXMOX_VE_API_TOKEN_ANALYSIS'` and the analysis hosts' power state reads `unknown`. More dangerously, `TF_VAR_firewall_template_vm_id` is unset and defaults to `0`, which drops the firewall stack's `clone` block: **`plan firewall` then reports the firewall VM "must be replaced"**. Never apply a plan whose replacement you cannot explain; check the stack's variables first.
+- **Call shell scripts with `bash`.** Since #65 every `scripts/` program with a shebang carries the exec bit, and every in-repo caller spells out the interpreter, so a plain `scripts/lab.sh plan x` now works in a normal checkout. Keep the `bash` form anyway: a checkout **copied** rather than cloned — synced from `/mnt/c`, unzipped on Windows — loses exec bits entirely, and `bash scripts/lab.sh plan x` works in both. The live checkout is not a git repository, so it is refreshed by extracting `git archive` over it (precondition 1), which does carry the modes.
+- **The env file may be missing variables that matter.** Both gaps found on 2026-11-03 have since been filled in the live `secrets/env.sh` — `PROXMOX_VE_API_TOKEN_ANALYSIS` is present (so `nicaudit.py` runs and the analysis hosts' power state reads) and `TF_VAR_firewall_template_vm_id=2101` is set. Check them anyway rather than assuming, because the second one is the dangerous shape: unset, it defaults to `0`, which drops the firewall stack's `clone` block, and **`plan firewall` then reports the firewall VM "must be replaced"**. Never apply a plan whose replacement you cannot explain; check the stack's variables first.
 - **Restarting the Elastic tunnel is one command**: `bash scripts/tunnel-keepalive.sh` starts it in the background if port 19200 is closed, instead of occupying a terminal with `scripts/elastic-tunnel.sh`.
 
 ## Safety contract
@@ -168,3 +168,26 @@ Two things to expect next time:
 `labops.py shutdown` is the one command inside these skills not exercised, since it powers the lab off; it is the same `labpower` path as `startup`, which was.
 
 **Lab left as:** exercise mode with `t1` selected (rebuilt at generation 6, A5 PASS), denies re-verified, analysis zone reverted to `clean` and offline, probe guests destroyed, `doctor: ok`.
+
+### Third live session, 2026-11-03 evening (the #65 fix, verified by a real reset)
+
+**Why.** #65 was closed on test evidence: a scratch checkout with the exec bits stripped, plus two repo invariants (`tests/test_script_exec.py`). The bug was found by a live reset, so it was worth closing the loop with one.
+
+**Bringing the live checkout current.** `/home/adam/wrasse-live` is **not a git repository** (no `.git`), so `git pull` is not the update path — `git archive origin/main scripts tests docs .claude GLOSSARY.md`, extracted over it, is (precondition 1; it carries the file modes and leaves `.state/` and `secrets/` alone). Its state beforehand was exactly the half-fixed shape #65 describes: `scripts/lab.sh` **755 by hand** from the morning's recovery, `target.sh:35` still calling it bare, and `a1-verify.sh` still `644` with two bare calls of its own. Afterwards all five touched scripts were `755` with the `bash` form, `tests/test_script_exec.py` passed in the live checkout, and all three cron timers still read `ok` — the checkout did not move, so the tag lines stayed valid.
+
+**Probe guests, and one new detail.** `TF_VAR_probe_vms=true TF_VAR_probe_zones='["t2","flare"]'` planned **2 to add, 0 to change, 0 to destroy** — the firewall VM was *not* proposed for replacement, because `TF_VAR_firewall_template_vm_id=2101` is now in the live env (the morning's trap is gone). The new detail: **FLARE holds `10.77.20.10`, which the `flare` probe guest also takes**, so FLARE must be powered off *before* the probe boots, not merely before the A2 run — otherwise two guests claim one address. Graceful shutdown through the analysis token, confirmed `stopped`, then the probe came up clean.
+
+**The reset: #65 fixed, and the next cause laid bare.** `labops.py reset t1` passed straight through `target.sh:35` with no `Permission denied` and did real work — destroyed VM 2011, raised the generation **6 → 7**, recreated it in 6 s. It then failed on the Ansible play:
+
+```
+[ERROR]: Task failed: Failed to connect to the host via ssh: ssh: connect to host 10.77.11.10 port 22: Connection timed out
+fatal: [t1]: UNREACHABLE!
+provisioning failed at generation 7: re-run `bash scripts/target.sh provision t1`
+reset exit: 1
+```
+
+That is the **third** cause from the morning, unrelated to #65 and now the only one left: `target.sh` does not wait for the rebuilt VM's sshd. It missed by seconds — a single `ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new opaleye@10.77.11.10 true` answered on the first attempt immediately afterwards. Note the recovery line it printed carries the `bash` prefix now, so the command it hands you is the one that works. `bash scripts/target.sh provision t1` then finished the rebuild: `ok=30 changed=17 failed=0`, exit 0. Filed as **#68**, with the observation that `analysis-reset` already has the wait (`LABOPS_SSH_WAIT`) the target path lacks.
+
+**The rest of the flow, as designed.** Drain passed on its own both times (generation 6 before, 7 after) — **no `--acknowledge-loss`**. A5 PASS on the rebuilt target: both image digests matched their pins, login page `200`, security level `low`, agent state `2` (HEALTHY), no enrolment token on disk. `exercise none`, then `RESET_HOST_KEYS="t2 flare" REVERIFY=1 bash scripts/a2-verify.sh exercise none lab` → **`rows=82 skipped=0 PASS`**, exit 0, `labmode: exercise-mode denies re-verified`; `select t1` and `attacker-clean` then succeeded. Probe guests destroyed (`0 add, 0 change, 2 destroy`) and FLARE powered back on.
+
+**Lab left as:** exercise mode with `t1` selected, **rebuilt at generation 7**, A5 PASS, denies re-verified, probe guests destroyed, analysis zone running and offline, `doctor: ok` with 1492 firewall flow events in the last 15 minutes.
