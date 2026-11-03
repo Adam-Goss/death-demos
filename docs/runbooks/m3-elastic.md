@@ -129,3 +129,15 @@ ok: rules match the probe matrix (exercise)
 | workstation | elastic:5601 | exercise | deny | deny | firewall:wan (deny logged: yes) |
 
 phase=home mode=exercise selected=t1 rows=1 skipped=0 PASS
+
+## Resizing the Elastic VM
+
+The VM size (`vcpu`, `memory_mb`, disk sizes) and the JVM heap (`heap_gb`) come from `elastic` in `network/plan.json`: Tofu reads the first, the Ansible role the second, so a rebuilt VM gets the same size. Keep the heap at or below half of the RAM.
+
+1. Edit `network/plan.json`, the expectations in `tests/test_elastic_plan.py` and the capacity table in `docs/decisions/telemetry-contracts-and-budgets.md`; commit.
+2. Check the host has the RAM (`free -m` on the node against the running VMs).
+3. Gracefully stop only the Elastic VM, then `scripts/lab.sh apply elastic`, then start it. Raising memory is an in-place change that takes effect after a restart. The Proxmox provider also queues a reboot after the update: when the VM was stopped and the provider started it, that reboot task timed out and Tofu printed `error waiting for VM reboot`. The change had landed; `scripts/lab.sh plan elastic` then reports no changes, so the error is safe to ignore after that check.
+4. `ansible-playbook playbooks/elastic.yml --tags heap` (only after the VM has the RAM; it restarts Elasticsearch).
+5. Verify: `labops.py doctor`, `free -m` on the VM, and the heap maximum in `_nodes/stats/jvm`.
+
+Raised from 8 GB to 16 GB (heap 4 to 8 GB) on 2026-11-03 after the 8 GB VM ran at 6.8 GB with no swap and intermittent API timeouts. Disk growth needs a filesystem resize in the guest as well (the mounts are not grown by the play); the data disk was not changed.
