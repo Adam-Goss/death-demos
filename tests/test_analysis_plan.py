@@ -106,6 +106,11 @@ class Scoping(unittest.TestCase):
         self.assertIn("from=", tasks)
         self.assertIn("gateway_key", tasks)  # tag: applied alone, no Internet window needed
 
+    def test_remnux_logs_reach_the_agent_and_auditd_does_not_hold_the_audit_socket(self):
+        tasks = read("ansible/roles/analysis_remnux/tasks/main.yml")
+        self.assertIn("rsyslog", tasks)
+        self.assertRegex(tasks, r"name: auditd\s+enabled: false\s+masked: true\s+state: stopped")
+
     def test_no_secrets_in_the_analysis_role_or_runbook(self):
         for rel in ("ansible/roles/analysis_remnux/tasks/main.yml", "docs/runbooks/malware-analysis.md", "scripts/labops.py"):
             self.assertNotRegex(read(rel), r"(?i)password\s*[=:]\s*['\"]?[A-Za-z0-9]{12,}")
