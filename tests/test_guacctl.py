@@ -65,6 +65,11 @@ class AnalysisConnections(unittest.TestCase):
         self.assertEqual(set(guacctl.connections(PLAN, "rdp-pw", "KEY")), {"attacker", "t1", "remnux"})
         self.assertEqual(set(self.c), {"attacker", "t1", "flare", "remnux"})
 
+    def test_the_flare_rdp_account_can_be_named(self):
+        c = guacctl.connections(PLAN, "rdp-pw", "KEY", "flare-pw", "someone")
+        self.assertEqual(c["flare"][1]["username"], "someone")
+        self.assertEqual(self.c["flare"][1]["username"], PLAN["analysis"]["ssh_user"])
+
     def test_remnux_is_ssh_with_sftp_and_flare_is_rdp_with_a_drive(self):
         self.assertEqual(self.c["remnux"][0], "ssh")
         self.assertEqual(self.c["remnux"][1]["enable-sftp"], "true")

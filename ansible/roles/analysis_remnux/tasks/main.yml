@@ -43,6 +43,24 @@
     modification_time: preserve
     access_time: preserve
 
+# Same as the targets: key-only, and only from the gateway's address. Tag lets it be applied alone, with no Internet window.
+- name: Gateway key present on the controller
+  ansible.builtin.stat:
+    path: "{{ gateway_pubkey_file }}"
+  delegate_to: localhost
+  become: false
+  register: gateway_key
+  tags: [gateway_key]
+
+- name: Authorise the gateway's SSH key
+  ansible.posix.authorized_key:
+    user: opaleye
+    key: "{{ lookup('ansible.builtin.file', gateway_pubkey_file) }}"
+    key_options: "from=\"{{ gateway_ip }}\""
+    comment: opaleye-gateway
+  when: gateway_key.stat.exists
+  tags: [gateway_key]
+
 # Fake services for the offline default.
 - name: INetSim configuration
   ansible.builtin.template:
