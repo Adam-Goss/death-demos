@@ -160,7 +160,12 @@ class Lab:
         cfg = self.plan["analysis"]["online"]
         if action == "status":
             until = self.st["analysis_online_until"]
-            print("analysis internet: %s" % ("on until %s" % until if self.online() else "off"))
+            if until is None:
+                print("analysis internet: off")
+            elif self.online():
+                print("analysis internet: on until %s" % until)
+            else:  # past its time, but the firewall rules only close when `tick` next runs (every minute)
+                print("analysis internet: expired; the firewall rules close at the next tick (within a minute)")
             return
         if self.st["mode"] is None and action == "off":
             print("analysis internet off (no rules were ever pushed)")

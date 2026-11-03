@@ -64,11 +64,11 @@ class DestroyGuard(unittest.TestCase):
             stub.chmod(0o755)
             env = dict(os.environ, PATH=d + os.pathsep + os.environ["PATH"], OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij",
                        PROXMOX_VE_ENDPOINT="https://x/")
-            for s in ("FIREWALL", "ELASTIC", "TARGETS", "ATTACKER"):
+            for s in ("FIREWALL", "ELASTIC", "TARGETS", "ATTACKER", "GATEWAY"):
                 env["PROXMOX_VE_API_TOKEN_" + s] = "t"
             r = subprocess.run(["bash", str(ROOT / "scripts/lab.sh"), "destroy", "all"], env=env, capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(log.read_text().split("\n")[:-1], ["attacker destroy", "targets destroy", "firewall destroy"])
+            self.assertEqual(log.read_text().split("\n")[:-1], ["gateway destroy", "attacker destroy", "targets destroy", "firewall destroy"])
 
     def test_vm_has_prevent_destroy(self):
         text = (ROOT / "tofu/stacks/elastic/main.tf").read_text()

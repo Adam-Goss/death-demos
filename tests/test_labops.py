@@ -621,6 +621,16 @@ class Analysis(OpsCase):
         self.assertEqual(self.es.docs["logs-system.syslog-analysis"][0]["lab"]["sample_id"], "emotet-001")
         self.assertIn("tagged 0 events", r.stdout)  # the second run finds nothing left to stamp
 
+    def test_tag_matches_ids_exactly_even_when_the_marker_field_is_text(self):
+        # Another sample whose id contains this one must not lend its markers to it.
+        self.ops("analysis-sample", "start", "emotet-001")
+        self.ops("analysis-sample", "end")
+        for doc in self.markers():
+            doc["lab"]["sample_id"] = "emotet-001-b"  # as if these markers belonged to a longer id
+        r = self.ops("analysis-sample", "tag", "emotet-001")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("needs both its start and end markers", r.stderr)
+
     def test_tag_needs_both_markers(self):
         self.assertNotEqual(self.ops("analysis-sample", "tag", "unknown-001").returncode, 0)
 

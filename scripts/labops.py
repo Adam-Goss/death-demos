@@ -363,8 +363,11 @@ class Ops:
         """Repeat the stamping for a finished sample (events that arrived after `end`); safe to re-run."""
         es = self.need_elastic()
         res = es.call("/%s/_search" % self.plan["ops"]["marker_stream"], {
-            "query": {"bool": {"filter": [{"term": {"lab.sample_id": sample_id}}]}}, "size": 10})
-        docs = {h["_source"]["event"]["action"]: h["_source"] for h in res["hits"]["hits"]}
+            # The marker stream maps lab.sample_id as text (no template pins it), where an exact `term` never matches an id
+            # like "emotet-001": match the phrase, then keep only exact ids.
+            "query": {"bool": {"filter": [{"match_phrase": {"lab.sample_id": sample_id}}]}}, "size": 50})
+        docs = {h["_source"]["event"]["action"]: h["_source"] for h in res["hits"]["hits"]
+                if h["_source"].get("lab", {}).get("sample_id") == sample_id}
         if "sample-start" not in docs or "sample-end" not in docs:
             die("sample %s needs both its start and end markers" % sample_id)
         self.stamp_sample(es, sample_id, docs["sample-start"]["@timestamp"], docs["sample-end"]["@timestamp"])

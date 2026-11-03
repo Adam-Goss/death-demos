@@ -38,9 +38,9 @@ class Resources(unittest.TestCase):
             self.assertEqual(PLAN["hosts"][h]["zone"], "analysis")
             self.assertIn(ipaddress.ip_address(PLAN["hosts"][h]["ip"]), net)
 
-    def test_images_are_pinned_by_sha256_or_carry_the_explicit_placeholder(self):
+    def test_images_are_pinned_by_sha256(self):
         for h, v in AN["hosts"].items():
-            self.assertRegex(v["image"]["sha256"], r"^([0-9a-f]{64}|REPLACE-WITH-PINNED-SHA256-[A-Z-]+)$", h)
+            self.assertRegex(v["image"]["sha256"], r"^[0-9a-f]{64}$", h)
 
 
 class Isolation(unittest.TestCase):
@@ -105,6 +105,11 @@ class Scoping(unittest.TestCase):
         self.assertIn("ansible.posix.authorized_key", tasks)
         self.assertIn("from=", tasks)
         self.assertIn("gateway_key", tasks)  # tag: applied alone, no Internet window needed
+
+    def test_remnux_logs_reach_the_agent_and_auditd_does_not_hold_the_audit_socket(self):
+        tasks = read("ansible/roles/analysis_remnux/tasks/main.yml")
+        self.assertIn("rsyslog", tasks)
+        self.assertRegex(tasks, r"name: auditd\s+enabled: false\s+masked: true\s+state: stopped")
 
     def test_no_secrets_in_the_analysis_role_or_runbook(self):
         for rel in ("ansible/roles/analysis_remnux/tasks/main.yml", "docs/runbooks/malware-analysis.md", "scripts/labops.py"):

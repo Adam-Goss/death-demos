@@ -5,7 +5,7 @@
 # The analysis zone has no Internet in its default state: packages need `labops.py analysis-online on` first.
 - name: Tools for the Agent and the drain marker
   ansible.builtin.apt:
-    name: [curl, ca-certificates, auditd]
+    name: [curl, ca-certificates, auditd, rsyslog]
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -13,6 +13,22 @@
   until: remnux_apt is succeeded
   retries: 4
   delay: 20
+
+# REMnux logs to journald only: rsyslog writes the /var/log/syslog and auth.log the Agent's system inputs read.
+- name: rsyslog enabled
+  ansible.builtin.systemd:
+    name: rsyslog
+    enabled: true
+    state: started
+
+# Only one process can own the kernel audit socket: with the auditd daemon running, the Agent's auditd_manager receives
+# nothing. The daemon stays installed (its unit must exist) but is masked; the Agent loads the audit rules from the policy.
+- name: auditd daemon masked so the Agent owns the audit socket
+  ansible.builtin.systemd:
+    name: auditd
+    enabled: false
+    masked: true
+    state: stopped
 
 - name: Lab CA directory
   ansible.builtin.file:

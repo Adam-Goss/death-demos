@@ -251,6 +251,16 @@ class LabMode(unittest.TestCase):
         self.assertEqual(self.state_json()["analysis_online_until"], T0 + 600 + 3600)
         self.assertEqual(self.fw.names().count("apply"), applies)
 
+    def test_status_after_the_deadline_says_the_firewall_closes_at_the_next_tick(self):
+        self.run_cli("exercise")
+        self.run_cli("analysis", "on", "--minutes", "1")
+        out = self.run_cli("analysis", "status", now=T0 + 90).stdout  # past the deadline, tick has not run
+        self.assertIn("expired", out)
+        self.assertIn("next tick", out)
+        self.assertTrue(all(v == "1" for v in self.internet().values()))  # the rules really are still open
+        self.run_cli("tick", now=T0 + 90)
+        self.assertIn("off", self.run_cli("analysis", "status", now=T0 + 91).stdout)
+
     def test_analysis_minutes_are_capped(self):
         self.run_cli("exercise")
         self.assertNotEqual(self.run_cli("analysis", "on", "--minutes", "121").returncode, 0)
