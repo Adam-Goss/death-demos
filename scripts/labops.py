@@ -101,9 +101,14 @@ class Ops:
             die("%r is not a target with a VM (%s); only targets can be reset or drained" % (name, ", ".join(vms)))
         return name
 
+    def target_sh(self):
+        """Through bash: a checkout synced from /mnt/c or unzipped on Windows has no exec bits (#65)."""
+        path = os.environ.get("LABOPS_TARGET_SH") or pathlib.Path(ROOT, "scripts/target.sh").as_posix()
+        return ["bash", path]
+
     def generation_of(self, target):
         """scripts/target.sh owns the counter (it also feeds Tofu and Ansible)."""
-        r = subprocess.run([os.environ.get("LABOPS_TARGET_SH", os.path.join(ROOT, "scripts/target.sh")), "generation", target],
+        r = subprocess.run(self.target_sh() + ["generation", target],
                            capture_output=True, text=True, cwd=ROOT)
         if r.returncode != 0 or not r.stdout.strip().isdigit():
             die("cannot read the rebuild generation of %s: %s" % (target, r.stderr.strip()))
@@ -277,15 +282,15 @@ class Ops:
         drained = self.drain(target, es)
         if not drained and ack is None:
             die("drain check failed; fix forwarding or accept the loss with --acknowledge-loss REASON")
-        target_sh = os.environ.get("LABOPS_TARGET_SH", os.path.join(ROOT, "scripts/target.sh"))
-        if subprocess.run([target_sh, "bump", target, "--acknowledge-no-drain-check"], cwd=ROOT).returncode != 0:
+        target_sh = self.target_sh()
+        if subprocess.run(target_sh + ["bump", target, "--acknowledge-no-drain-check"], cwd=ROOT).returncode != 0:
             print("generation bump failed: nothing was rebuilt", file=sys.stderr)
             return 1
         generation = self.generation_of(target)
         self.save("reset-bumped", target=target, drained=drained, acknowledged_loss=ack, generation=generation)
         # target.sh provision replaces the VM (the generation is a replace trigger), then enrols a fresh agent:
         # fleetctl issue-token deletes the target's older tokens and revokes its older agents.
-        if subprocess.run([target_sh, "provision", target], cwd=ROOT).returncode != 0:
+        if subprocess.run(target_sh + ["provision", target], cwd=ROOT).returncode != 0:
             self.save("reset-failed", target=target, generation=generation)
             print("provisioning failed at generation %d: re-run `scripts/target.sh provision %s` (a failed target is rebuilt, never hand-repaired)" % (generation, target), file=sys.stderr)
             return 1
