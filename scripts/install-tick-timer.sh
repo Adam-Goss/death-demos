@@ -4,15 +4,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
+CRONTAB=${CRONTAB:-crontab}  # override for tests
 TAG="# opaleye-labmode-tick"
 LINE="* * * * * set -a; . '$ROOT/secrets/env.sh'; set +a; cd '$ROOT' && python3 scripts/labmode.py tick >> '$ROOT/.state/tick.log' 2>&1 $TAG"
-current=$(crontab -l 2>/dev/null | grep -vF "$TAG" || true)
+current=$($CRONTAB -l 2>/dev/null | grep -vF "$TAG" || true)
 if [ "${1:-}" = "--remove" ]; then
-  printf '%s\n' "$current" | crontab -
+  printf '%s\n' "$current" | $CRONTAB -
   echo "tick timer removed"
   exit 0
 fi
 [ -f secrets/env.sh ] || { echo "missing secrets/env.sh (OPNSENSE_URL, OPNSENSE_API_KEY, OPNSENSE_API_SECRET)" >&2; exit 1; }
 mkdir -p .state
-printf '%s\n%s\n' "$current" "$LINE" | sed '/^$/d' | crontab -
+printf '%s\n%s\n' "$current" "$LINE" | sed '/^$/d' | $CRONTAB -
 echo "tick timer installed (every minute); needs the cron service running (WSL: sudo service cron start) and the VPN up"

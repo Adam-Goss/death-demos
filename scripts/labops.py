@@ -19,6 +19,7 @@
   labops.py analysis-sample start ID | end | tag ID   set lab.sample_id on analysis-zone events (markers + stamping, like an exercise)
   labops.py analysis-reset [HOST ...] [--acknowledge-loss REASON]
                                            force analysis Internet off, drain check, revert flare/remnux to the clean snapshot, fresh enrolment
+  labops.py doctor                         workstation health: timers installed for this checkout, Elastic reachable, firewall logs arriving (exit 1 on any problem)
   labops.py status
 
 Evidence deletion is deliberately NOT here: it is its own guarded, confirmed command and nothing in this file can reach it.
@@ -28,6 +29,7 @@ Shutdown leaves Elastic running unless --include-elastic is given, and then only
 Env: LABMODE_STATE_DIR (default .state, shared with labmode.py), LAB_PLAN, the ELASTIC_* variables of
      scripts/elastic_api.py, PROXMOX_VE_ENDPOINT, PVE_NODE, PROXMOX_VE_INSECURE, PROXMOX_VE_API_TOKEN_<STACK>
      (shutdown/startup), LABOPS_SSH / LABOPS_TARGET_SH (command overrides, used by tests),
+     LABOPS_OPS_TIMERS (command override for `scripts/ops-timers.sh status`, tests),
      LABOPS_SSH_WAIT (seconds to retry the post-revert enrolment while sshd comes up, default 240),
      LABOPS_LABMODE / LABOPS_FLEETCTL (command overrides, used by tests), PROXMOX_VE_API_TOKEN_ANALYSIS (analysis-reset: the token
      with snapshot rights on the analysis pool only),
@@ -38,6 +40,7 @@ import datetime
 import getpass
 import json
 import os
+import pathlib
 import re
 import secrets
 import shlex
@@ -515,12 +518,63 @@ class Ops:
         wait = float(os.environ.get("LABOPS_SHUTDOWN_WAIT") or 120)
         failed = labpower.run(self.plan, action, include_elastic, wait, self.poll, print)
         self.save(action, include_elastic=include_elastic, failed=failed, acknowledged_loss=ack)
+        if action == "startup" and not self.timers_status()[0]:
+            print("warning: the workstation timers (tick, firewall flow, Elastic tunnel) are not healthy: run scripts/ops-timers.sh install", file=sys.stderr)
         if not include_elastic:
             print("Elastic left running (use --include-elastic to %s it; graceful only, nothing is destroyed)" % ("power it off" if action == "shutdown" else "start it"))
         if failed:
             print("not %s: %s (nothing was forced; retry or use the Proxmox console)" % ("stopped" if action == "shutdown" else "started", ", ".join(map(str, failed))), file=sys.stderr)
             return 1
         return 0
+
+    def timers_status(self):
+        """(ok, lines) from scripts/ops-timers.sh status: the tick, flow-shipper and tunnel timers of THIS checkout."""
+        argv = shlex.split(os.environ.get("LABOPS_OPS_TIMERS") or "") or ["bash", pathlib.Path(ROOT, "scripts/ops-timers.sh").as_posix(), "status"]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, cwd=ROOT)
+        except OSError as e:
+            return False, ["cannot run ops-timers.sh: %s" % e]
+        return r.returncode == 0, r.stdout.strip().splitlines() or [r.stderr.strip()]
+
+    def doctor(self):
+        """Is the workstation side of the lab alive? Timers installed here, Elastic reachable, firewall logs arriving.
+        Exit 1 on any problem, each with the command that fixes it."""
+        problems = []
+        ok, lines = self.timers_status()
+        for line in lines:
+            print(("  " if line.startswith("ok ") else "  ! ") + line)
+        if not ok:
+            problems.append("workstation timers are not healthy: run scripts/ops-timers.sh install")
+        try:
+            es = elastic_api.es_client()
+            es.call("/_cluster/health")
+        except elastic_api.EsError as e:
+            problems.append("Elastic is not reachable (%s): is the lab up and the tunnel running (scripts/elastic-tunnel.sh)?" % e)
+            es = None
+        if es is not None:
+            try:
+                running = pve.from_env("firewall").status(self.plan["firewall"]["vm_id"]) == "running"
+            except (SystemExit, pve.PveError):
+                running = None
+                print("  firewall power state unknown (no PROXMOX_VE_API_TOKEN_FIREWALL): log freshness not checked")
+            minutes = self.plan["ops"]["flow_stale_minutes"]
+            since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            try:
+                count = es.call("/logs-lab_firewall.flow*/_count?ignore_unavailable=true",
+                                {"query": {"range": {"@timestamp": {"gte": since}}}}).get("count", 0)
+            except elastic_api.EsError as e:
+                count = None
+                problems.append("cannot count firewall flow events: %s" % e)
+            if count is not None and running:
+                print("  firewall flow events in the last %d minutes: %d" % (minutes, count))
+                if count == 0:
+                    problems.append("the firewall is running but no flow event arrived in %d minutes: check .state/firewall-flow.log and the timers" % minutes)
+            elif count is not None and running is False:
+                print("  firewall is off: no flow events expected")
+        for p in problems:
+            print("PROBLEM: " + p, file=sys.stderr)
+        print("doctor: %s" % ("ok" if not problems else "%d problem(s)" % len(problems)))
+        return 1 if problems else 0
 
     def drain_before_shutdown(self, ack):
         """Powering a target off with events unshipped loses them: check first, all targets, before anything is stopped."""
@@ -559,7 +613,7 @@ def main(argv):
     sample.add_parser("tag").add_argument("id")
     ar = sub.add_parser("analysis-reset")
     ar.add_argument("hosts", nargs="*"), ar.add_argument("--acknowledge-loss", metavar="REASON", default=None)
-    for name in ("attacker-clean", "status", "watermark"):
+    for name in ("attacker-clean", "status", "watermark", "doctor"):
         sub.add_parser(name)
     a = ap.parse_args(argv[1:])
 
@@ -591,6 +645,8 @@ def main(argv):
             ops.analysis_sample_end()
         elif a.cmd == "analysis-reset":
             return ops.analysis_reset(a.hosts, a.acknowledge_loss)
+        elif a.cmd == "doctor":
+            return ops.doctor()
         elif a.cmd == "attacker-clean":
             return ops.attacker_clean()
         elif a.cmd == "watermark":
