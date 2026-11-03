@@ -1,0 +1,13 @@
+# #52: the REMnux analysis VM. FLARE-VM (Windows) is a documented one-off image build, not an Ansible target
+# (docs/runbooks/malware-analysis.md). Re-runnable. Reached through the gateway (the only host that may open a connection
+# into the analysis zone): the inventory sets the SSH jump. Packages and the Agent tarball arrive in an online window
+# (scripts/labops.py analysis-online on); take the clean snapshot afterwards, with the Agent installed but unenrolled.
+- name: REMnux analysis VM
+  hosts: analysis
+  become: true
+  pre_tasks:
+    - name: Wait for the SSH connection
+      ansible.builtin.wait_for_connection:
+        timeout: 180
+  roles:
+    - analysis_remnux

@@ -89,7 +89,8 @@ class FakeEs:
             for pat in path.split("/")[1].split(","):
                 for d in self.select(pat):
                     if matches(d, body.get("query")):
-                        d.setdefault("lab", {})["exercise_id"] = body["script"]["params"]["id"]
+                        field = "sample_id" if "sample_id" in body["script"]["source"] else "exercise_id"
+                        d.setdefault("lab", {})[field] = body["script"]["params"]["id"]
                         n += 1
             return 200, {"updated": n}
         if path.endswith("/_delete_by_query"):

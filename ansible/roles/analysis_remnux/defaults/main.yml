@@ -1,0 +1,10 @@
+plan: "{{ lookup('ansible.builtin.file', playbook_dir + '/../../network/plan.json') | from_json }}"
+an: "{{ plan.analysis }}"
+el: "{{ plan.elastic }}"
+host_ip: "{{ plan.hosts.remnux.ip }}"
+# The Guacamole gateway's key (fetched by the gateway role): Guacamole opens REMnux's terminal and SFTP with it.
+gateway_pubkey_file: "{{ playbook_dir }}/../../secrets/gateway/targets_ed25519.pub"
+gateway_ip: "{{ plan.hosts.gateway.ip }}"
+agent_pkg: "{{ el.packages['elastic-agent'] }}"
+secrets_dir: "{{ playbook_dir }}/../../secrets/elastic"
+cache_dir: "{{ playbook_dir }}/../../.state/elastic-packages"

@@ -9,6 +9,8 @@ class FakePve:
         self.vms = dict(vms)  # vmid -> "running"/"stopped"
         self.node = node
         self.calls = []       # (method, path, token)
+        self.start_ignored = 0  # the next N start requests are accepted, then fail as tasks (e.g. "VM is locked (rollback)")
+        self.rollbacks = []   # (vmid, snapshot)
         self.stuck = set()    # guests that ignore the shutdown request
         self.srv = HTTPServer(("127.0.0.1", 0), self._handler())
         self.url = "http://127.0.0.1:%d" % self.srv.server_port
@@ -34,6 +36,10 @@ class FakePve:
                 fake.calls.append((self.command, self.path, self.headers.get("Authorization")))
                 parts = self.path.strip("/").split("/")  # api2 json nodes N qemu ID status ACTION
                 code, out = 404, {}
+                if len(parts) == 9 and parts[3] == fake.node and int(parts[5]) in fake.vms and parts[6] == "snapshot" and parts[8] == "rollback":
+                    fake.rollbacks.append((int(parts[5]), parts[7]))
+                    fake.vms[int(parts[5])] = "stopped"  # a Proxmox rollback leaves the guest stopped (no vmstate in the snapshot)
+                    code, out = 200, {"data": "UPID"}
                 if len(parts) == 8 and parts[3] == fake.node and int(parts[5]) in fake.vms:
                     vmid, action = int(parts[5]), parts[7]
                     if action == "current":
@@ -43,7 +49,10 @@ class FakePve:
                             fake.vms[vmid] = "stopped"
                         code, out = 200, {"data": "UPID"}
                     elif action == "start":
-                        fake.vms[vmid] = "running"
+                        if fake.start_ignored > 0:
+                            fake.start_ignored -= 1
+                        else:
+                            fake.vms[vmid] = "running"
                         code, out = 200, {"data": "UPID"}
                 data = json.dumps(out).encode()
                 self.send_response(code)
