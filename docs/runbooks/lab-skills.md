@@ -28,6 +28,13 @@ Every skill checks these four before its first step and stops on a failure; they
 
 The guests a command needs may also be off: **Elastic** for policies, drains and enrolment; the **gateway** for any jump into the analysis zone (`ssh -J opaleye@10.77.2.10`). `/lab-status` reports their power state and `/lab-deploy` offers to start them.
 
+Four more things the live checkout imposes, all found by running the skills on 2026-11-03:
+
+- **Use a login shell.** `tofu` is at `/snap/bin/tofu`, which a non-login `bash -c` does not have on `PATH`: `lab.sh plan` then fails with `tofu: command not found`. Check `command -v tofu` before any Tofu step.
+- **Call shell scripts with `bash`.** In the live checkout `scripts/lab.sh`, `scripts/ops-timers.sh` and `scripts/tunnel-keepalive.sh` are not executable (`-rw-r--r--`), so `scripts/lab.sh plan x` gives `Permission denied`. `bash scripts/lab.sh plan x` always works, so the skills use that form.
+- **The env file may be missing variables that matter.** `PROXMOX_VE_API_TOKEN_ANALYSIS` is absent from the live `secrets/env.sh`, so `nicaudit.py` aborts with `KeyError: 'PROXMOX_VE_API_TOKEN_ANALYSIS'` and the analysis hosts' power state reads `unknown`. More dangerously, `TF_VAR_firewall_template_vm_id` is unset and defaults to `0`, which drops the firewall stack's `clone` block: **`plan firewall` then reports the firewall VM "must be replaced"**. Never apply a plan whose replacement you cannot explain; check the stack's variables first.
+- **Restarting the Elastic tunnel is one command**: `bash scripts/tunnel-keepalive.sh` starts it in the background if port 19200 is closed, instead of occupying a terminal with `scripts/elastic-tunnel.sh`.
+
 ## Safety contract
 
 Every skill states these, and the guard is in the commands themselves, not in the skill:
@@ -60,4 +67,15 @@ The check is deliberately not vacuous: `test_the_command_tables_are_not_empty` f
 
 **Review pass (2026-11-03):** a standards review verified every command, subcommand, flag, path and link in the eight skills against the scripts and `network/plan.json` and found no invented flag or wrong behaviour claim; a spec review against #60 and its comment found two real errors, now fixed — `lab-maintenance` claimed a window could be extended by re-running `labmode.py maintenance` (it refuses while one is open; the skill now closes and reopens), and `lab-deploy` ran `labops.py startup` without a confirmation point.
 
-**Still to do, live on the lab:** run each skill once against the real lab from WSL with the VPN up, and record the result here — `lab-status` and `lab-troubleshoot` end to end; `lab-deploy` as `plan` only plus a power-on; `lab-maintenance` with a short window; `lab-exercise-run` with a throwaway exercise id; `lab-teardown` reset flow on `t1`; `lab-malware-analysis` with a one-minute Internet window and an `analysis-reset`. Note anything the skill got wrong about the live commands as a correction to the skill, not as a local workaround.
+### Live run, 2026-11-03 (WSL, `/home/adam/wrasse-live`, VPN up)
+
+**`/lab-status`, run end to end.** All ten steps executed. Result: the five lab guests `running`; mode `exercise` with **no target selected**; no active exercise or sample; Elasticsearch disk 5% (watermark 90%); 0 lagging events; `netpolicy.py lint` ok for exercise, exercise+t1, maintenance and exercise+online; `guacctl.py check` ok (default password gone, TOTP demanded); analysis Internet `off`; analysis generations flare 3, remnux 7. The Elastic VM now reports 16 GB (the #62 resize). Two checks did not pass, and both were real:
+
+- `labops.py doctor`: `Elastic is not reachable ... <urlopen error timed out>`, repeatably, while every timer line read `ok`. Port 19200 had no listener and there was no `ssh -N` process: **the tunnel was down for more than ten minutes with cron running**. `bash scripts/tunnel-keepalive.sh` restored it in one go (19200 answered `401`, i.e. a live listener), after which `doctor: ok` with 31 firewall flow events in the last 15 minutes, and the tunnel was still up 90 seconds later. `.state/tunnel.log` ends in `Connection to 10.77.3.10 closed by remote host`, so it had been dropped from the far side, not misconfigured.
+- `nicaudit.py`: aborted with `KeyError: 'PROXMOX_VE_API_TOKEN_ANALYSIS'`. The live env file has no analysis token, so the NIC audit and the analysis hosts' power state are **unknown, not a pass**.
+
+**`/lab-troubleshoot`, exercised on those two symptoms** (ground state first, then the narrowest fix): diagnosed the dead tunnel from `doctor` + `pgrep` + a direct `19200` probe rather than from the timer lines, fixed it with the keepalive, and confirmed with `doctor`. The missing token was reported, not worked around.
+
+**`/lab-deploy`, dry run only** (`plan`, no apply). `plan elastic`: **No changes**. `plan firewall`: **`proxmox_virtual_environment_vm.firewall must be replaced`** — traced to `TF_VAR_firewall_template_vm_id` being unset, which defaults to `0` and drops the stack's `clone` block (`vm_id 2101 -> null # forces replacement`). **An apply would have destroyed and recreated the firewall VM.** `plan targets`, `attacker`, `gateway`: `Backend initialization required` — only `firewall` and `elastic` are initialised in this checkout. Also found here: `tofu` is only on `PATH` in a login shell, and `scripts/lab.sh` has no exec bit. All four are now in the preconditions above and in the skills.
+
+**Still to do, live:** `/lab-maintenance` with a short window, `/lab-exercise-run` with a throwaway exercise id (it needs `labmode.py select t1` first — nothing is selected), `/lab-teardown`'s reset flow on `t1`, and `/lab-malware-analysis` with a one-minute Internet window plus an `analysis-reset` (needs the analysis token added first). Each changes lab state, so each waits for the operator. Note anything a skill gets wrong about the live commands as a correction to the skill, not as a local workaround.

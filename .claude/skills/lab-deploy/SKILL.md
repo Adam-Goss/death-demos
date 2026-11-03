@@ -20,8 +20,13 @@ Each step ends when its criterion holds. Stop at a failing criterion and report 
 2. **Preconditions checked** (the four from the skills runbook) and the lab answers: `python3 scripts/labmode.py status` prints the mode. Criterion: all four hold and the mode is known. A tunnel that was up before a firewall rebuild must be deactivated and reactivated.
 3. **Power on** (skip for a stack rebuild of a running lab), with the user's confirmation: `python3 scripts/labops.py startup --include-elastic` (firewall first, then Elastic, targets, attacker, gateway; it powers guests on and rebuilds nothing). Criterion: every guest reports `running`. A guest that does not start is reported, never forced; retry or use the Proxmox console. `startup` warns when the workstation timers are unhealthy. Elastic and the gateway matter beyond their own stacks — Elastic for policies, drains and enrolment, the gateway for any jump into the analysis zone — so offer to start them even when only one stack is being rebuilt. The analysis VMs are deliberately not started here (`/lab-malware-analysis`).
 4. **Elastic API reachable**: the Elastic SSH tunnel must run for `labops.py`, the Ansible API tasks and `fleetctl.py` (`scripts/elastic-tunnel.sh` in another terminal, or the installed tunnel timer). Criterion: `python3 scripts/labops.py doctor` prints `doctor: ok`, or its `PROBLEM:` lines are understood and accepted for this run (a stopped firewall expects no flow events).
-5. **Plan the change** (stack runs only): `scripts/lab.sh init <stack>` first in a fresh checkout, then `scripts/lab.sh plan <stack>`. Show the plan and name what it replaces. Criterion: the user approves the plan.
-6. **Apply, in order**: `scripts/lab.sh apply <stack>`, or `scripts/lab.sh apply all` for the whole ordered set (`firewall`, `elastic`, `targets`, `attacker`, `gateway`). The `analysis` stack is only ever run by name, never by `all`. Re-running an apply is safe. Criterion: each apply exits 0. `apply all` also reinstalls the workstation timers; a warning there does not fail the deployment.
+5. **Plan the change** (stack runs only). Work in a **login shell** (`tofu` lives in `/snap/bin`; a non-login shell fails with `tofu: command not found`) and call the runner through `bash`, because the live checkout's `scripts/lab.sh` is not executable:
+   ```bash
+   bash scripts/lab.sh init <stack>     # once per stack per checkout; without it: "Backend initialization required"
+   bash scripts/lab.sh plan <stack>
+   ```
+   Then read the plan **before showing it**: a stack whose `TF_VAR_*` inputs are missing plans a **replacement** of a VM that is perfectly healthy. The live case to recognise: with `TF_VAR_firewall_template_vm_id` unset it defaults to `0`, the firewall stack's `clone` block disappears, and `plan firewall` says `proxmox_virtual_environment_vm.firewall must be replaced` (`vm_id 2101 -> null # forces replacement`). Criterion: every add, change and destroy in the plan is explained, and the user approves it. **A replacement you cannot explain is a missing variable, not a change to apply** — stop and fix the environment.
+6. **Apply, in order**: `bash scripts/lab.sh apply <stack>`, or `bash scripts/lab.sh apply all` for the whole ordered set (`firewall`, `elastic`, `targets`, `attacker`, `gateway`). The `analysis` stack is only ever run by name, never by `all`. Re-running an apply is safe. Criterion: each apply exits 0 and did what the approved plan said. `apply all` also reinstalls the workstation timers; a warning there does not fail the deployment.
 7. **In-guest configuration**, for the stacks that were (re)built. Package installs and image pulls need **maintenance mode** (`python3 scripts/labmode.py maintenance --minutes N --reason "<text>"`, confirmed with the user first):
    - Elastic: `(cd ansible && ansible-playbook playbooks/elastic.yml)`, then `playbooks/elastic-evidence.yml`. Elastic never gets Internet access: its packages are fetched on the workstation (`python3 scripts/fleetctl.py fetch-packages`, then `upload-packages`) and checked against the pins in `network/plan.json`.
    - Target: `scripts/target.sh provision t1` (Tofu apply at the current generation plus the target play). Needs maintenance mode and the tunnel.
@@ -41,7 +46,9 @@ Each step ends when its criterion holds. Stop at a failing criterion and report 
 
 ## Failure handling
 
-- `tofu` wants a backend init: `scripts/lab.sh init <stack>` (fresh checkout).
+- `tofu` wants a backend init: `bash scripts/lab.sh init <stack>`. Normal in the live checkout — only `firewall` and `elastic` were initialised there on 2026-11-03.
+- `tofu: command not found`: not a login shell. `command -v tofu` should print `/snap/bin/tofu`.
+- `scripts/lab.sh: Permission denied`: the live checkout's shell scripts have no exec bit; call them as `bash scripts/lab.sh ...`.
 - Proxmox 403 on a new bridge after a firewall rebuild: the privilege-separated token needs its own `SDN.Use` ACL; see the gateway runbook's live-run notes.
 - `select` refused because the denies are not re-verified: that flag is cleared by the `REVERIFY=1` A2 run in step 8.
 - Scripts failing with `\r`: a Windows checkout. Run from WSL or a Linux clone.

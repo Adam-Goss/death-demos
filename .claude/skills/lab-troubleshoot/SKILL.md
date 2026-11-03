@@ -24,7 +24,12 @@ Symptom to diagnosis to fix. The authoritative symptom table is the [README trou
    | `select`/`exercise t1` says denies are not re-verified | `labmode.py status` | README: `exercise none`, `REVERIFY=1 scripts/a2-verify.sh exercise none lab`, `select t1` |
    | Already in maintenance | `labmode.py status` expiry | README: wait for expiry or `labmode.py exercise none` |
    | Package install or image pull times out | `labmode.py status` | `/lab-maintenance` (exercise mode blocks egress); re-run the play on a CDN change |
-   | `labops.py` cannot reach Elasticsearch | `labops.py doctor` | `scripts/elastic-tunnel.sh`, or the tunnel timer: [ops timers](../../../docs/runbooks/ops-timers.md) |
+   | `labops.py` cannot reach Elasticsearch | `curl -sk -m 10 -o /dev/null -w '%{http_code}\n' https://127.0.0.1:19200/` (`000` = no listener) | `bash scripts/tunnel-keepalive.sh` (one shot, backgrounds it); `.state/tunnel.log` if it keeps dying: [ops timers](../../../docs/runbooks/ops-timers.md) |
+   | All timer lines `ok` yet Elastic unreachable | `pgrep -af 'ssh -N'` | The crontab check only reads the cron lines; the tunnel can still be down. Same fix as the row above |
+   | `tofu: command not found` | `command -v tofu` | Use a login shell: it is `/snap/bin/tofu` |
+   | `scripts/<x>.sh: Permission denied` | `ls -l scripts/<x>.sh` | No exec bit in the live checkout: run it as `bash scripts/<x>.sh` |
+   | `plan` wants to replace a healthy VM | the plan's `# forces replacement` lines | A missing `TF_VAR_*`, not a real change (live: `TF_VAR_firewall_template_vm_id` unset defaults to `0` and drops the firewall clone block). Fix the environment; **do not apply** |
+   | `nicaudit.py` `KeyError: 'PROXMOX_VE_API_TOKEN_ANALYSIS'` | the env file's variables | Add the analysis token; until then the NIC audit is unknown, not a pass |
    | No firewall flow events arriving | `labops.py doctor`, `scripts/ops-timers.sh status` | `/lab-workstation-setup` (a `STALE` line fails silently in cron) |
    | `exercise start` refused | `labmode.py status`, `labops.py watermark` | `/lab-exercise-run` preflight |
    | `reset` refused | `labmode.py status`, `labops.py drain t1` | `/lab-teardown` section C |
