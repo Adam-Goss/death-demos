@@ -37,7 +37,9 @@
   loop_control: { label: "{{ item.name }}" }
   notify: Restart elasticsearch
 
+# `ansible-playbook playbooks/elastic.yml --tags heap` applies a plan.json heap_gb change alone (after the VM has the RAM).
 - name: Heap
+  tags: [heap]
   ansible.builtin.copy:
     dest: /etc/elasticsearch/jvm.options.d/heap.options
     content: "-Xms{{ el.heap_gb }}g\n-Xmx{{ el.heap_gb }}g\n"

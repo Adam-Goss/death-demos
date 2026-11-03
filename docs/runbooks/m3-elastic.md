@@ -9,7 +9,7 @@ Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks
 | Item | Choice |
 | --- | --- |
 | Stack pin | Elasticsearch, Kibana, Elastic Agent (Fleet Server) **9.5.5**, Basic license, single node. Package sha512 in `network/plan.json` `elastic.packages` (taken from artifacts.elastic.co `.sha512` files, 2026-10-28); Ansible refuses a mismatch |
-| VM | VMID 2003, pool `lab-elastic`, `10.77.3.10` on `vmbr2003`, 4 vCPU / 8 GB (heap 4 GB), disks on `iso-files`: OS 20 GB (`vda`), data 100 GB (`vdb`, `/var/lib/elasticsearch`), snapshots 100 GB (`vdc`, `/srv/es-snapshots`). The #9 placeholders; replaced after A10 |
+| VM | VMID 2003, pool `lab-elastic`, `10.77.3.10` on `vmbr2003`, 4 vCPU / 16 GB (heap 8 GB), disks on `iso-files`: OS 20 GB (`vda`), data 100 GB (`vdb`, `/var/lib/elasticsearch`), snapshots 100 GB (`vdc`, `/srv/es-snapshots`). The #9 placeholders; replaced after A10 |
 | Image | Debian cloud image to a template (VMID 2300, pool `lab-elastic`) with `scripts/make-elastic-template.sh`, cloned over the API |
 | Packages | Elastic has **no Internet, even in maintenance mode**. Ansible downloads on the workstation, checks the pinned sha512, copies over SSH |
 | TLS | Lab CA generated on the workstation under `secrets/elastic/ca/` (gitignored, never in the repo or an image). Server cert SAN `10.77.3.10`, `elastic.lab`. Agents pin the CA SHA-256 fingerprint (set on the Fleet output); the CA file is passed at enrolment (M4) |

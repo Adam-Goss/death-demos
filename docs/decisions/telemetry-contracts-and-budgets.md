@@ -50,11 +50,11 @@ The per-stream list is `network/plan.json` `elastic.datasets` (expected names, c
 
 | Item | Placeholder (replace with measurements) |
 | --- | --- |
-| Elastic VM | 4 vCPU / 8 GB RAM (ES heap 4 GB), 100 GB data disk |
+| Elastic VM | 4 vCPU / 16 GB RAM (ES heap 8 GB), 100 GB data disk (raised from 8 GB / 4 GB heap after the analysis zone's first live run: the 8 GB VM ran at 6.8 GB with no swap and intermittent API timeouts) |
 | Target VM | 2 vCPU / 4 GB |
 | Firewall VM | 1-2 vCPU / 2 GB |
 | Attacker VM | 2 vCPU / 4 GB |
-| Total | about 9-10 vCPU / 18 GB |
+| Total | about 9-10 vCPU / 26 GB (plus the analysis VMs when running: REMnux 4 vCPU / 8 GB, FLARE 4 vCPU / 16 GB) |
 
 - Elasticsearch disk watermarks at defaults. At **high watermark: alert and stop new exercises**. Nothing auto-deleted; deletion only via evidence deletion.
 - **Validation workload:** one idle day plus three runs of Exercise 1. Record indexed bytes per evidence class, and CPU/RAM of Elasticsearch, Kibana, Fleet Server and Defend overhead.
