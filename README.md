@@ -224,6 +224,9 @@ Do not hand-repair a compromised or broken target; rebuild it (`labops.py reset 
 
 ## Command reference
 
+Every script here is executable in a clone. A checkout that lost its exec bits — synced from `/mnt/c`, unzipped on
+Windows — needs the interpreter spelled out: `bash scripts/lab.sh ...`, `python3 scripts/labops.py ...` (#65).
+
 | Command | Purpose |
 | --- | --- |
 | `scripts/lab.sh <init\|plan\|apply\|destroy> <stack\|all>` | Ordered Tofu runner (state encrypted with `OPALEYE_STATE_PASSPHRASE`). Refuses to destroy Elastic. |

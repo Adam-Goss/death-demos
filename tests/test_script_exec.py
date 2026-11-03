@@ -15,13 +15,13 @@ import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# On Windows `bash` from a Python subprocess can be the WSL launcher, which cannot open C:/ paths: prefer Git Bash.
-BASH = next((b for b in ("C:/Program Files/Git/bin/bash.exe",) if os.name == "nt" and os.path.exists(b)), "bash")
 
-# A path to a script of this repo, not preceded by a word character (so `my-scripts/x.sh` does not match).
-SCRIPT_PATH = re.compile(r"(?<![\w./$-])\.?/?(scripts/[\w./-]+\.(?:sh|py))")
+# A script of this repo, however it is spelled: `scripts/x.sh`, `./scripts/x.sh`, `$ROOT/scripts/x.sh`.
+# The lookbehind keeps `my-scripts/x.sh` out.
+SCRIPT_PATH = re.compile(r"(?<![\w-])(?:[\w${}\"'.-]*/)?(scripts/[\w./-]+\.(?:sh|py))")
 # Words that leave the next word in command position.
-KEYWORDS = {"exec", "eval", "then", "else", "elif", "do", "nohup", "time", "command", "xargs", "sudo"}
+KEYWORDS = {"exec", "eval", "if", "while", "until", "then", "else", "elif", "do",
+            "nohup", "time", "env", "command", "xargs", "sudo"}
 
 
 def in_command_position(before):
@@ -59,6 +59,8 @@ def bare_invocations(text):
 
     Heuristic, deliberately conservative: a match inside a quoted string (an odd number of unescaped quotes
     precedes it) is prose, not a call, and a path in argument position (`test -f scripts/lab.sh`) is not a call.
+    Known blind spots, none of which the repo uses: a wrapper that takes its own arguments first
+    (`timeout 30 scripts/lab.sh ...`), a path on a continued line, and a here-doc body.
     """
     bad = []
     for n, line in enumerate(text.splitlines(), 1):
@@ -89,7 +91,7 @@ class ProvisionInACheckoutWithoutExecBits(unittest.TestCase):
         (self.repo / "scripts" / "target.sh").chmod(0o644)
 
     def test_provision_reaches_the_tofu_runner(self):
-        r = subprocess.run([BASH, "scripts/target.sh", "provision", "t1"],
+        r = subprocess.run(["bash", "scripts/target.sh", "provision", "t1"],
                            cwd=self.repo, capture_output=True, text=True)
         called = self.repo / ".state" / "lab-called"
         self.assertTrue(called.exists(), "lab.sh was never run: %s" % r.stderr)
@@ -139,16 +141,28 @@ class Invariants(unittest.TestCase):
                 wrong[path] = "executable without a shebang: git update-index --chmod=-x %s" % path
         self.assertEqual(wrong, {}, wrong)
 
-    def test_the_detector_sees_a_bare_call_and_leaves_the_rest_alone(self):
-        self.assertEqual(bare_invocations("scripts/lab.sh apply targets"), ["1: scripts/lab.sh apply targets"])
-        self.assertEqual(bare_invocations("a && scripts/lab.sh plan x"), ["1: a && scripts/lab.sh plan x"])
-        self.assertEqual(bare_invocations("exec scripts/a2-verify.sh home"), ["1: exec scripts/a2-verify.sh home"])
-        self.assertEqual(bare_invocations('FOO=1 scripts/lab.sh apply all'), ["1: FOO=1 scripts/lab.sh apply all"])
+
+class Detector(unittest.TestCase):
+    def test_a_bare_call_is_seen_however_it_is_spelled(self):
+        for line in ("scripts/lab.sh apply targets",
+                     "a && scripts/lab.sh plan x",
+                     "exec scripts/a2-verify.sh home",
+                     "FOO=1 scripts/lab.sh apply all",
+                     "if scripts/lab.sh plan x; then echo y; fi",
+                     "while scripts/lab.sh plan x; do sleep 1; done",
+                     "$ROOT/scripts/lab.sh apply all",
+                     '"$ROOT"/scripts/lab.sh apply all',
+                     "./scripts/lab.sh apply all"):
+            self.assertEqual(bare_invocations(line), ["1: " + line], line)
+
+    def test_a_call_through_an_interpreter_or_a_mention_is_left_alone(self):
         for benign in ("bash scripts/lab.sh apply targets", "python3 scripts/netpolicy.py check",
                        "$PY scripts/labmode.py status", "sh scripts/install-deadman.sh /mnt",
-                       "test -f scripts/lab.sh", "# run scripts/lab.sh apply all",
-                       'echo "then run scripts/lab.sh apply all"',
-                       "install -m 755 scripts/firewall/opaleye_deadman.py /usr/local/sbin/x"):
+                       "exec bash scripts/a2-verify.sh home", "test -f scripts/lab.sh",
+                       "# run scripts/lab.sh apply all", 'echo "then run scripts/lab.sh apply all"',
+                       'LAB=x bash "$ROOT/scripts/lab.sh" apply all',
+                       "install -m 755 scripts/firewall/opaleye_deadman.py /usr/local/sbin/x",
+                       "cp my-scripts/lab.sh /tmp"):
             self.assertEqual(bare_invocations(benign), [], benign)
 
 

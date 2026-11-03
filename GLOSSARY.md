@@ -25,6 +25,9 @@ The restricted Elastic-facing service to which lab systems forward telemetry; it
 **Target reset**:
 Rebuilding a target VM from pinned inputs after confirming telemetry forwarding has drained; it never touches Elastic evidence.
 
+**Half-reset**:
+A target reset whose rebuild generation was raised but whose VM was not replaced, because provisioning failed after the bump. The target is finished by re-running the provision, never by repairing the VM.
+
 **Lab shutdown**:
 Powering off all lab guests without destroying anything.
 

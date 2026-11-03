@@ -292,7 +292,7 @@ class Ops:
         # fleetctl issue-token deletes the target's older tokens and revokes its older agents.
         if subprocess.run(target_sh + ["provision", target], cwd=ROOT).returncode != 0:
             self.save("reset-failed", target=target, generation=generation)
-            print("provisioning failed at generation %d: re-run `scripts/target.sh provision %s` (a failed target is rebuilt, never hand-repaired)" % (generation, target), file=sys.stderr)
+            print("provisioning failed at generation %d: re-run `bash scripts/target.sh provision %s` (a failed target is rebuilt, never hand-repaired)" % (generation, target), file=sys.stderr)
             return 1
         self.save("reset", target=target, drained=drained, acknowledged_loss=ack, generation=generation)
         print("%s rebuilt: generation %d. Prior events stay searchable by exercise id. Return to exercise mode and re-verify denies (labmode.py)." % (target, generation))
