@@ -2,11 +2,14 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+from labcommon import BASH  # noqa: E402
 
 
 @unittest.skipIf(os.name == "nt", "run the Bash verifier tests under WSL/Linux")
@@ -96,7 +99,7 @@ else:
         for key in ("REVERIFY", "ONLY_DST", "SKIP_SOURCES", "MATRIX_FAIL", "RECORD_FAIL", "PROBE_FAIL", "ALIAS_REFRESH",
                     "ANALYSIS_ROW", "PROBE_SSH_FLARE", "VANTAGE_DEAD", "CRLF", "RESET_HOST_KEYS", "KEYGEN_LOG"):
             env.pop(key, None)
-        return subprocess.run(["bash", str(ROOT / "scripts/a2-verify.sh"), mode, "none", phase],
+        return subprocess.run([BASH, str(ROOT / "scripts/a2-verify.sh"), mode, "none", phase],
                               env=dict(env, **options), capture_output=True, text=True, timeout=15)
 
     def probes_on(self, source_ip):

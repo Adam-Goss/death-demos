@@ -9,7 +9,9 @@ import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
 from fake_es_ops import FakeEs  # noqa: E402
+from labcommon import BASH  # noqa: E402
 
 PLAN = json.load(open(os.path.join(ROOT, "network/plan.json")))
 MARK = PLAN["ops"]["marker_stream"]
@@ -149,7 +151,7 @@ class Unreachable(unittest.TestCase):
 
     def test_lab_sh_still_refuses_to_destroy_elastic(self):
         env = dict(os.environ, OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij", PROXMOX_VE_ENDPOINT="https://x/")
-        r = subprocess.run(["bash", os.path.join(ROOT, "scripts/lab.sh"), "destroy", "elastic"], env=env, capture_output=True, text=True)
+        r = subprocess.run([BASH, os.path.join(ROOT, "scripts/lab.sh"), "destroy", "elastic"], env=env, capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("refused", r.stderr)
 

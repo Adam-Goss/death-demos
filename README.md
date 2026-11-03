@@ -275,6 +275,7 @@ The lab is code. A full rebuild follows the milestone runbooks in order, each wi
 | Guacamole RDP says "X server could not be started" | `xorgxrdp` missing on the attacker; re-run `playbooks/attacker.yml` in maintenance mode. |
 | `tofu` says backend initialisation is required | In a fresh checkout run `scripts/lab.sh init <stack>`. |
 | Scripts fail with `\r` errors | CRLF line endings from a Windows checkout; run from WSL or a Linux clone. |
+| On Windows, tests that spawn a shell script fail before it runs | A bare `bash` there is the WSL launcher, which cannot open a `C:/...` path (#69). Install Git for Windows, or point `OPALEYE_BASH` at a bash that can. |
 | Rebuilt firewall: Proxmox 403 on a new bridge | Privilege-separated tokens need their own `SDN.Use` ACL on the bridge; see the gateway runbook's live-run notes. |
 
 ## Repository layout
@@ -292,7 +293,7 @@ The lab is code. A full rebuild follows the milestone runbooks in order, each wi
 | `.claude/skills/` | Claude Code skills that run these procedures with you ([skills runbook](docs/runbooks/lab-skills.md)). |
 | `secrets/`, `.state/` | Gitignored: secrets, encrypted Tofu state, evidence files. |
 
-Run the offline tests with `python3 -m unittest discover -s tests` and `bash tests/static-checks.sh`. A few tests that call shell scripts fail on a Windows checkout; use Linux or WSL.
+Run the offline tests with `python3 -m unittest discover -s tests` and `bash tests/static-checks.sh`. Both are verified on Linux and WSL. Tests and commands that spawn a repo script take their interpreter from `labcommon.BASH`, which prefers Git Bash on Windows (a bare `bash` there is the WSL launcher and cannot open a `C:/...` path, #69); with no Git Bash installed and no `OPALEYE_BASH` set, those tests still fail on Windows.
 
 ## Status and documentation
 

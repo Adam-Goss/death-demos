@@ -9,8 +9,9 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HERE = pathlib.Path(__file__).resolve().parent
-# On Windows `bash` from a Python subprocess can be the WSL launcher, which cannot open C:/ paths: prefer Git Bash.
-BASH = next((b for b in ("C:/Program Files/Git/bin/bash.exe",) if os.name == "nt" and os.path.exists(b)), "bash")
+sys.path.insert(0, str(ROOT / "scripts"))
+from labcommon import BASH  # noqa: E402
+
 TAGS = ("opaleye-labmode-tick", "opaleye-firewall-flow", "opaleye-elastic-tunnel")
 
 

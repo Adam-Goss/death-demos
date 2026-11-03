@@ -17,6 +17,15 @@ sys.path.insert(0, HERE)
 from fake_es_ops import FakeEs  # noqa: E402
 from fake_pve import FakePve  # noqa: E402
 
+
+def interpreted(stub):
+    """A stub command with its interpreter named, as `labops.py` shlex-splits these overrides.
+
+    Windows cannot run a `.py` by its shebang, so a bare path fails with WinError 2 before the stub starts (#69).
+    """
+    return "%s %s" % (pathlib.Path(sys.executable).as_posix(), pathlib.Path(HERE, stub).as_posix())
+
+
 PLAN = json.load(open(os.path.join(ROOT, "network/plan.json")))
 FW, EL, AT = PLAN["firewall"]["vm_id"], PLAN["elastic"]["vm_id"], PLAN["attacker"]["vm_id"]
 GW = PLAN["gateway"]["vm_id"]
@@ -38,7 +47,7 @@ class OpsCase(unittest.TestCase):
         with open(pw, "w") as f:
             f.write("pw\n")
         self.env = dict(
-            os.environ, LABMODE_STATE_DIR=self.state, LABOPS_SSH=os.path.join(HERE, "stub_ssh.py"),
+            os.environ, LABMODE_STATE_DIR=self.state, LABOPS_SSH=interpreted("stub_ssh.py"),
             LABOPS_TARGET_SH=os.path.join(HERE, "stub_target.sh"), STUB_GEN_DIR=self.gen,
             LABOPS_POLL="0.05", LABOPS_DRAIN_TIMEOUT="1", STUB_LOG=self.log, FAKE_ES_URL=self.es.url,
             ELASTIC_ES_URL=self.es.url, ELASTIC_KB_URL=self.es.url, ELASTIC_PASSWORD_FILE=pw,
@@ -483,9 +492,9 @@ class Analysis(OpsCase):
         for vmid in self.vm.values():
             self.pve.vms[vmid] = "running"
         self.env.update(
-            LABOPS_LABMODE="%s %s" % (pathlib.Path(sys.executable).as_posix(), pathlib.Path(HERE, "stub_labmode.py").as_posix()),
-            LABOPS_FLEETCTL="%s %s" % (pathlib.Path(sys.executable).as_posix(), pathlib.Path(HERE, "stub_fleetctl.py").as_posix()),
-            LABOPS_SSH="%s %s" % (pathlib.Path(sys.executable).as_posix(), pathlib.Path(HERE, "stub_ssh.py").as_posix()),
+            LABOPS_LABMODE=interpreted("stub_labmode.py"),
+            LABOPS_FLEETCTL=interpreted("stub_fleetctl.py"),
+            LABOPS_SSH=interpreted("stub_ssh.py"),
             PROXMOX_VE_API_TOKEN_ANALYSIS="an!t=6", LABOPS_SHUTDOWN_WAIT="2")
 
     def lines(self, prefix):

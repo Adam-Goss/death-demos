@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import tempfile
 import subprocess
@@ -18,6 +19,8 @@ ENV = {
     "OPNSENSE_WG_PUBLIC_KEY": "C" + "A" * 42 + "=",
     "OPNSENSE_WG_PEER_PUBLIC_KEY": "D" + "A" * 42 + "=",
 }
+# `seed.sha512_crypt` shells out to openssl, which a Windows checkout has no copy of (#69).
+needs_openssl = unittest.skipIf(not shutil.which("openssl"), "openssl hashes the seed secrets; not on PATH")
 
 
 def seed_text():
@@ -130,6 +133,7 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(g.findtext("priv"), "page-all")
         self.assertEqual(g.findtext("member"), "0")
 
+    @needs_openssl
     def test_render_injects_hashed_secrets(self):
         out = seed.render(ENV, self.plan)
         self.assertNotIn("@@", out)
@@ -144,6 +148,7 @@ class SeedTest(unittest.TestCase):
         self.assertTrue(seed.looks_secret(out))
         self.assertEqual(seed.problems(out), [])
 
+    @needs_openssl  # without it every render raises the SystemExit this asserts, so it would pass for the wrong reason
     def test_render_rejects_missing_and_malformed(self):
         for name in ENV:
             env = dict(ENV)
@@ -167,6 +172,7 @@ class SeedTest(unittest.TestCase):
         for label, (old, new) in cases.items():
             self.assertTrue(seed.problems(self.tpl.replace(old, new, 1)), label)
 
+    @unittest.skipIf(os.name == "nt", "POSIX file modes do not exist on Windows (#69); the seed is rendered on Linux")
     def test_render_file_is_owner_only(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.xml")

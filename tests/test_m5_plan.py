@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import unittest
 
@@ -85,7 +86,8 @@ class Markers(unittest.TestCase):
 
 class Playbooks(unittest.TestCase):
     def test_attacker_playbook_passes_syntax_check_when_ansible_is_installed(self):
-        if subprocess.run(["which", "ansible-playbook"], capture_output=True).returncode != 0:
+        # shutil, not `which`: Windows has no such program, so the guard itself used to raise (#69).
+        if not shutil.which("ansible-playbook"):
             self.skipTest("ansible not installed")
         # Ansible ignores ansible.cfg in a world-writable directory (a checkout on /mnt/c in WSL): name it explicitly.
         env = dict(os.environ, ANSIBLE_CONFIG=os.path.join(ROOT, "ansible", "ansible.cfg"))

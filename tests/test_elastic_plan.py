@@ -10,6 +10,9 @@ import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+from labcommon import BASH  # noqa: E402
+
 PLAN = json.load(open(ROOT / "network/plan.json"))
 EL = PLAN["elastic"]
 
@@ -50,7 +53,7 @@ class ElasticPlan(unittest.TestCase):
 class DestroyGuard(unittest.TestCase):
     def test_lab_sh_refuses_elastic_destroy(self):
         env = dict(os.environ, OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij", PROXMOX_VE_ENDPOINT="https://x/")
-        r = subprocess.run(["bash", str(ROOT / "scripts/lab.sh"), "destroy", "elastic"], env=env, capture_output=True, text=True)
+        r = subprocess.run([BASH, str(ROOT / "scripts/lab.sh"), "destroy", "elastic"], env=env, capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("refused", r.stderr)
 
@@ -69,7 +72,7 @@ class DestroyGuard(unittest.TestCase):
                        PROXMOX_VE_ENDPOINT="https://x/")
             for s in ("FIREWALL", "ELASTIC", "TARGETS", "ATTACKER", "GATEWAY"):
                 env["PROXMOX_VE_API_TOKEN_" + s] = "t"
-            r = subprocess.run(["bash", str(ROOT / "scripts/lab.sh"), "destroy", "all"], env=env, capture_output=True, text=True)
+            r = subprocess.run([BASH, str(ROOT / "scripts/lab.sh"), "destroy", "all"], env=env, capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(log.read_text().split("\n")[:-1], ["gateway destroy", "attacker destroy", "targets destroy", "firewall destroy"])
 

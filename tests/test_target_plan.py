@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts"))
 from fake_elastic import Fake  # noqa: E402
+from labcommon import BASH  # noqa: E402
 import a4_verify  # noqa: E402
 import fleetctl  # noqa: E402
 
@@ -174,7 +175,7 @@ class A4Verifier(unittest.TestCase):
 
 class TargetShell(unittest.TestCase):
     def run_sh(self, *args):
-        return subprocess.run(["bash", str(ROOT / "scripts/target.sh"), *args], capture_output=True, text=True, cwd=ROOT)
+        return subprocess.run([BASH, str(ROOT / "scripts/target.sh"), *args], capture_output=True, text=True, cwd=ROOT)
 
     def test_unknown_target_is_refused(self):
         r = self.run_sh("provision", "t9")
