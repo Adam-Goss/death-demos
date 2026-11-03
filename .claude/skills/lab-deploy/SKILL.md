@@ -1,0 +1,51 @@
+---
+name: lab-deploy
+description: Bring the Opaleye lab up: power a powered-off lab on, or build/rebuild its Tofu stacks and in-guest configuration in order, then verify with the acceptance checks.
+disable-model-invocation: true
+---
+
+# Lab deploy
+
+Two jobs share this skill: **powering a built lab on** (nothing is rebuilt) and **building or rebuilding stacks**. Procedure: [README "Using the lab"](../../../README.md#using-the-lab) steps 2 and 9 and ["Building the lab from scratch"](../../../README.md#building-the-lab-from-scratch); per-stack detail in the [M1](../../../docs/runbooks/m1-foundations.md), [M2](../../../docs/runbooks/m2-firewall-and-networks.md), [M3](../../../docs/runbooks/m3-elastic.md), [M4](../../../docs/runbooks/m4-target.md), [M5](../../../docs/runbooks/m5-attacker-operator.md) and [gateway](../../../docs/runbooks/guacamole-gateway.md) runbooks. Follow those documents where they are more specific than this skill; do not restate their steps from memory.
+
+Run from WSL (the scripts need LF endings) in the live checkout, with the operator env file sourced (`set -a; . <path>/env.sh; set +a`) and the VPN active.
+
+**Confirm with the user before every `lab.sh apply`, before entering maintenance mode, and before any Ansible play.** An apply replaces VMs. Never run `lab.sh destroy` from this skill: that is `/lab-teardown`.
+
+## Steps
+
+Each step ends when its criterion holds. Stop at a failing criterion and report it with its output.
+
+1. **Which job**: ask whether this is a power-on, a change to one stack, or a from-scratch/rebuild run, and which stacks. Criterion: the user names the job and the stacks. If the answer is "power on", do steps 2-4 and 9 only.
+2. **Preconditions**: VPN checked with **TCP, not ping** (`curl -sk -o /dev/null -w '%{http_code}\n' https://10.77.9.1/`, any HTTP code is a pass; the firewall drops ICMP) and `python3 scripts/labmode.py status` prints the mode. Criterion: both answer. A tunnel that was up before a firewall rebuild must be deactivated and reactivated.
+3. **Power on** (skip for a stack rebuild of a running lab): `python3 scripts/labops.py startup --include-elastic` (firewall first, then Elastic, targets, attacker, gateway; it powers guests on and rebuilds nothing). Criterion: every guest reports `running`. A guest that does not start is reported, never forced; retry or use the Proxmox console. `startup` warns when the workstation timers are unhealthy: that is `/lab-workstation-setup`, not this skill. The analysis VMs are deliberately not started here (`/lab-malware-analysis`).
+4. **Elastic API reachable**: the Elastic SSH tunnel must run for `labops.py`, the Ansible API tasks and `fleetctl.py` (`scripts/elastic-tunnel.sh` in another terminal, or the installed tunnel timer). Criterion: `python3 scripts/labops.py doctor` prints `doctor: ok`, or its `PROBLEM:` lines are understood and accepted for this run (a stopped firewall expects no flow events).
+5. **Plan the change** (stack runs only): `scripts/lab.sh init <stack>` first in a fresh checkout, then `scripts/lab.sh plan <stack>`. Show the plan and name what it replaces. Criterion: the user approves the plan.
+6. **Apply, in order**: `scripts/lab.sh apply <stack>`, or `scripts/lab.sh apply all` for the whole ordered set (`firewall`, `elastic`, `targets`, `attacker`, `gateway`). The `analysis` stack is only ever run by name, never by `all`. Re-running an apply is safe. Criterion: each apply exits 0. `apply all` also reinstalls the workstation timers; a warning there does not fail the deployment.
+7. **In-guest configuration**, for the stacks that were (re)built. Package installs and image pulls need **maintenance mode** (`python3 scripts/labmode.py maintenance --minutes N --reason "<text>"`, confirmed with the user first):
+   - Elastic: `(cd ansible && ansible-playbook playbooks/elastic.yml)`, then `playbooks/elastic-evidence.yml`. Elastic never gets Internet access: its packages are fetched on the workstation (`python3 scripts/fleetctl.py fetch-packages`, then `upload-packages`) and checked against the pins in `network/plan.json`.
+   - Target: `scripts/target.sh provision t1` (Tofu apply at the current generation plus the target play). Needs maintenance mode and the tunnel.
+   - Attacker, gateway: `playbooks/attacker.yml`, `playbooks/gateway.yml`.
+   - Gateway admin: `python3 scripts/guacctl.py bootstrap` the first time (replaces the default `guacadmin` password, then creates the connections), `guacctl.py connections` afterwards. TOTP is enrolled by the operator at the first browser login.
+   Criterion: each play ends with no failed tasks. A package install that times out means exercise mode, not a broken play.
+8. **Back to the resting state and verify**: leave maintenance (`python3 scripts/labmode.py exercise none`, which also pushes a rebuilt firewall's rules), then prove the denies and select the target:
+   ```bash
+   python3 scripts/netpolicy.py lint exercise none
+   REVERIFY=1 scripts/a2-verify.sh exercise none lab      # A2 is a hard gate before any vulnerable target runs
+   python3 scripts/nicaudit.py                            # no guest has a second lab NIC or a home-bridge NIC
+   python3 scripts/labmode.py select t1
+   ```
+   A2's `lab` phase needs probe guests for zones without a real VM (`t2`): see the [M2 runbook](../../../docs/runbooks/m2-firewall-and-networks.md). Criterion: A2 passes (or passes with understood `SKIP` rows) and `nicaudit.py` exits 0. Then, as relevant to what was rebuilt: `scripts/a3-verify.sh services`, `scripts/a4-verify.sh t1`, `scripts/a5-verify.sh t1`.
+9. **Report ready**: `python3 scripts/labmode.py status` shows exercise mode with the target selected, and `scripts/ops-timers.sh status` exits 0. Criterion: both hold, or the gap is named.
+
+## Failure handling
+
+- `tofu` wants a backend init: `scripts/lab.sh init <stack>` (fresh checkout).
+- Proxmox 403 on a new bridge after a firewall rebuild: the privilege-separated token needs its own `SDN.Use` ACL; see the gateway runbook's live-run notes.
+- `select` refused because the denies are not re-verified: that flag is cleared by the `REVERIFY=1` A2 run in step 8.
+- Scripts failing with `\r`: a Windows checkout. Run from WSL or a Linux clone.
+- A broken target is rebuilt, never hand-repaired (`/lab-teardown`'s reset flow).
+
+## Done
+
+Report: what was powered on or applied, the plays that ran, the verifier results (A2 first), the mode and selected target, and anything skipped with the reason.
