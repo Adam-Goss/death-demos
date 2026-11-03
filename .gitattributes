@@ -1,3 +1,10 @@
+# Baseline: every text file is LF in the working tree, including on a Windows
+# checkout. Without this, a Windows editor rewrites prose, YAML and .tf files to
+# CRLF and the whole tree shows as modified with an empty whitespace-only diff.
+* text=auto eol=lf
+
+# The rules below are redundant under the baseline, but they record *why* LF is
+# load-bearing for these paths; keep them if the baseline is ever narrowed.
 *.sh text eol=lf
 # Python scripts run directly by their shebang; a CRLF shebang fails with 'python3\r: No such file'
 *.py text eol=lf
