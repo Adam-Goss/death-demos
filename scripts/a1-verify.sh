@@ -32,9 +32,9 @@ bash tests/static-checks.sh || fail=1
 echo
 plan_out=$(mktemp); trap 'rm -f "$plan_out"' EXIT
 echo "Ordered deploy then no-op re-apply (fresh state each time is the operator's call):"
-scripts/lab.sh init all >/dev/null && scripts/lab.sh apply all >/dev/null || fail=1
+bash scripts/lab.sh init all >/dev/null && bash scripts/lab.sh apply all >/dev/null || fail=1
 for s in "${stacks[@]}"; do
-  scripts/lab.sh plan "$s" >"$plan_out" 2>&1
+  bash scripts/lab.sh plan "$s" >"$plan_out" 2>&1
   grep -q 'No changes' "$plan_out" && echo "no-op $s: yes" || { echo "no-op $s: NO"; fail=1; }
 done
 echo "node SSH used: no (provider has no ssh block; scripts never call ssh)"

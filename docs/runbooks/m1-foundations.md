@@ -17,9 +17,9 @@ OpenTofu native AES-GCM encryption, PBKDF2 key from `OPALEYE_STATE_PASSPHRASE`, 
 
 ## Run
 
-1. On the node: `BRIDGES="" scripts/bootstrap-proxmox.sh`; copy the three token secrets to the workstation secrets store.
+1. On the node: `BRIDGES="" bash scripts/bootstrap-proxmox.sh`; copy the three token secrets to the workstation secrets store.
 2. Workstation env: `OPALEYE_STATE_PASSPHRASE`, `PROXMOX_VE_ENDPOINT`, `PROXMOX_VE_API_TOKEN_{FIREWALL,ELASTIC,TARGETS}`, optional `PROXMOX_VE_INSECURE=true`.
-3. `scripts/lab.sh init all && scripts/lab.sh apply all`, then `scripts/a1-verify.sh`.
+3. `scripts/lab.sh init all && bash scripts/lab.sh apply all`, then `bash scripts/a1-verify.sh`.
 4. Re-run bootstrap with `BRIDGES="<bridge>"` once M2 creates lab bridges.
 
 ## A1 evidence

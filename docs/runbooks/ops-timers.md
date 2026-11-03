@@ -11,13 +11,13 @@ Three jobs run on the operator workstation (WSL, cron) and the lab depends on th
 ## Install and check
 
 ```
-scripts/ops-timers.sh install    # all three, for THIS checkout; replaces lines by tag, so re-running after moving the checkout repairs them
-scripts/ops-timers.sh status     # exit 1 if one is missing, points at a directory that no longer exists, or runs in another checkout
-scripts/ops-timers.sh remove
+bash scripts/ops-timers.sh install   # all three, for THIS checkout; replaces lines by tag, so re-running after moving the checkout repairs them
+bash scripts/ops-timers.sh status    # exit 1 if one is missing, points at a directory that no longer exists, or runs in another checkout
+bash scripts/ops-timers.sh remove
 python3 scripts/labops.py doctor # timers + Elastic reachable + firewall flow events in the last 15 minutes (exit 1 on any problem)
 ```
 
-`scripts/lab.sh apply all` installs them at the end, and `labops.py startup` warns when they are not healthy. A failed install never fails a deployment.
+`bash scripts/lab.sh apply all` installs them at the end, and `labops.py startup` warns when they are not healthy. A failed install never fails a deployment.
 
 Needs: the cron service (WSL: `sudo service cron start`), `secrets/env.sh` (the tick and flow jobs read it; `unset ELASTIC_PASSWORD` in it so `fleetctl.py` uses `secrets/elastic/elastic.password`), the VPN, and an SSH key for the Elastic VM without a passphrase (the tunnel runs unattended with `BatchMode`).
 

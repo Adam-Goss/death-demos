@@ -18,12 +18,12 @@ Stop at a failing criterion and report it with its output.
 
 1. **Scope the window, and check you can leave it again**: which guests are being updated (attacker, gateway, target, Elastic) and roughly how long. No exercise may be active (`python3 scripts/labops.py status`). Then the part that is easy to discover too late: leaving maintenance sets the re-verify flag, and step 6's `REVERIFY=1` run only clears it on **one unfiltered exercise/lab run with zero skipped rows and exit 0**. That is achievable (done live on 2026-11-03: `rows=82 skipped=0 PASS`) but needs preparation — probe guests for `t2` and `flare` with FLARE powered off, the gateway as the vantage for every zone the operator may not enter, and `ssh-keygen -R` on the probe addresses. **`/lab-teardown` step 0 is the full recipe; read it before opening the window.** If that preparation is not possible now, tell the user before the switch: the window will otherwise leave the lab with no selectable target, and the only other way out is `labmode.py reverified` on their explicit instruction. Criterion: the user confirms the scope, the minutes, and that the exit path is available.
 2. **Elastic packages first, on the workstation**: Elastic never gets Internet access, even in maintenance mode. `python3 scripts/fleetctl.py fetch-packages` downloads the integration zips here and `upload-packages` verifies them against the pins in `network/plan.json` before uploading to Kibana. A pin mismatch stops the update: report it, do not relax the check. Criterion: `upload-packages` exits 0, or Elastic is out of scope.
-3. **Open the window**: `python3 scripts/labmode.py maintenance --minutes N --reason "<text>"`. The reason is recorded; use the user's words. Criterion: `python3 scripts/labmode.py status` shows maintenance mode with an expiry. The window expires on its own through the `tick` timer, so **if the timers are stale nothing closes it** (`scripts/ops-timers.sh status`, `/lab-workstation-setup`).
+3. **Open the window**: `python3 scripts/labmode.py maintenance --minutes N --reason "<text>"`. The reason is recorded; use the user's words. Criterion: `python3 scripts/labmode.py status` shows maintenance mode with an expiry. The window expires on its own through the `tick` timer, so **if the timers are stale nothing closes it** (`bash scripts/ops-timers.sh status`, `/lab-workstation-setup`).
 4. **Update the guests in scope**:
    ```bash
    (cd ansible && ansible-playbook playbooks/attacker.yml)    # attacker tooling, XFCE/xrdp
    (cd ansible && ansible-playbook playbooks/gateway.yml)     # Guacamole images
-   scripts/target.sh provision t1                             # target: Tofu at the current generation plus the target play
+   bash scripts/target.sh provision t1                             # target: Tofu at the current generation plus the target play
    (cd ansible && ansible-playbook playbooks/elastic.yml)     # Elastic, from the uploaded packages only
    ```
    Criterion: each play ends with no failed tasks. A timeout usually means the window closed or the source is not in the allowlist: check `labmode.py status` first, then re-run (a transient CDN address change is retried by the roles).
@@ -31,7 +31,7 @@ Stop at a failing criterion and report it with its output.
 6. **Return to the resting state and re-verify the denies**:
    ```bash
    python3 scripts/labmode.py exercise none
-   REVERIFY=1 scripts/a2-verify.sh exercise none lab
+   REVERIFY=1 bash scripts/a2-verify.sh exercise none lab
    python3 scripts/labmode.py select t1
    ```
    Leaving maintenance sets a flag: a target cannot be selected again until the exercise-mode denies are re-verified by that full unfiltered A2 run (it needs probe guests for zones without a real VM, here `t2`: see the [M2 runbook](../../../docs/runbooks/m2-firewall-and-networks.md)). Criterion: A2 passes and `select` succeeds.

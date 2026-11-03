@@ -101,7 +101,7 @@ python3 scripts/labmode.py status                        # mode, selected target
 | **Attacker shell** | `ssh opaleye@10.77.1.10` |
 | **Hunt in Kibana** | `https://10.77.3.10:5601`, user `elastic`, password in `secrets/elastic/elastic.password` (trust `secrets/elastic/ca/ca.crt`). |
 | **Firewall** | `https://10.77.9.1` (GUI). Day-to-day changes go through `labmode.py`, not the GUI. |
-| **Elasticsearch/Fleet API from the workstation** | `scripts/elastic-tunnel.sh` in a second terminal (forwards `19200`/`18220`). `labops.py` and the Ansible API tasks need it. |
+| **Elasticsearch/Fleet API from the workstation** | `bash scripts/elastic-tunnel.sh` in a second terminal (forwards `19200`/`18220`). `labops.py` and the Ansible API tasks need it. |
 
 First Guacamole login (once): scan the QR code with an authenticator app. See [the gateway runbook](docs/runbooks/guacamole-gateway.md) for enrolment, adding a connection and recovery.
 
@@ -109,7 +109,7 @@ First Guacamole login (once): scan the QR code with an authenticator app. See [t
 
 Exercise 1 is command injection in DVWA's `low` security page, leading to a shell process on the target. It produces an Apache request, a process chain (web worker, shell, child) and a network event.
 
-1. Select the target and open the tunnel (`scripts/elastic-tunnel.sh`).
+1. Select the target and open the tunnel (`bash scripts/elastic-tunnel.sh`).
 2. Start the exercise. This writes a marker event that tags the run:
 
    ```bash
@@ -144,7 +144,7 @@ python3 scripts/labops.py drain t1                                   # confirms 
 python3 scripts/labmode.py maintenance --minutes 60 --reason "target reset"
 python3 scripts/labops.py reset t1                                   # drain check, bump generation, rebuild
 python3 scripts/labmode.py exercise none                             # leave maintenance mode
-REVERIFY=1 scripts/a2-verify.sh exercise none lab                    # prove the denies again (see below)
+REVERIFY=1 bash scripts/a2-verify.sh exercise none lab               # prove the denies again (see below)
 python3 scripts/labmode.py select t1
 python3 scripts/labops.py attacker-clean                             # clear attacker-side exercise files
 ```
@@ -175,7 +175,7 @@ The procedures in this guide are also packaged as Claude Code skills in [`.claud
 | `labmode.py select t1` | Allow the attacker to reach `t1:80` (exercise mode only). |
 | `labmode.py maintenance --minutes N --reason "text"` | Time-limited update allowlist; closes every attacker-to-target flow. Expires on its own (a timer runs `labmode.py tick`). |
 
-Leaving maintenance mode sets a flag: you cannot select a target again until the exercise-mode denies are **re-verified**. That is `REVERIFY=1 scripts/a2-verify.sh exercise none lab`, a full unfiltered probe run from the lab zones. It needs a Linux probe guest in every zone without a running Linux VM — `t2` always, and `flare`, because FLARE-VM is Windows and cannot run the POSIX probes (power it off so the probe can take its address); see the [M2 runbook](docs/runbooks/m2-firewall-and-networks.md) for probe setup. The vantage is chosen per source, so the zones only the gateway may enter (`t2`, `flare`, `remnux`) are probed through the gateway automatically: `python3 scripts/netpolicy.py vantage exercise` prints the map. Clear each probe address's host key first — a recreated guest has a new one, and the stale entry fails exactly like a dead probe: `RESET_HOST_KEYS="t2 flare" REVERIFY=1 scripts/a2-verify.sh exercise none lab`. Every mode change goes pending, applied, then confirmed; if the confirmation never lands, a dead-man job on the firewall restores the last confirmed config.
+Leaving maintenance mode sets a flag: you cannot select a target again until the exercise-mode denies are **re-verified**. That is `REVERIFY=1 bash scripts/a2-verify.sh exercise none lab`, a full unfiltered probe run from the lab zones. It needs a Linux probe guest in every zone without a running Linux VM — `t2` always, and `flare`, because FLARE-VM is Windows and cannot run the POSIX probes (power it off so the probe can take its address); see the [M2 runbook](docs/runbooks/m2-firewall-and-networks.md) for probe setup. The vantage is chosen per source, so the zones only the gateway may enter (`t2`, `flare`, `remnux`) are probed through the gateway automatically: `python3 scripts/netpolicy.py vantage exercise` prints the map. Clear each probe address's host key first — a recreated guest has a new one, and the stale entry fails exactly like a dead probe: `RESET_HOST_KEYS="t2 flare" REVERIFY=1 bash scripts/a2-verify.sh exercise none lab`. Every mode change goes pending, applied, then confirmed; if the confirmation never lands, a dead-man job on the firewall restores the last confirmed config.
 
 ### 6. Update packages and images (maintenance)
 
@@ -184,7 +184,7 @@ Package installs and image pulls (attacker tooling, target rebuilds, gateway ima
 ```bash
 python3 scripts/labmode.py maintenance --minutes 30 --reason "packages"
 (cd ansible && ansible-playbook playbooks/attacker.yml)      # or gateway.yml, target.yml via scripts/target.sh
-python3 scripts/labmode.py exercise none && REVERIFY=1 scripts/a2-verify.sh exercise none lab
+python3 scripts/labmode.py exercise none && REVERIFY=1 bash scripts/a2-verify.sh exercise none lab
 python3 scripts/labmode.py select t1
 ```
 
@@ -216,26 +216,29 @@ It is refused during an active exercise. Take an Elasticsearch snapshot first if
 Each stack (`firewall`, `elastic`, `targets`, `attacker`, `gateway`) has its own Tofu state and Proxmox token:
 
 ```bash
-scripts/lab.sh plan <stack>        # init | plan | apply | destroy
-scripts/lab.sh apply all           # ordered; `destroy all` never touches Elastic
+bash scripts/lab.sh plan <stack>   # init | plan | apply | destroy
+bash scripts/lab.sh apply all      # ordered; `destroy all` never touches Elastic
 ```
 
 Do not hand-repair a compromised or broken target; rebuild it (`labops.py reset t1`). Re-running an apply is always safe. Changing the network plan (`network/plan.json`) needs the seed regenerated (`python3 scripts/opnsense_seed.py template > network/opnsense-seed.xml`) and, for a new zone or NIC, a firewall template rebuild: see the runbooks.
 
 ## Command reference
 
+Every script here is executable in a clone. A checkout that lost its exec bits — synced from `/mnt/c`, unzipped on
+Windows — needs the interpreter spelled out: `bash scripts/lab.sh ...`, `python3 scripts/labops.py ...` (#65).
+
 | Command | Purpose |
 | --- | --- |
-| `scripts/lab.sh <init\|plan\|apply\|destroy> <stack\|all>` | Ordered Tofu runner (state encrypted with `OPALEYE_STATE_PASSPHRASE`). Refuses to destroy Elastic. |
-| `scripts/labmode.py` | Exercise/maintenance mode, target selection, dead-man arm/confirm. |
-| `scripts/labops.py` | `exercise start/end/tag/show`, `drain`, `reset`, `attacker-clean`, `shutdown`, `startup`, `watermark`, `status`. |
-| `scripts/target.sh <provision\|bump\|generation> <t>` | Target VM provisioning and rebuild generation (used by `labops.py reset`). |
-| `scripts/evidence_delete.py` | The only evidence deletion command. |
-| `scripts/guacctl.py <bootstrap\|connections\|check>` | Guacamole admin password, connections, TOTP check. |
-| `scripts/fleetctl.py` | Fleet policies, enrolment tokens, ingest-lag rule for targets. |
-| `scripts/elastic-tunnel.sh` | SSH tunnel for the Elasticsearch/Fleet APIs. |
-| `scripts/netpolicy.py` | Renders and lints the firewall policy from `network/plan.json` (`check`, `lint`, `matrix`, `rules`, `bridges`). |
-| `scripts/a2-verify.sh`, `a3-verify.sh`, `a4-verify.sh`, `a5-verify.sh`, `a10_measure.py` | Acceptance checks A2-A5 and measurement A10 (see [acceptance checks](docs/decisions/acceptance-checks-and-build-plan.md)). |
+| `bash scripts/lab.sh <init\|plan\|apply\|destroy> <stack\|all>` | Ordered Tofu runner (state encrypted with `OPALEYE_STATE_PASSPHRASE`). Refuses to destroy Elastic. |
+| `python3 scripts/labmode.py` | Exercise/maintenance mode, target selection, dead-man arm/confirm. |
+| `python3 scripts/labops.py` | `exercise start/end/tag/show`, `drain`, `reset`, `attacker-clean`, `shutdown`, `startup`, `watermark`, `status`. |
+| `bash scripts/target.sh <provision\|bump\|generation> <t>` | Target VM provisioning and rebuild generation (used by `labops.py reset`). |
+| `python3 scripts/evidence_delete.py` | The only evidence deletion command. |
+| `python3 scripts/guacctl.py <bootstrap\|connections\|check>` | Guacamole admin password, connections, TOTP check. |
+| `python3 scripts/fleetctl.py` | Fleet policies, enrolment tokens, ingest-lag rule for targets. |
+| `bash scripts/elastic-tunnel.sh` | SSH tunnel for the Elasticsearch/Fleet APIs. |
+| `python3 scripts/netpolicy.py` | Renders and lints the firewall policy from `network/plan.json` (`check`, `lint`, `matrix`, `rules`, `bridges`). |
+| `bash scripts/a2-verify.sh`, `a3-verify.sh`, `a4-verify.sh`, `a5-verify.sh`, `a10_measure.py` | Acceptance checks A2-A5 and measurement A10 (see [acceptance checks](docs/decisions/acceptance-checks-and-build-plan.md)). |
 | `tests/static-checks.sh` | Offline guards: layout, state encryption, no secrets, policy lint, plan sanity. |
 
 ## Building the lab from scratch
@@ -243,7 +246,7 @@ Do not hand-repair a compromised or broken target; rebuild it (`labops.py reset 
 The lab is code. A full rebuild follows the milestone runbooks in order, each with its own acceptance check; the from-scratch run is recorded in the [M6 runbook](docs/runbooks/m6-end-to-end-validation.md).
 
 1. **Site facts and authority:** [`docs/inventory/site-inventory.md`](docs/inventory/site-inventory.md).
-2. **Node bootstrap (root, on the Proxmox node):** `scripts/bootstrap-bridges.sh` (lab bridges, outside the Ludus blocks), then `scripts/bootstrap-proxmox.sh` (pools, role, one privilege-separated token per stack; secrets print once), then the template builders (`make-*-template.sh`).
+2. **Node bootstrap (root, on the Proxmox node):** `scripts/bootstrap-bridges.sh` (lab bridges, outside the Ludus blocks), then `bash scripts/bootstrap-proxmox.sh` (pools, role, one privilege-separated token per stack; secrets print once), then the template builders (`make-*-template.sh`).
 3. **Stacks in order:** `firewall`, `elastic`, `targets`, `attacker`, `gateway` with `scripts/lab.sh apply`, then each stack's Ansible play (Elastic, evidence pipelines, target, attacker, gateway) and `scripts/guacctl.py bootstrap`.
 4. **Firewall first boot:** the OPNsense config is generated from `network/plan.json` as a seed, baked into a template and cloned, with no console or GUI step: [M2 runbook](docs/runbooks/m2-firewall-and-networks.md).
 5. **Verify:** `scripts/a2-verify.sh` (isolation and egress, A2 is a hard gate before any vulnerable target runs), then A3-A5, then the exercise.
@@ -262,7 +265,7 @@ The lab is code. A full rebuild follows the milestone runbooks in order, each wi
 | Symptom | Likely cause and fix |
 | --- | --- |
 | Tunnel is "up" but nothing answers | You pinged. ICMP is blocked; test TCP `443` on `10.77.9.1`. After a firewall rebuild, deactivate and reactivate the tunnel. |
-| `labmode.py exercise t1` says denies are not re-verified | Leaving maintenance sets a flag. Run `labmode.py exercise none`, `REVERIFY=1 scripts/a2-verify.sh exercise none lab`, then `labmode.py select t1`. |
+| `labmode.py exercise t1` says denies are not re-verified | Leaving maintenance sets a flag. Run `labmode.py exercise none`, `REVERIFY=1 bash scripts/a2-verify.sh exercise none lab`, then `labmode.py select t1`. |
 | `labmode.py maintenance` says already in maintenance | Wait for expiry or run `labmode.py exercise none`. |
 | Package install or image pull times out | You are in exercise mode; enter maintenance mode. A transient CDN address change is retried by the roles; re-run the play. |
 | `labops.py` cannot reach Elasticsearch | The tunnel (`scripts/elastic-tunnel.sh`) is not running. |

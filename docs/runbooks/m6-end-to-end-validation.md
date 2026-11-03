@@ -125,7 +125,7 @@ Evidence deletion was **not** run to completion (it is the only destructive path
 
 ## A10 Measurement
 
-`scripts/a10_measure.py snapshot LABEL` / `report A B [HOURS]` (tested in `tests/test_a10_measure.py`). **Recorded, non-blocking. Accepted by Adam on 2026-10-30 on the shorter run: no 24-hour idle day will be run.** Window: a **10-minute idle sample scaled to an hour, not a full idle day**, plus three Exercise 1 runs (`ex-101..103`, t1 generation 3). Store-size deltas go negative when Lucene merges segments, so size is estimated as new documents x average bytes per document; raw deltas are in `.state/a10/`.
+`python3 scripts/a10_measure.py snapshot LABEL` / `report A B [HOURS]` (tested in `tests/test_a10_measure.py`). **Recorded, non-blocking. Accepted by Adam on 2026-10-30 on the shorter run: no 24-hour idle day will be run.** Window: a **10-minute idle sample scaled to an hour, not a full idle day**, plus three Exercise 1 runs (`ex-101..103`, t1 generation 3). Store-size deltas go negative when Lucene merges segments, so size is estimated as new documents x average bytes per document; raw deltas are in `.state/a10/`.
 
 Average bytes per document and exercise cost (three runs agree within about 10%):
 

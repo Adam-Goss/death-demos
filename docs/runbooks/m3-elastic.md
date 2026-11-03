@@ -21,8 +21,8 @@ Issue #22. Exit = check A3 in [acceptance checks](../decisions/acceptance-checks
 
 ## Run
 
-1. Node, as root: `scripts/bootstrap-proxmox.sh` (pool/token for `elastic` already exist from M1), then `scripts/make-elastic-template.sh`.
-2. Workstation: `export TF_VAR_node_name=ludus TF_VAR_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)"`; `scripts/lab.sh apply elastic`. Re-apply is a no-op.
+1. Node, as root: `scripts/bootstrap-proxmox.sh` (pool/token for `elastic` already exist from M1), then `bash scripts/make-elastic-template.sh`.
+2. Workstation: `export TF_VAR_node_name=ludus TF_VAR_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)"`; `bash scripts/lab.sh apply elastic`. Re-apply is a no-op.
 3. VPN up. The firewall gives the operator only 5601 and 22 on Elastic (probes p32, p45, p48, p49), so API calls from the workstation go through an SSH tunnel: in another terminal `scripts/elastic-tunnel.sh` (forwards 19200/18220 to the VM's own 9200/8220; the VM must be reachable by SSH first). Then `cd ansible && ansible-galaxy collection install -r requirements.yml && ansible-playbook playbooks/elastic.yml`. Re-runnable; failures: re-run, then the manual path below.
 4. Operator opens `https://10.77.3.10:5601` (user `elastic`, password in `secrets/elastic/elastic.password`; trust `secrets/elastic/ca/ca.crt`).
 5. Evidence (first `ansible-playbook playbooks/elastic-config-backup.yml`: `services` checks the archive holds the keystores, certificates and configs; destroy the elastic probe guest first, it holds the same address: `TF_VAR_probe_zones='["attacker","t1","t2"]'`, then `lab.sh apply firewall`): `scripts/a3-verify.sh services`; `labmode.py select t1`; `a3-verify.sh net lab`, `net vpn`, `net home` (vantage setup as in the [M2 runbook](m2-firewall-and-networks.md#how-to-rerun-a2)). Set `PROXMOX_VE_API_TOKEN_FIREWALL`, `_TARGETS`, `PVE_NODE` for the token-scope rows.
@@ -136,7 +136,7 @@ The VM size (`vcpu`, `memory_mb`, disk sizes) and the JVM heap (`heap_gb`) come 
 
 1. Edit `network/plan.json`, the expectations in `tests/test_elastic_plan.py` and the capacity table in `docs/decisions/telemetry-contracts-and-budgets.md`; commit.
 2. Check the host has the RAM (`free -m` on the node against the running VMs).
-3. Gracefully stop only the Elastic VM, then `scripts/lab.sh apply elastic`, then start it. Raising memory is an in-place change that takes effect after a restart. The Proxmox provider also queues a reboot after the update: when the VM was stopped and the provider started it, that reboot task timed out and Tofu printed `error waiting for VM reboot`. The change had landed; `scripts/lab.sh plan elastic` then reports no changes, so the error is safe to ignore after that check.
+3. Gracefully stop only the Elastic VM, then `bash scripts/lab.sh apply elastic`, then start it. Raising memory is an in-place change that takes effect after a restart. The Proxmox provider also queues a reboot after the update: when the VM was stopped and the provider started it, that reboot task timed out and Tofu printed `error waiting for VM reboot`. The change had landed; `bash scripts/lab.sh plan elastic` then reports no changes, so the error is safe to ignore after that check.
 4. `ansible-playbook playbooks/elastic.yml --tags heap` (only after the VM has the RAM; it restarts Elasticsearch).
 5. Verify: `labops.py doctor`, `free -m` on the VM, and the heap maximum in `_nodes/stats/jvm`.
 

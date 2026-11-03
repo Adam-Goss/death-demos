@@ -8,6 +8,6 @@ set -u
 cd "$(dirname "$0")/.."
 case ${1:-} in
   services) exec python3 scripts/a3_verify.py ;;
-  net) ONLY_DST=elastic exec scripts/a2-verify.sh exercise "${3:-t1}" "${2:?lab|vpn|home}" ;;
+  net) ONLY_DST=elastic exec bash scripts/a2-verify.sh exercise "${3:-t1}" "${2:?lab|vpn|home}" ;;
   *) echo "usage: a3-verify.sh services | net <lab|vpn|home> [target]" >&2; exit 2 ;;
 esac

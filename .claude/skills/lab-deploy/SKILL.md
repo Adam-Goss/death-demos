@@ -20,7 +20,7 @@ Each step ends when its criterion holds. Stop at a failing criterion and report 
 2. **Preconditions checked** (the four from the skills runbook) and the lab answers: `python3 scripts/labmode.py status` prints the mode. Criterion: all four hold and the mode is known. A tunnel that was up before a firewall rebuild must be deactivated and reactivated.
 3. **Power on** (skip for a stack rebuild of a running lab), with the user's confirmation: `python3 scripts/labops.py startup --include-elastic` (firewall first, then Elastic, targets, attacker, gateway; it powers guests on and rebuilds nothing). Criterion: every guest reports `running`. A guest that does not start is reported, never forced; retry or use the Proxmox console. `startup` warns when the workstation timers are unhealthy. Elastic and the gateway matter beyond their own stacks — Elastic for policies, drains and enrolment, the gateway for any jump into the analysis zone — so offer to start them even when only one stack is being rebuilt. The analysis VMs are deliberately not started here (`/lab-malware-analysis`).
 4. **Elastic API reachable**: the Elastic SSH tunnel must run for `labops.py`, the Ansible API tasks and `fleetctl.py` (`scripts/elastic-tunnel.sh` in another terminal, or the installed tunnel timer). Criterion: `python3 scripts/labops.py doctor` prints `doctor: ok`, or its `PROBLEM:` lines are understood and accepted for this run (a stopped firewall expects no flow events).
-5. **Plan the change** (stack runs only). Work in a **login shell** (`tofu` lives in `/snap/bin`; a non-login shell fails with `tofu: command not found`) and call the runner through `bash`, because the live checkout's `scripts/lab.sh` is not executable:
+5. **Plan the change** (stack runs only). Work in a **login shell** (`tofu` lives in `/snap/bin`; a non-login shell fails with `tofu: command not found`) and call the runner through `bash`, because a checkout synced from `/mnt/c` or unzipped on Windows loses the exec bit (#65):
    ```bash
    bash scripts/lab.sh init <stack>     # once per stack per checkout; without it: "Backend initialization required"
    bash scripts/lab.sh plan <stack>
@@ -29,18 +29,18 @@ Each step ends when its criterion holds. Stop at a failing criterion and report 
 6. **Apply, in order**: `bash scripts/lab.sh apply <stack>`, or `bash scripts/lab.sh apply all` for the whole ordered set (`firewall`, `elastic`, `targets`, `attacker`, `gateway`). The `analysis` stack is only ever run by name, never by `all`. Re-running an apply is safe. Criterion: each apply exits 0 and did what the approved plan said. `apply all` also reinstalls the workstation timers; a warning there does not fail the deployment.
 7. **In-guest configuration**, for the stacks that were (re)built. Package installs and image pulls need **maintenance mode** (`python3 scripts/labmode.py maintenance --minutes N --reason "<text>"`, confirmed with the user first):
    - Elastic: `(cd ansible && ansible-playbook playbooks/elastic.yml)`, then `playbooks/elastic-evidence.yml`. Elastic never gets Internet access: its packages are fetched on the workstation (`python3 scripts/fleetctl.py fetch-packages`, then `upload-packages`) and checked against the pins in `network/plan.json`.
-   - Target: `scripts/target.sh provision t1` (Tofu apply at the current generation plus the target play). Needs maintenance mode and the tunnel.
+   - Target: `bash scripts/target.sh provision t1` (Tofu apply at the current generation plus the target play). Needs maintenance mode and the tunnel.
    - Attacker, gateway: `playbooks/attacker.yml`, `playbooks/gateway.yml`.
    - Gateway admin: `python3 scripts/guacctl.py bootstrap` the first time (replaces the default `guacadmin` password, then creates the connections), `guacctl.py connections` afterwards. TOTP is enrolled by the operator at the first browser login.
    Criterion: each play ends with no failed tasks. A package install that times out means exercise mode, not a broken play.
 8. **Back to the resting state and verify**: leave maintenance (`python3 scripts/labmode.py exercise none`, which also pushes a rebuilt firewall's rules), then prove the denies and select the target:
    ```bash
    python3 scripts/netpolicy.py lint exercise none
-   REVERIFY=1 scripts/a2-verify.sh exercise none lab      # A2 is a hard gate before any vulnerable target runs
+   REVERIFY=1 bash scripts/a2-verify.sh exercise none lab      # A2 is a hard gate before any vulnerable target runs
    python3 scripts/nicaudit.py                            # no guest has a second lab NIC or a home-bridge NIC
    python3 scripts/labmode.py select t1
    ```
-   A2's `lab` phase needs probe guests for zones without a real VM (`t2`): see the [M2 runbook](../../../docs/runbooks/m2-firewall-and-networks.md). Criterion: A2 passes (or passes with understood `SKIP` rows) and `nicaudit.py` exits 0. Then, as relevant to what was rebuilt: `scripts/a3-verify.sh services`, `scripts/a4-verify.sh t1`, `scripts/a5-verify.sh t1`.
+   A2's `lab` phase needs probe guests for zones without a real VM (`t2`): see the [M2 runbook](../../../docs/runbooks/m2-firewall-and-networks.md). Criterion: A2 passes (or passes with understood `SKIP` rows) and `nicaudit.py` exits 0. Then, as relevant to what was rebuilt: `bash scripts/a3-verify.sh services`, `bash scripts/a4-verify.sh t1`, `bash scripts/a5-verify.sh t1`.
 9. **Workstation timers for this checkout**: a deployment is not finished until the tick, flow-shipper and tunnel timers point at the live checkout. Run `/lab-workstation-setup` (it installs and proves them, and prints the crontab command for the operator when the harness refuses the edit — never work around that refusal). Criterion: `bash scripts/ops-timers.sh status` exits 0 and `python3 scripts/labops.py doctor` prints `doctor: ok`.
 10. **Report ready**: `python3 scripts/labmode.py status` shows exercise mode with the target selected. Criterion: it holds, or the gap is named.
 

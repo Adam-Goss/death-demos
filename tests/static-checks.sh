@@ -105,6 +105,9 @@ check "analysis playbook passes syntax-check (if ansible is installed)" bash -c 
 # #60: the lab skills in .claude/skills/ name only commands, paths and documents this repo has.
 check "skills match the repo (frontmatter, cited paths, real subcommands)" python3 -m unittest tests.test_skills
 
+# #65: a reset must not die halfway because a script has no exec bit (a checkout synced from /mnt/c has none).
+check "scripts run in a checkout with no exec bits (bash callers, shebang means exec bit)" python3 -m unittest tests.test_script_exec
+
 # Workstation timers (ops-timers.sh): one install/status/remove for tick, flow shipper and tunnel.
 check "ops timer scripts are valid shell" bash -n scripts/ops-timers.sh scripts/install-tunnel-timer.sh scripts/tunnel-keepalive.sh scripts/install-tick-timer.sh scripts/install-flow-timer.sh scripts/elastic-tunnel.sh
 check "ops timers install, status and stale detection" python3 -m unittest tests.test_ops_timers

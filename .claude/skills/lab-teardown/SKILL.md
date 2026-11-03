@@ -30,8 +30,8 @@ Ask which job this is, then follow that section. Stop at a failing criterion and
 ### B. Destroy a stack
 
 1. **Name the stack and the blast radius**: `firewall`, `targets`, `attacker` or `gateway`. `elastic` is refused by design. Criterion: the user names a stack that is not `elastic`.
-2. **Show what goes**: `scripts/lab.sh plan <stack>` first, then state the VMs that would be removed. Criterion: the user approves.
-3. **Destroy**: `scripts/lab.sh destroy <stack>`. `scripts/lab.sh destroy all` destroys the other stacks in reverse order and never touches Elastic. The `analysis` stack is only ever named explicitly. Criterion: exit 0.
+2. **Show what goes**: `bash scripts/lab.sh plan <stack>` first, then state the VMs that would be removed. Criterion: the user approves.
+3. **Destroy**: `bash scripts/lab.sh destroy <stack>`. `bash scripts/lab.sh destroy all` destroys the other stacks in reverse order and never touches Elastic. The `analysis` stack is only ever named explicitly. Criterion: exit 0.
 4. **Rebuild path**: a destroyed stack comes back with `/lab-deploy` (apply, then the stack's Ansible play). Say so in the report.
 
 ### C. Target reset
@@ -43,7 +43,7 @@ python3 scripts/labops.py drain t1                                   # confirms 
 python3 scripts/labmode.py maintenance --minutes 60 --reason "target reset"
 python3 scripts/labops.py reset t1                                   # drain check, bump generation, rebuild
 python3 scripts/labmode.py exercise none                             # leave maintenance mode
-REVERIFY=1 scripts/a2-verify.sh exercise none lab                    # prove the denies again
+REVERIFY=1 bash scripts/a2-verify.sh exercise none lab                    # prove the denies again
 python3 scripts/labmode.py select t1
 python3 scripts/labops.py attacker-clean                             # clear /srv/exercise on the attacker
 ```
@@ -67,7 +67,7 @@ python3 scripts/labops.py attacker-clean                             # clear /sr
 
 - `reset` refused: not in maintenance mode, an active exercise on that target, Elastic unreachable, or a failed drain. Fix the cause first; `--acknowledge-loss` only with the user's reason.
 - **`reset` fails *after* bumping the generation.** It bumps, then provisions, so a provisioning failure leaves the target recorded at the new generation with the old VM — a half-reset. Finish it with `bash scripts/target.sh provision <t>` (idempotent, rebuilds at the bumped generation); never hand-repair the VM. Three causes seen live on 2026-11-03:
-  - `scripts/target.sh: line 35: scripts/lab.sh: Permission denied` — git records `lab.sh` as non-executable while `target.sh` calls it directly (**issue #65**). `chmod +x scripts/lab.sh` in the live checkout, then re-provision.
+  - `scripts/target.sh: line 35: scripts/lab.sh: Permission denied` — fixed in the repo (**issue #65**): `target.sh` now calls the runner through `bash`. Seeing it means the checkout predates the fix: `git pull`, or `chmod +x scripts/lab.sh`, then re-provision.
   - `Backend initialization required` — the `targets` stack was never initialised in this checkout and `target.sh` has no init step: `bash scripts/lab.sh init targets`, then re-provision.
   - the Ansible play reports `UNREACHABLE ... port 22: Connection timed out` — `target.sh` does not wait for the rebuilt VM's sshd. Wait for `ssh -o BatchMode=yes opaleye@<ip> true` to answer, then re-provision.
 - After a finished rebuild, prove it: `python3 scripts/labops.py drain <t>` and `bash scripts/a5-verify.sh <t>` (the target reached its known state from code, pinned image digests, no enrolment token in the image).

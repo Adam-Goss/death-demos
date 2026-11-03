@@ -21,25 +21,25 @@ Symptom to diagnosis to fix. The authoritative symptom table is the [README trou
    | Symptom | First look | Where the fix is |
    | --- | --- | --- |
    | Tunnel "up", nothing answers | `curl -sk https://10.77.9.1/` (TCP, not ping) | README row 1: reactivate the tunnel after a firewall rebuild |
-   | `select`/`exercise t1` says denies are not re-verified | `labmode.py status` | README: `exercise none`, `REVERIFY=1 scripts/a2-verify.sh exercise none lab`, `select t1` |
+   | `select`/`exercise t1` says denies are not re-verified | `labmode.py status` | README: `exercise none`, `REVERIFY=1 bash scripts/a2-verify.sh exercise none lab`, `select t1` |
    | Already in maintenance | `labmode.py status` expiry | README: wait for expiry or `labmode.py exercise none` |
    | Package install or image pull times out | `labmode.py status` | `/lab-maintenance` (exercise mode blocks egress); re-run the play on a CDN change |
    | `labops.py` cannot reach Elasticsearch | `curl -sk -m 10 -o /dev/null -w '%{http_code}\n' https://127.0.0.1:19200/` (`000` = no listener) | `bash scripts/tunnel-keepalive.sh` (one shot, backgrounds it); `.state/tunnel.log` if it keeps dying: [ops timers](../../../docs/runbooks/ops-timers.md) |
    | All timer lines `ok` yet Elastic unreachable | `pgrep -af 'ssh -N'` | The crontab check only reads the cron lines; the tunnel can still be down. Same fix as the row above |
    | `tofu: command not found` | `command -v tofu` | Use a login shell: it is `/snap/bin/tofu` |
-   | `scripts/<x>.sh: Permission denied` | `ls -l scripts/<x>.sh` | No exec bit in the live checkout: run it as `bash scripts/<x>.sh`. Inside `target.sh` this is **issue #65**: `chmod +x scripts/lab.sh`, then `bash scripts/target.sh provision <t>` |
+   | `scripts/<x>.sh: Permission denied` | `ls -l scripts/<x>.sh` | A checkout copied from `/mnt/c` or unzipped on Windows has no exec bits: run it as `bash scripts/<x>.sh`. In-repo callers already do (**issue #65**), so from inside `target.sh` it means the checkout predates that fix: `git pull`, then `bash scripts/target.sh provision <t>` |
    | A command says a variable is not set, but it is in `secrets/env.sh` | `bash -n secrets/env.sh` | One unbalanced quote swallows every later line (live: a duplicate token line cost `GUAC_ADMIN_PASSWORD`, `ATTACKER_RDP_PASSWORD` and `unset ELASTIC_PASSWORD`). Fix the syntax, keep a `0600` backup |
    | `reset` failed but the generation went up | `labops.py generation <t>` | Half-reset: finish with `bash scripts/target.sh provision <t>`, never a hand repair. See `/lab-teardown` failure handling |
    | `plan` wants to replace a healthy VM | the plan's `# forces replacement` lines | A missing `TF_VAR_*`, not a real change (live: `TF_VAR_firewall_template_vm_id` unset defaults to `0` and drops the firewall clone block). Fix the environment; **do not apply** |
    | `nicaudit.py` `KeyError: 'PROXMOX_VE_API_TOKEN_ANALYSIS'` | the env file's variables | Add the analysis token; until then the NIC audit is unknown, not a pass |
    | An A2 probe source is `ERROR`; the probe guest looks dead | the verifier's **stderr** (`cannot reach <src> ... : <ssh error>`, once per source), then that same ssh command by hand | The verifier already routes `t2` and the analysis zone through the gateway (`netpolicy.py vantage exercise` shows the map), so the usual cause is the host key: a probe guest recreated at a fixed address has a **new** one, and a stale `known_hosts` entry fails with `Host key verification failed` (`accept-new` does not override a conflicting entry). `ssh-keygen -R <addr>` first, or run A2 with `RESET_HOST_KEYS="t2 flare"`, which does it for those sources |
    | `REVERIFY=1` never clears the flag; A2 rows `ERROR` for `flare`, `remnux`, `t2` | the verdict line (`rows=`, `skipped=`, `FAIL`) and the stderr lines above it | A clean run needs preparation: probe guests for `t2` and `flare` (FLARE powered off, because Windows cannot run the POSIX probes) and `RESET_HOST_KEYS="t2 flare"`. The gateway vantage is automatic since issue #64. Full recipe in `/lab-teardown` step 0 |
-   | No firewall flow events arriving | `labops.py doctor`, `scripts/ops-timers.sh status` | `/lab-workstation-setup` (a `STALE` line fails silently in cron) |
+   | No firewall flow events arriving | `labops.py doctor`, `bash scripts/ops-timers.sh status` | `/lab-workstation-setup` (a `STALE` line fails silently in cron) |
    | `exercise start` refused | `labmode.py status`, `labops.py watermark` | `/lab-exercise-run` preflight |
    | `reset` refused | `labmode.py status`, `labops.py drain t1` | `/lab-teardown` section C |
    | Guacamole login does nothing after the password | `guacctl.py check` | TOTP code; recovery in the [gateway runbook](../../../docs/runbooks/guacamole-gateway.md) |
    | Guacamole RDP: "X server could not be started" | — | `playbooks/attacker.yml` in maintenance mode (`xorgxrdp`) |
-   | `tofu` wants backend initialisation | — | `scripts/lab.sh init <stack>` |
+   | `tofu` wants backend initialisation | — | `bash scripts/lab.sh init <stack>` |
    | Scripts fail with `\r` | `file scripts/lab.sh` | CRLF checkout: run from WSL or a Linux clone |
    | Proxmox 403 on a new bridge after a firewall rebuild | — | Per-stack token needs its own `SDN.Use` ACL: gateway runbook live-run notes |
    | Analysis zone has no Internet, or still has it | `labops.py analysis-online status` | [malware-analysis runbook](../../../docs/runbooks/malware-analysis.md) and `/lab-malware-analysis` |

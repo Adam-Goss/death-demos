@@ -32,7 +32,7 @@ case $cmd in
   provision)
     ip=$(python3 -c "import json;print(json.load(open('network/plan.json'))['hosts']['$t']['ip'])")
     export TF_VAR_rebuild_generation="{\"$t\": $gen}"
-    scripts/lab.sh apply targets
+    bash scripts/lab.sh apply targets   # through bash: a checkout synced from /mnt/c has no exec bits (#65)
     ssh-keygen -R "$ip" >/dev/null 2>&1 || true   # a rebuilt VM has a new host key
     ( cd ansible && ansible-galaxy collection install -r requirements.yml >/dev/null \
       && ansible-playbook playbooks/target.yml -e "target=$t" -e "rebuild_generation=$gen" ) ;;

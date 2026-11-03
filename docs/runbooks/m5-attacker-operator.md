@@ -17,9 +17,9 @@ Issue #24. Exit = check A6 in [acceptance checks](../decisions/acceptance-checks
 
 ## Run (live)
 
-1. Node, as root: `BRIDGES="... vmbr2001" scripts/bootstrap-proxmox.sh` (creates pool `lab-attacker` and its token; **re-issue nothing else**), then `scripts/make-attacker-template.sh`.
-2. Workstation: `export PROXMOX_VE_API_TOKEN_ATTACKER=...`, `TF_VAR_node_name`, `TF_VAR_ssh_public_key`; `scripts/lab.sh apply attacker`. Re-apply is a no-op.
-3. `labmode.py maintenance --minutes 30 --reason "attacker packages"`, `ansible-playbook playbooks/attacker.yml`, then `labmode.py exercise t1` and re-verify denies (`REVERIFY=1 scripts/a2-verify.sh exercise none lab`) as in the [M2 runbook](m2-firewall-and-networks.md).
+1. Node, as root: `BRIDGES="... vmbr2001" scripts/bootstrap-proxmox.sh` (creates pool `lab-attacker` and its token; **re-issue nothing else**), then `bash scripts/make-attacker-template.sh`.
+2. Workstation: `export PROXMOX_VE_API_TOKEN_ATTACKER=...`, `TF_VAR_node_name`, `TF_VAR_ssh_public_key`; `bash scripts/lab.sh apply attacker`. Re-apply is a no-op.
+3. `labmode.py maintenance --minutes 30 --reason "attacker packages"`, `ansible-playbook playbooks/attacker.yml`, then `labmode.py exercise t1` and re-verify denies (`REVERIFY=1 bash scripts/a2-verify.sh exercise none lab`) as in the [M2 runbook](m2-firewall-and-networks.md).
 4. Re-run `playbooks/elastic.yml` (adds the marker template) with `scripts/elastic-tunnel.sh` open.
 5. Exercise (tunnel open, `labmode.py select t1`):
    - `scripts/labops.py exercise start ex-001 --target t1`
