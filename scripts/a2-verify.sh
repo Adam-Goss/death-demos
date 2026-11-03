@@ -5,7 +5,9 @@
 #   a2-verify.sh failclosed
 # Prints one row per probe: source | destination/port | mode | expected | actual | enforcement point.
 # Phases (each needs a different vantage; run all three for a full A2):
-#   lab   probe guests in attacker/elastic/t1/t2 and flare/remnux (analysis zone; tofu -var probe_vms=true); the gateway probes from the real gateway VM (no probe guest: it owns that address), reached over the VPN by SSH
+#   lab   probe guests in attacker/elastic/t1/t2 and flare/remnux (analysis zone; tofu -var probe_vms=true); the gateway probes from the real gateway VM (no probe guest: it owns that address), reached over the VPN by SSH.
+#         The vantage is per source (issue #64): sources the firewall only lets the gateway into (t2, flare, remnux) are
+#         probed through it automatically, so one unfiltered lab run covers every zone. `netpolicy.py vantage <mode>` prints the map.
 #   vpn   from this workstation with the VPN UP   (source = operator)
 #   home  from this workstation entering through the firewall WAN (source = workstation). Needs host routes
 #         that beat the tunnel's /16, e.g. `sudo ip route add 10.77.11.10/32 via <wan_ip>` for each lab target
@@ -14,21 +16,59 @@
 #         `home_other` (192.168.0.50) and `public` (203.0.113.55) rows bind to those addresses, so add them to this
 #         host first: `sudo ip addr add 192.168.0.50/32 dev <if>`, same for 203.0.113.55 (spoofed source, never leaves the LAN
 #         segment: it is routed to the firewall WAN by the host routes above).
-# Env: PROBE_SSH (default: ssh -o BatchMode=yes -o ConnectTimeout=5, user opaleye), REVERIFY=1 (after a clean exercise/lab pass, clear labmode's re-verify flag),
+# Env: PROBE_SSH (default: ssh -o BatchMode=yes -o ConnectTimeout=5, user opaleye), PROBE_SSH_<SOURCE> (upper case, e.g.
+#      PROBE_SSH_FLARE) replaces the whole ssh command for that one source and overrides the derived gateway jump,
+#      REVERIFY=1 (after a clean exercise/lab pass, clear labmode's re-verify flag),
 #      and for `failclosed` and the `home` phase (firewall WAN MAC): PROXMOX_VE_ENDPOINT, PROXMOX_VE_API_TOKEN_FIREWALL, PVE_NODE, PROXMOX_VE_INSECURE.
 #      ONLY_DST=<host> keeps only the rows whose destination is that host (A3 reruns the elastic rows against the real VM).
 #      SKIP_SOURCES="elastic" lists sources that have no probe guest (e.g. the real Elastic VM owns that address): their rows are
 #      SKIP, not ERROR, and the verdict becomes PASS-WITH-SKIPS. A source that is not listed but does not answer is still ERROR.
+#      RESET_HOST_KEYS="t2 flare" lists sources whose probe guest was just (re)created: clear the stale known_hosts entry for
+#      each address first (`ssh-keygen -R`), as target.sh does after a rebuild. Nothing is cleared unasked.
 # Exit non-zero if any row differs from expected. Rows that cannot be sourced from here are listed as SKIP.
 set -u
 cd "$(dirname "$0")/.."
 PY=${PYTHON:-python3}
 PROBE_SSH=${PROBE_SSH:-ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new}
 
+# Probe vantage per source (issue #64). The firewall lets only the gateway open a connection into some zones
+# (the analysis zone and t2), so those sources are unreachable from here and are probed through the gateway.
+# `netpolicy.py vantage` reads that off the probe table: "-" = direct over the VPN, otherwise the jump host's IP.
+vantages=
+load_vantages() {  # capture first, then strip: a pipe would hide the producer's exit status
+  vantages=$($PY scripts/netpolicy.py vantage "$1" "${2:-none}" ${3:-}) || return 1
+  vantages=$(printf '%s' "$vantages" | tr -d '\r')  # Windows python prints CRLF
+}
+
+ssh_for() { # <src-host>: the ssh command that reaches it. PROBE_SSH_<SOURCE> overrides one source entirely.
+  local var jump
+  var=PROBE_SSH_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
+  if [ -n "${!var:-}" ]; then printf '%s' "${!var}"; return; fi
+  jump=$(printf '%s\n' "$vantages" | awk -F'\t' -v s="$1" '$1==s {print $2}')
+  case $PROBE_SSH in *" -J "*|*ProxyJump*) jump=- ;; esac  # the caller already routes: never jump twice
+  case $jump in
+    ''|-) printf '%s' "$PROBE_SSH" ;;
+    *)    printf '%s -J opaleye@%s' "$PROBE_SSH" "$jump" ;;
+  esac
+}
+
+# RESET_HOST_KEYS="t2 flare": these sources' probe guests were just (re)created, so they have a new host key
+# and a stale known_hosts entry fails with "Host key verification failed" - which reads exactly like a dead
+# probe guest. `scripts/target.sh` clears the key after a rebuild for the same reason. Never done unasked:
+# silently dropping a conflicting key for a real VM would hide the one thing that check is for.
+reset_host_keys() { # <matrix>
+  local src ip
+  for src in ${RESET_HOST_KEYS:-}; do
+    ip=$(printf '%s\n' "$1" | awk -F'\t' -v s="$src" '$2==s {print $11; exit}')
+    [ -n "$ip" ] || { echo "RESET_HOST_KEYS: no probe row has source $src" >&2; return 1; }
+    ssh-keygen -R "${ip%$'\r'}" >/dev/null 2>&1 || true
+  done
+}
+
 # run <src-host> <command>: execute on the vantage that owns that source address.
 run() {
   case $1 in
-    attacker|elastic|t1|t2|gateway|flare|remnux) $PROBE_SSH "opaleye@$2" "$3" </dev/null ;;  # never let ssh eat the loop's stdin
+    attacker|elastic|t1|t2|gateway|flare|remnux) $(ssh_for "$1") "opaleye@$2" "$3" </dev/null ;;  # never let ssh eat the loop's stdin
     *) bash -c "$3" </dev/null ;;
   esac
 }
@@ -92,6 +132,7 @@ if [ "${1:-}" = failclosed ]; then
   # The VPN ends on the firewall VM, so nothing can be run on the guests while it is down.
   # Arm each probe on its guest first (delayed), stop the firewall, restart it, then read the results.
   : "${PROXMOX_VE_ENDPOINT:?}" "${PROXMOX_VE_API_TOKEN_FIREWALL:?}" "${PVE_NODE:?}"
+  load_vantages exercise none || exit 1
   vmid=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']['vm_id'])")
   api() { curl -sS -o /dev/null -w '%{http_code}' ${PROXMOX_VE_INSECURE:+-k} -X POST -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN_FIREWALL" "${PROXMOX_VE_ENDPOINT%/}/api2/json/nodes/$PVE_NODE/qemu/$vmid/status/$1"; }
   rows=$($PY scripts/netpolicy.py matrix exercise t1 | awk -F'	' -v skip="${SKIP_SOURCES:-}" '$9=="allow" && $6=="tcp" && $12!="UPDATE_SOURCE" && ($2=="attacker"||$2=="elastic"||$2=="t1"||$2=="t2"||$2=="gateway"||$2=="flare"||$2=="remnux") && index(" " skip " ", " " $2 " ")==0')
@@ -130,6 +171,8 @@ case $want in lab|vpn|home) ;; *) echo "invalid phase: $want" >&2; exit 1 ;; esa
 # Capture once and check the producer's status: process substitution hides failures.
 online=; [ "${4:-}" = online ] && online=online  # analysis-zone Internet toggle on: probe the online rules (labmode.py analysis on first)
 matrix=$($PY scripts/netpolicy.py matrix "$mode" "$sel" $online) || exit 1
+load_vantages "$mode" "$sel" "$online" || exit 1
+reset_host_keys "$matrix" || exit 1
 # Only blocks logged after this point count as evidence for this run (digests of the rows already in the log).
 LABMODE_LOG_BASELINE=$(mktemp) || exit 1
 export LABMODE_LOG_BASELINE
@@ -141,7 +184,7 @@ wan=$($PY -c "import json;print(json.load(open('network/plan.json'))['firewall']
 ufqdn=$($PY -c "import json;print(json.load(open('network/plan.json'))['update_sources'][0])"); ufqdn=${ufqdn%$'\r'}  # resolved on each vantage, through the firewall DNS
 echo "| source | destination/port | mode | expected | actual | enforcement point |"
 echo "| --- | --- | --- | --- | --- | --- |"
-fail=0; skipped=0; n=0
+fail=0; skipped=0; n=0; reported=
 while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip dip; do
   dip=${dip%$'\r'}  # last column: Windows python prints CRLF
   [ "$(phase_of "$src")" = "$want" ] || continue
@@ -158,8 +201,16 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
   # A dead vantage would turn every deny row green: it must answer before its rows count.
   if [ "$kind" = skip ]; then
     :  # SKIP_SOURCES: no probe guest for this source; reported as SKIP
-  elif [ "$(phase_of "$src")" != none ] && ! run "$src" "$sip" true >/dev/null 2>&1; then
+  elif [ "$(phase_of "$src")" != none ] && ! why=$(run "$src" "$sip" true 2>&1 >/dev/null); then
     actual=ERROR
+    # Say why once per source: an ERROR row reads like a dead probe guest, but a stale host key
+    # for a recreated one fails the same way (StrictHostKeyChecking=accept-new does not override a
+    # conflicting entry: clear it with `ssh-keygen -R <address>`).
+    case " $reported " in
+      *" $src "*) ;;
+      *) echo "cannot reach $src ($sip) with \`$(ssh_for "$src")\`: $(printf '%s' "$why" | grep . | head -n1)" >&2
+         reported="$reported $src" ;;
+    esac
   elif [ "$src" = operator ] && [ "$kind" != no-ipv6 ] && ! ip route get "$dip" 2>/dev/null | grep -q "src $sip"; then
     actual=ERROR  # the route to this destination bypasses the tunnel: it never reaches the firewall's VPN interface
   elif { [ "$src" = home_other ] || [ "$src" = public ]; } && ! ip -4 addr show 2>/dev/null | grep -q "inet $sip/"; then

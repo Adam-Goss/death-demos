@@ -1,4 +1,4 @@
-import json, os, sys, unittest
+import json, os, subprocess, sys, unittest
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
@@ -215,6 +215,41 @@ class RuleSetInvariants(unittest.TestCase):
         for r in rules:
             if r["enabled"] and r["action"] == "pass":
                 self.assertNotIn(r["dst"], ("any", "192.168.0.0/24"))
+
+
+class ProbeVantage(unittest.TestCase):
+    """#64: the A2 verifier needs one SSH vantage per probe source, derived from the probe table."""
+
+    def test_zones_the_operator_may_not_enter_are_probed_through_the_gateway(self):
+        gateway = PLAN["hosts"]["gateway"]["ip"]
+        for mode, sel in (("exercise", "t1"), ("exercise", None), ("maintenance", None)):
+            v = netpolicy.vantages(PLAN, mode, sel)
+            for src in ("t2", "flare", "remnux"):
+                self.assertEqual(v[src], gateway, (mode, sel, src))
+
+    def test_admin_path_sources_are_probed_directly(self):
+        for mode, sel in (("exercise", "t1"), ("maintenance", None)):
+            v = netpolicy.vantages(PLAN, mode, sel)
+            for src in ("attacker", "elastic", "t1", "gateway"):
+                self.assertEqual(v[src], "", (mode, src))
+
+    def test_every_lab_zone_source_has_a_vantage_and_no_home_or_vpn_source_does(self):
+        v = netpolicy.vantages(PLAN, "exercise", "t1")
+        self.assertEqual(sorted(v), ["attacker", "elastic", "flare", "gateway", "remnux", "t1", "t2"])
+
+    def test_a_source_no_host_brokers_has_no_vantage(self):
+        bad = json.loads(json.dumps(PLAN))
+        bad["probes"] = [p for p in bad["probes"] if not (p["src"] == "gateway" and p["dst"] == "flare" and p["port"] == 22)]
+        self.assertEqual(netpolicy.vantages(bad, "exercise", "t1")["flare"], "")
+
+    def test_vantage_command_prints_the_whole_map_as_tsv(self):
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "netpolicy.py"), "vantage", "exercise", "none"],
+                             capture_output=True, text=True, check=True).stdout
+        rows = dict(line.split("\t") for line in out.strip().splitlines())
+        self.assertEqual(rows["flare"], PLAN["hosts"]["gateway"]["ip"])
+        self.assertEqual(rows["t2"], PLAN["hosts"]["gateway"]["ip"])
+        self.assertEqual(rows["attacker"], "-")
+        self.assertEqual(len(rows), 7)
 
 
 class PlanSanity(unittest.TestCase):

@@ -8,6 +8,8 @@ the rules are derived from flows, so the two only agree when the flows are right
   netpolicy.py matrix <exercise|maintenance> [selected] [online]   A2 probe rows, TSV
   netpolicy.py rules  <exercise|maintenance> [selected] [online]   rendered ruleset, JSON
   netpolicy.py lint   <exercise|maintenance> [selected] [online]   exit 1 on any mismatch
+  netpolicy.py vantage <exercise|maintenance> [selected] [online]  SSH vantage per lab-zone probe source, TSV
+                                                           ("-" = direct over the VPN, else the jump host's IP)
   (online = analysis-zone Internet toggle on; selected may be "none")
   netpolicy.py check                                       plan sanity, exit 1 on errors
   netpolicy.py bridges                                     /etc/network/interfaces.d stanzas
@@ -198,6 +200,26 @@ def matrix(plan, mode, selected, online=False):
     return rows
 
 
+def vantages(plan, mode, selected=None, online=False):
+    """Probe vantage per lab-zone source (issue #64): '' when the operator reaches its SSH port over the
+    VPN, otherwise the IP of the host the probe must jump through. Read off the probe table, which is the
+    A2 contract: a source the operator may not enter is probed from the one host the firewall lets in."""
+    ssh_allow = {(p["src"], p["dst"]): _expected(p, mode, selected, online)
+                 for p in plan["probes"] if p["proto"] == "tcp" and p["port"] == 22}
+    labhosts = sorted(h for h, v in plan["hosts"].items() if v["zone"] not in ("home", "vpn"))
+    out = {}
+    for h in labhosts:
+        if ssh_allow.get(("operator", h)) == "allow":
+            out[h] = ""  # direct over the VPN
+            continue
+        # Brokered access (GLOSSARY): a host the operator reaches directly that may SSH into this source.
+        # Sorted, so the choice is stable; '' when the plan brokers none, and then the row reports ERROR.
+        brokers = [b for b in labhosts
+                   if b != h and ssh_allow.get((b, h)) == "allow" and ssh_allow.get(("operator", b)) == "allow"]
+        out[h] = plan["hosts"][brokers[0]]["ip"] if brokers else ""
+    return out
+
+
 def lint(plan, mode, selected, rules=None, online=False):
     rules = render_rules(plan, mode, selected, online) if rules is None else rules
     bad = []
@@ -256,6 +278,9 @@ def main(argv):
     if cmd == "matrix":
         for r in matrix(plan, mode, sel, online):
             print("\t".join(str(r[k]) for k in ("id", "src", "dst", "proto", "port", "kind", "family", "mode", "expected", "enforcement", "src_ip", "dst_ip")))
+    elif cmd == "vantage":
+        for src, jump in sorted(vantages(plan, mode, sel, online).items()):
+            print("%s\t%s" % (src, jump or "-"))
     elif cmd == "rules":
         print(json.dumps(render_rules(plan, mode, sel, online), indent=1))
     elif cmd == "lint":
