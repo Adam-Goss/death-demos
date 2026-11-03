@@ -30,7 +30,7 @@ Symptom to diagnosis to fix. The authoritative symptom table is the [README trou
    | `scripts/<x>.sh: Permission denied` | `ls -l scripts/<x>.sh` | No exec bit in the live checkout: run it as `bash scripts/<x>.sh` |
    | `plan` wants to replace a healthy VM | the plan's `# forces replacement` lines | A missing `TF_VAR_*`, not a real change (live: `TF_VAR_firewall_template_vm_id` unset defaults to `0` and drops the firewall clone block). Fix the environment; **do not apply** |
    | `nicaudit.py` `KeyError: 'PROXMOX_VE_API_TOKEN_ANALYSIS'` | the env file's variables | Add the analysis token; until then the NIC audit is unknown, not a pass |
-   | `REVERIFY=1` never clears the flag; A2 rows `ERROR` for `flare`, `remnux`, `t2` | the verdict line (`rows=`, `skipped=`, `FAIL`) | Those sources cannot be probed from the workstation (by design) and `t2` has no VM, so one unfiltered run cannot pass. Per-vantage A2 set, then `labmode.py reverified` on the operator's instruction: `/lab-teardown` step 0 |
+   | `REVERIFY=1` never clears the flag; A2 rows `ERROR` for `flare`, `remnux`, `t2` | the verdict line (`rows=`, `skipped=`, `FAIL`) | Those sources cannot be probed from the workstation (by design) and `t2` has no VM, so one unfiltered run cannot pass. Known: issue #64. Per-vantage A2 set, then `labmode.py reverified` on the operator's instruction: `/lab-teardown` step 0 |
    | No firewall flow events arriving | `labops.py doctor`, `scripts/ops-timers.sh status` | `/lab-workstation-setup` (a `STALE` line fails silently in cron) |
    | `exercise start` refused | `labmode.py status`, `labops.py watermark` | `/lab-exercise-run` preflight |
    | `reset` refused | `labmode.py status`, `labops.py drain t1` | `/lab-teardown` section C |
