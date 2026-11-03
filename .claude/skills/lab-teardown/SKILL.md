@@ -48,6 +48,7 @@ python3 scripts/labmode.py select t1
 python3 scripts/labops.py attacker-clean                             # clear /srv/exercise on the attacker
 ```
 
+0. **Can you finish?** Ask this **before** the mode switch, because leaving maintenance sets the re-verify flag and `select` stays refused until a **clean** A2 run clears it: `REVERIFY=1` requires an unfiltered exercise/lab run with **zero skipped rows**, so every zone without a real VM needs a probe guest (`t2` always; `flare`/`remnux` unless they are running), and probe guests are a firewall-stack apply (`TF_VAR_probe_zones='[...]'`) whose plan must itself be clean. `SKIP_SOURCES` makes rows `SKIP` and is therefore **refused** for re-verification. If that work is not possible now, say so: the reset will leave the lab in exercise mode with **no selectable target** and exercises blocked. `python3 scripts/labmode.py reverified` clears the flag by hand — it is the operator's explicit decision and its reason is recorded, never the agent's shortcut. Criterion: the user knows the cost and agrees.
 1. **Preflight**: the tunnel is up (`labops.py` needs Elasticsearch) and no exercise is active on that target. Criterion: `python3 scripts/labops.py drain t1` exits 0.
 2. **Maintenance window**: confirm with the user, then open it with a reason. Criterion: `labmode.py status` shows maintenance with an expiry.
 3. **Reset**: confirm, then `python3 scripts/labops.py reset t1`. Criterion: exit 0 and `python3 scripts/labops.py generation t1` shows the incremented generation.
