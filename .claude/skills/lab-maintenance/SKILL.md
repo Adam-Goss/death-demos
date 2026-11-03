@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Package installs and image pulls only work in **maintenance mode**: a time-limited allowlist to the reviewed update sources that also closes every attacker-to-target flow. Procedure: [README step 6](../../../README.md#6-update-packages-and-images-maintenance) and [switching modes](../../../README.md#switching-modes-and-selecting-a-target); detail in the [M2](../../../docs/runbooks/m2-firewall-and-networks.md), [M3](../../../docs/runbooks/m3-elastic.md) and [M4](../../../docs/runbooks/m4-target.md) runbooks.
 
-Run from WSL in the live checkout with the env file sourced, the VPN up and the Elastic tunnel running.
+**Preconditions, step 0 for every run** — the live checkout (not a git worktree), the env file sourced and ending in `unset ELASTIC_PASSWORD` (a stale value makes `fleetctl.py` fail with a Kibana 401), the VPN checked over TCP, and healthy workstation timers (`python3 scripts/labops.py doctor`): **the maintenance window expires through the `tick` timer, so stale timers mean nothing closes it.** The four are spelled out once in the [skills runbook](../../../docs/runbooks/lab-skills.md#preconditions-for-every-skill); read it and check them before step 1.
 
 **Exercise mode is the resting state.** Stay in maintenance only as long as the updates need, and never leave the window open at the end of a session. **Confirm with the user before entering maintenance mode and before each play.**
 
@@ -27,7 +27,7 @@ Stop at a failing criterion and report it with its output.
    (cd ansible && ansible-playbook playbooks/elastic.yml)     # Elastic, from the uploaded packages only
    ```
    Criterion: each play ends with no failed tasks. A timeout usually means the window closed or the source is not in the allowlist: check `labmode.py status` first, then re-run (a transient CDN address change is retried by the roles).
-5. **Watch the clock**: if the window is about to expire mid-update, ask before extending, and extend by re-running `labmode.py maintenance --minutes N --reason "<text>"` rather than leaving it open indefinitely. Criterion: the user approves any extension.
+5. **Watch the clock**: a window is at most 120 minutes and `labmode.py maintenance` **refuses while one is already open** ("already in maintenance (until ...); wait for expiry or run `exercise`"). To extend, ask the user first, then close and reopen: `python3 scripts/labmode.py exercise none`, then `maintenance --minutes N --reason "<text>"`. Egress drops in between (re-run the play afterwards if it was mid-download), and closing sets the re-verify flag, which step 6 clears anyway. Criterion: the user approved the extension and `labmode.py status` shows the new expiry.
 6. **Return to the resting state and re-verify the denies**:
    ```bash
    python3 scripts/labmode.py exercise none
@@ -43,7 +43,9 @@ The analysis VMs do not use maintenance mode: their updates go through a time-li
 
 ## Failure handling
 
-- `maintenance` says already in maintenance: wait for the expiry or `labmode.py exercise none`.
+- `maintenance` says already in maintenance: wait for the expiry or `labmode.py exercise none` (step 5).
+- `fleetctl.py` gets a Kibana 401: `secrets/env.sh` in the live checkout carries a stale `ELASTIC_PASSWORD`. It must end with `unset ELASTIC_PASSWORD` so `fleetctl.py` reads `secrets/elastic/elastic.password` (`/lab-workstation-setup`).
+- Elastic or the gateway powered off: the policy, drain and enrolment tasks cannot run. Offer to start them (`/lab-deploy`) before the plays.
 - A firewall API error means the push was not confirmed: the firewall's dead-man job restores the last confirmed config within about a minute. Re-check `labmode.py status` before retrying.
 - A play that fails halfway leaves the guest half-updated: re-run it (the roles are idempotent) inside the window, and never work around a block by widening a rule.
 - If the A2 re-verification fails, stay out of exercise use and hand the failure to `/lab-troubleshoot`: an unverified deny is a hard gate, not a warning.

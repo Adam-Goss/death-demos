@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Three jobs: **shutdown** (power off, nothing destroyed), **destroy a stack** (the VMs go, evidence stays), and **target reset** (rebuild one target from pinned inputs). Procedure: [README "Using the lab"](../../../README.md#using-the-lab) steps 5, 7 and 9; detail in the [M5](../../../docs/runbooks/m5-attacker-operator.md) and [M4](../../../docs/runbooks/m4-target.md) runbooks and [ADR 0001](../../../docs/adr/0001-isolate-the-attack-lab-behind-a-firewall-vm.md).
 
-Run from WSL in the live checkout with the env file sourced and the VPN up.
+**Preconditions, step 0 for every run** — the live checkout (not a git worktree), the env file sourced with `ELASTIC_PASSWORD` unset, the VPN checked over TCP, and healthy workstation timers (`python3 scripts/labops.py doctor`; a drain check needs Elastic reachable, so an unhealthy tunnel is the first thing to fix). The four are spelled out once in the [skills runbook](../../../docs/runbooks/lab-skills.md#preconditions-for-every-skill); read it and check them before anything below.
 
 **Every step here is destructive or mode-changing. Confirm each one with the user before running it, naming what it removes.** Two hard rules:
 

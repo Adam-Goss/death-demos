@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Exercise 1 is command injection in DVWA's `low` security page, leading to a shell process on the target: it produces an Apache request, a process chain (web worker, shell, child) and a network event. Procedure: [README step 4](../../../README.md#4-run-an-exercise) and the [M5 runbook](../../../docs/runbooks/m5-attacker-operator.md); the hunt is described in the [M6 runbook](../../../docs/runbooks/m6-end-to-end-validation.md).
 
-Run from WSL in the live checkout with the env file sourced and the VPN up.
+**Preconditions, step 0 for every run** — the live checkout (not a git worktree), the env file sourced with `ELASTIC_PASSWORD` unset, the VPN checked over TCP, and healthy workstation timers (`python3 scripts/labops.py doctor`): without the flow shipper and the tunnel the run's evidence never arrives. The four are spelled out once in the [skills runbook](../../../docs/runbooks/lab-skills.md#preconditions-for-every-skill); read it and check them before step 1.
 
 **Attacks are the operator's work, not the agent's.** Run the scripted exercise only when the user asks for it; otherwise hand them the manual steps and wait. **Ask before any mode change, reset or `--acknowledge-loss`.**
 
@@ -24,7 +24,7 @@ Stop at a failing criterion and report it with its output.
    - `python3 scripts/labops.py watermark`: below the plan's high watermark.
    - `python3 scripts/labops.py doctor`: timers and firewall flow shipping healthy, so the run's evidence actually arrives.
    Criterion: all five pass.
-3. **Fix the state if needed, with the user's agreement**: not in exercise mode or no target selected is `python3 scripts/labmode.py exercise none`, then (if the re-verify flag is set) `REVERIFY=1 scripts/a2-verify.sh exercise none lab`, then `python3 scripts/labmode.py select <target>`. A disk at the watermark is freed only through guarded evidence deletion, never by this skill. Anything else goes to `/lab-troubleshoot`. Criterion: step 2 now passes.
+3. **Fix the state if needed, with the user's agreement**: the wrong mode or no target selected is the re-verify sequence from [README "switching modes"](../../../README.md#switching-modes-and-selecting-a-target) — `labmode.py exercise none`, then the `REVERIFY=1` A2 run if the flag is set, then `labmode.py select <target>` — which `/lab-maintenance` step 6 runs in full. A disk at the watermark is freed only through guarded evidence deletion, never by this skill. Anything else goes to `/lab-troubleshoot`. Criterion: step 2 now passes.
 4. **Start the exercise**: `python3 scripts/labops.py exercise start <id> --target <t>`. This writes the start marker that tags the run. Criterion: it prints the exercise, the target and the generation.
 5. **Run the attack** — one of:
    - *Scripted, when the user asks*: `ssh opaleye@10.77.1.10 exercise1 --exercise-id <id> --target <t>`.

@@ -12,9 +12,9 @@ import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SKILLS = os.path.join(ROOT, ".claude", "skills")
-# The seven skills issue #60 asks for; lab-workstation-setup (#61) predates it.
-REQUIRED = ("lab-deploy", "lab-teardown", "lab-status", "lab-troubleshoot",
-            "lab-maintenance", "lab-exercise-run", "lab-malware-analysis")
+# The eight of #60's acceptance list: its seven, plus lab-workstation-setup (#61), which it adopted.
+REQUIRED = ("lab-deploy", "lab-teardown", "lab-status", "lab-troubleshoot", "lab-maintenance",
+            "lab-exercise-run", "lab-malware-analysis", "lab-workstation-setup")
 
 
 def skill_names():
@@ -45,7 +45,7 @@ def frontmatter(text):
 class Contract(unittest.TestCase):
     """Every skill is a SKILL.md with the frontmatter Claude Code needs, and the seven of #60 are there."""
 
-    def test_the_seven_skills_of_issue_60_exist(self):
+    def test_the_skills_of_issue_60_exist(self):
         self.assertEqual([], [n for n in REQUIRED if n not in skill_names()])
 
     def test_each_skill_directory_holds_a_skill_md(self):
@@ -163,6 +163,18 @@ class NamedCommands(unittest.TestCase):
                 if second and (tool, first) in NESTED:
                     with self.subTest(skill=name, command="%s %s %s" % (tool, first, second)):
                         self.assertIn(second, help_choices(NESTED[(tool, first)]))
+
+    def test_every_flag_a_skill_names_exists(self):
+        """A flag is as easy to invent as a command, and `--acknowledge-loss` is the dangerous one."""
+        flags = {tool: set(re.findall(r"--[a-z][a-z-]+", read("scripts/" + tool))) for tool in COMMANDS}
+        for name in skill_names():
+            for line in code_spans(skill_text(name)).splitlines():
+                tools = [t for t in COMMANDS if t in line]
+                if len(tools) != 1:  # ambiguous or none: attribute nothing
+                    continue
+                for flag in re.findall(r"--[a-z][a-z-]+", line):
+                    with self.subTest(skill=name, command="%s %s" % (tools[0], flag)):
+                        self.assertIn(flag, flags[tools[0]])
 
 
 class Discoverable(unittest.TestCase):

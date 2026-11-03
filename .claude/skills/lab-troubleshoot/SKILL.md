@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Symptom to diagnosis to fix. The authoritative symptom table is the [README troubleshooting section](../../../README.md#troubleshooting); the step-by-step repairs live in the runbooks ([M2 firewall and networks](../../../docs/runbooks/m2-firewall-and-networks.md), [M3 Elastic](../../../docs/runbooks/m3-elastic.md), [M4 target](../../../docs/runbooks/m4-target.md), [M5 attacker and operator](../../../docs/runbooks/m5-attacker-operator.md), [M6 end-to-end](../../../docs/runbooks/m6-end-to-end-validation.md), [gateway](../../../docs/runbooks/guacamole-gateway.md), [ops timers](../../../docs/runbooks/ops-timers.md), [malware analysis](../../../docs/runbooks/malware-analysis.md)). **Read the row and the runbook section before acting**; do not improvise a repair from memory.
 
-Run from WSL in the live checkout with the env file sourced.
+**Preconditions, step 0 for every run** — the live checkout (not a git worktree), the env file sourced with `ELASTIC_PASSWORD` unset, the VPN checked over TCP, and the workstation timers (`python3 scripts/labops.py doctor`). The four are spelled out once in the [skills runbook](../../../docs/runbooks/lab-skills.md#preconditions-for-every-skill); read it and check them before diagnosing, because **three of the four are themselves the most common cause**: the wrong checkout, a stale `ELASTIC_PASSWORD`, a dropped tunnel or a silently dead cron line.
 
 **Apply read-only diagnosis and reversible fixes freely. Ask the user first for anything that changes mode, power, infrastructure or evidence** — maintenance mode, `apply`, `reset`, `destroy`, `shutdown`, `evidence_delete.py`, `--acknowledge-loss`.
 

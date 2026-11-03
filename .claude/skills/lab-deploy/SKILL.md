@@ -8,17 +8,17 @@ disable-model-invocation: true
 
 Two jobs share this skill: **powering a built lab on** (nothing is rebuilt) and **building or rebuilding stacks**. Procedure: [README "Using the lab"](../../../README.md#using-the-lab) steps 2 and 9 and ["Building the lab from scratch"](../../../README.md#building-the-lab-from-scratch); per-stack detail in the [M1](../../../docs/runbooks/m1-foundations.md), [M2](../../../docs/runbooks/m2-firewall-and-networks.md), [M3](../../../docs/runbooks/m3-elastic.md), [M4](../../../docs/runbooks/m4-target.md), [M5](../../../docs/runbooks/m5-attacker-operator.md) and [gateway](../../../docs/runbooks/guacamole-gateway.md) runbooks. Follow those documents where they are more specific than this skill; do not restate their steps from memory.
 
-Run from WSL (the scripts need LF endings) in the live checkout, with the operator env file sourced (`set -a; . <path>/env.sh; set +a`) and the VPN active.
+**Preconditions, step 0 for every run** — the live checkout (not a git worktree), the env file sourced with `ELASTIC_PASSWORD` unset, the VPN checked over TCP, and healthy workstation timers (`labops.py doctor`). The four are spelled out once in the [skills runbook](../../../docs/runbooks/lab-skills.md#preconditions-for-every-skill); read it and check them before step 1.
 
-**Confirm with the user before every `lab.sh apply`, before entering maintenance mode, and before any Ansible play.** An apply replaces VMs. Never run `lab.sh destroy` from this skill: that is `/lab-teardown`.
+**Confirm with the user before every `lab.sh apply`, before `labops.py startup`, before entering maintenance mode, and before any Ansible play.** An apply replaces VMs; a startup powers real guests on. Never run `lab.sh destroy` from this skill: that is `/lab-teardown`.
 
 ## Steps
 
 Each step ends when its criterion holds. Stop at a failing criterion and report it with its output.
 
-1. **Which job**: ask whether this is a power-on, a change to one stack, or a from-scratch/rebuild run, and which stacks. Criterion: the user names the job and the stacks. If the answer is "power on", do steps 2-4 and 9 only.
-2. **Preconditions**: VPN checked with **TCP, not ping** (`curl -sk -o /dev/null -w '%{http_code}\n' https://10.77.9.1/`, any HTTP code is a pass; the firewall drops ICMP) and `python3 scripts/labmode.py status` prints the mode. Criterion: both answer. A tunnel that was up before a firewall rebuild must be deactivated and reactivated.
-3. **Power on** (skip for a stack rebuild of a running lab): `python3 scripts/labops.py startup --include-elastic` (firewall first, then Elastic, targets, attacker, gateway; it powers guests on and rebuilds nothing). Criterion: every guest reports `running`. A guest that does not start is reported, never forced; retry or use the Proxmox console. `startup` warns when the workstation timers are unhealthy: that is `/lab-workstation-setup`, not this skill. The analysis VMs are deliberately not started here (`/lab-malware-analysis`).
+1. **Which job**: ask whether this is a power-on, a change to one stack, or a from-scratch/rebuild run, and which stacks. Criterion: the user names the job and the stacks. If the answer is "power on", do steps 2-4 and 9-10 only.
+2. **Preconditions checked** (the four from the skills runbook) and the lab answers: `python3 scripts/labmode.py status` prints the mode. Criterion: all four hold and the mode is known. A tunnel that was up before a firewall rebuild must be deactivated and reactivated.
+3. **Power on** (skip for a stack rebuild of a running lab), with the user's confirmation: `python3 scripts/labops.py startup --include-elastic` (firewall first, then Elastic, targets, attacker, gateway; it powers guests on and rebuilds nothing). Criterion: every guest reports `running`. A guest that does not start is reported, never forced; retry or use the Proxmox console. `startup` warns when the workstation timers are unhealthy. Elastic and the gateway matter beyond their own stacks — Elastic for policies, drains and enrolment, the gateway for any jump into the analysis zone — so offer to start them even when only one stack is being rebuilt. The analysis VMs are deliberately not started here (`/lab-malware-analysis`).
 4. **Elastic API reachable**: the Elastic SSH tunnel must run for `labops.py`, the Ansible API tasks and `fleetctl.py` (`scripts/elastic-tunnel.sh` in another terminal, or the installed tunnel timer). Criterion: `python3 scripts/labops.py doctor` prints `doctor: ok`, or its `PROBLEM:` lines are understood and accepted for this run (a stopped firewall expects no flow events).
 5. **Plan the change** (stack runs only): `scripts/lab.sh init <stack>` first in a fresh checkout, then `scripts/lab.sh plan <stack>`. Show the plan and name what it replaces. Criterion: the user approves the plan.
 6. **Apply, in order**: `scripts/lab.sh apply <stack>`, or `scripts/lab.sh apply all` for the whole ordered set (`firewall`, `elastic`, `targets`, `attacker`, `gateway`). The `analysis` stack is only ever run by name, never by `all`. Re-running an apply is safe. Criterion: each apply exits 0. `apply all` also reinstalls the workstation timers; a warning there does not fail the deployment.
@@ -36,7 +36,8 @@ Each step ends when its criterion holds. Stop at a failing criterion and report 
    python3 scripts/labmode.py select t1
    ```
    A2's `lab` phase needs probe guests for zones without a real VM (`t2`): see the [M2 runbook](../../../docs/runbooks/m2-firewall-and-networks.md). Criterion: A2 passes (or passes with understood `SKIP` rows) and `nicaudit.py` exits 0. Then, as relevant to what was rebuilt: `scripts/a3-verify.sh services`, `scripts/a4-verify.sh t1`, `scripts/a5-verify.sh t1`.
-9. **Report ready**: `python3 scripts/labmode.py status` shows exercise mode with the target selected, and `scripts/ops-timers.sh status` exits 0. Criterion: both hold, or the gap is named.
+9. **Workstation timers for this checkout**: a deployment is not finished until the tick, flow-shipper and tunnel timers point at the live checkout. Run `/lab-workstation-setup` (it installs and proves them, and prints the crontab command for the operator when the harness refuses the edit — never work around that refusal). Criterion: `bash scripts/ops-timers.sh status` exits 0 and `python3 scripts/labops.py doctor` prints `doctor: ok`.
+10. **Report ready**: `python3 scripts/labmode.py status` shows exercise mode with the target selected. Criterion: it holds, or the gap is named.
 
 ## Failure handling
 
