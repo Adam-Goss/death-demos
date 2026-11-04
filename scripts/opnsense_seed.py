@@ -48,7 +48,6 @@ SECRET_ENV = {
     "api_secret": "OPNSENSE_API_SECRET",
     "wg_private": "OPNSENSE_WG_PRIVATE_KEY",
     "wg_public": "OPNSENSE_WG_PUBLIC_KEY",
-    "wg_peer_public": "OPNSENSE_WG_PEER_PUBLIC_KEY",
 }
 PLACEHOLDER = re.compile(r"@@[A-Z_]+@@")
 WG_KEY = re.compile(r"^[A-Za-z0-9+/]{43}=$")
@@ -74,8 +73,11 @@ def load_plan(path=PLAN):
         return json.load(f)
 
 
-def placeholders():
-    return {k: "@@%s@@" % v.replace("OPNSENSE_", "") for k, v in SECRET_ENV.items()}
+def placeholders(plan=None):
+    vals = {k: "@@%s@@" % v.replace("OPNSENSE_", "") for k, v in SECRET_ENV.items()}
+    for workstation in workstations(plan or load_plan()):
+        vals["wg_peer_public_" + workstation["name"]] = "@@%s@@" % peer_env(workstation["name"]).replace("OPNSENSE_", "")
+    return vals
 
 
 def _uuid(name):
@@ -101,6 +103,12 @@ def bootstrap_rules(plan):
             if p["interface"] in ifaces and _flow(d) in BOOTSTRAP_FLOWS + BASELINE_FLOWS}
     return sorted(keep.items(), key=lambda kv: int(kv[1]["sequence"]))
 
+
+def workstations(plan):
+    return plan.get("workstations", [{"name": "workstation", "home_ip": plan["hosts"]["workstation"]["ip"], "tunnel_ip": plan["hosts"]["operator"]["ip"]}])
+
+def peer_env(name):
+    return "OPNSENSE_WG_PEER_PUBLIC_KEY_" + re.sub(r"[^A-Za-z0-9]", "_", name).upper()
 
 def build(plan, vals):
     """Config tree. `vals` holds the six secret fields (hash or plaintext as stored, or placeholders)."""
@@ -213,8 +221,10 @@ def build(plan, vals):
 
     wg = _sub(opn, "wireguard")
     _sub(_sub(wg, "general", version="0.0.1"), "enabled", 1)
-    peer_id = _uuid("wg-peer-" + PEER_NAME)
     server = _sub(_sub(wg, "server", version="1.0.1"), "servers")
+    peer_ids = []
+    for workstation in workstations(plan):
+        peer_ids.append(_uuid("wg-peer-" + workstation["name"]))
     s = _sub(server, "server", uuid=_uuid("wg-instance-" + WG_IF))
     _sub(s, "enabled", 1)
     _sub(s, "name", WG_NAME)
@@ -224,12 +234,14 @@ def build(plan, vals):
     _sub(s, "port", plan["services"]["wireguard"]["ports"][0])
     _sub(s, "tunneladdress", "%s/%d" % (ipaddress.ip_network(vpn["cidr"]).network_address + 1,
                                         ipaddress.ip_network(vpn["cidr"]).prefixlen))
-    _sub(s, "peers", peer_id)
-    c = _sub(_sub(_sub(wg, "client", version="1.0.0"), "clients"), "client", uuid=peer_id)
-    _sub(c, "enabled", 1)
-    _sub(c, "name", PEER_NAME)
-    _sub(c, "pubkey", vals["wg_peer_public"])
-    _sub(c, "tunneladdress", plan["hosts"]["operator"]["ip"] + "/32")  # IPv4 only (A2 wgv4only)
+    _sub(s, "peers", ",".join(peer_ids))
+    clients = _sub(_sub(wg, "client", version="1.0.0"), "clients")
+    for workstation in workstations(plan):
+        c = _sub(clients, "client", uuid=_uuid("wg-peer-" + workstation["name"]))
+        _sub(c, "enabled", 1)
+        _sub(c, "name", workstation["name"])
+        _sub(c, "pubkey", vals["wg_peer_public_" + workstation["name"]])
+        _sub(c, "tunneladdress", workstation["tunnel_ip"] + "/32")  # IPv4 only (A2 wgv4only)
 
     # Bootstrap rules as the filter API stores them (MVC section); no legacy <filter> section.
     rules = _sub(_sub(_sub(opn, "Firewall"), "Filter", version="1.0.5"), "rules")
@@ -246,7 +258,8 @@ def serialize(root):
 
 
 def template(plan=None):
-    return serialize(build(plan or load_plan(), placeholders()))
+    plan = plan or load_plan()
+    return serialize(build(plan, placeholders(plan)))
 
 
 def sha512_crypt(secret):
@@ -269,14 +282,20 @@ def bcrypt_hash(secret):
     return bcrypt.hashpw(secret.encode(), bcrypt.gensalt(10)).decode().replace("$2b$", "$2y$", 1)
 
 
-def secrets_from_env(env):
-    missing = [n for n in SECRET_ENV.values() if not env.get(n)]
+def secrets_from_env(env, plan=None):
+    dynamic = dict(SECRET_ENV)
+    for workstation in workstations(plan or load_plan()):
+        key = peer_env(workstation["name"])
+        if workstation["name"] == "workstation" and not env.get(key):
+            key = "OPNSENSE_WG_PEER_PUBLIC_KEY"
+        dynamic["wg_peer_public_" + workstation["name"]] = key
+    missing = [n for n in dynamic.values() if not env.get(n)]
     if missing:
         raise SystemExit("set " + ", ".join(missing))
-    v = {k: env[n] for k, n in SECRET_ENV.items()}
-    for k in ("wg_private", "wg_public", "wg_peer_public"):
+    v = {k: env[n] for k, n in dynamic.items()}
+    for k in tuple(k for k in v if k.startswith("wg_peer_public")) + ("wg_private", "wg_public"):
         if not WG_KEY.match(v[k]):
-            raise SystemExit("%s is not a WireGuard key (44 chars base64)" % SECRET_ENV[k])
+            raise SystemExit("%s is not a WireGuard key (44 chars base64)" % (dynamic.get(k, k)) )
     if len(v["root_password"]) < 12:
         raise SystemExit("OPNSENSE_ROOT_PASSWORD must be at least 12 characters")
     if len(v["api_key"]) < 20 or len(v["api_secret"]) < 20:
@@ -287,7 +306,7 @@ def secrets_from_env(env):
 
 
 def render(env=None, plan=None):
-    xml = serialize(build(plan or load_plan(), secrets_from_env(os.environ if env is None else env)))
+    xml = serialize(build(plan or load_plan(), secrets_from_env(os.environ if env is None else env, plan or load_plan())))
     if PLACEHOLDER.search(xml):
         raise SystemExit("unfilled placeholder in rendered config")
     return xml

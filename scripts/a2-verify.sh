@@ -88,8 +88,8 @@ probe_dns() { # python3 only: probe guests have no dig and no Internet to instal
 probe_ntp() {
   run "$1" "$2" "python3 -c \"import socket,sys;s=socket.socket(2,2);s.settimeout(2);s.sendto(b'\\x1b'+47*b'\\0',('$3',123));s.recvfrom(64)\" >/dev/null 2>&1; echo rc=\$?" | grep -q 'rc=0$' && echo allow || echo deny
 }
-probe_wg() { # allowed iff the firewall itself reports a fresh handshake from the workstation (it only completes through the WAN allow)
-  $PY scripts/labmode.py wgpeer workstation "$1" 2>/dev/null && echo allow || echo deny
+probe_wg() { # allowed iff the firewall reports a fresh handshake from this configured peer
+  $PY scripts/labmode.py wgpeer "$2" "$1" 2>/dev/null && echo allow || echo deny
 }
 probe_noipv6() {
   # deny = no global IPv6 address, no IPv6 default route, and nothing answers an all-routers ping on the vantage link
@@ -97,7 +97,7 @@ probe_noipv6() {
 }
 
 probe_noipv6_vpn() { # the tunnel carries IPv6 only if the firewall's own peer config routes it
-  $PY scripts/labmode.py wgv4only workstation 2>/dev/null && echo deny || echo allow
+  $PY scripts/labmode.py wgv4only "$1" 2>/dev/null && echo deny || echo allow
 }
 probe_noipv6_home() { # the firewall must not answer an all-nodes ping on the home LAN; silence from everyone is ERROR, not a deny
   local mac iface
@@ -108,7 +108,7 @@ probe_noipv6_home() { # the firewall must not answer an all-nodes ping on the ho
   ip -6 neigh show dev "$iface" | $PY scripts/v6probe.py "$mac"
 }
 
-phase_of() { case $1 in attacker|elastic|t1|t2|gateway|flare|remnux) echo lab ;; operator) echo vpn ;; workstation|home_other|public) echo home ;; *) echo none ;; esac; }
+phase_of() { case $1 in attacker|elastic|t1|t2|gateway|flare|remnux) echo lab ;; operator) echo vpn ;; workstation|macbook|home_other|public) echo home ;; *) echo none ;; esac; }
 
 # Extra home-side source addresses are aliases on this host (sudo ip addr add <ip>/32 dev <if>); the probe binds to them.
 probe_bound_tcp() { # src_ip dst_ip port
@@ -234,9 +234,9 @@ while IFS=$'\t' read -r id src dst proto port kind family mode_ expected enf sip
                 else actual=$(probe_tcp "$src" "$sip" "$dip" "$port"); fi ;;
       dns)      actual=$(probe_dns "$src" "$sip" "$dip") ;;
       ntp)      actual=$(probe_ntp "$src" "$sip" "$dip") ;;
-      wg)       if [ "$src" = home_other ]; then actual=$(probe_bound_udp "$sip" "$dip" "$port"); else actual=$(probe_wg "$sip"); fi ;;
+      wg)       if [ "$src" = home_other ]; then actual=$(probe_bound_udp "$sip" "$dip" "$port"); else actual=$(probe_wg "$sip" "$src"); fi ;;
       no-ipv6)  case $(phase_of "$src") in
-                  vpn)  actual=$(probe_noipv6_vpn) ;;
+                  vpn)  actual=$(probe_noipv6_vpn "$src") ;;
                   home) actual=$(probe_noipv6_home) ;;
                   *)    actual=$(probe_noipv6 "$src" "$sip") ;;
                 esac ;;

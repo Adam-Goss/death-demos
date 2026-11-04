@@ -50,7 +50,7 @@ def flows(plan):
         out.append(dict(id=fid, src=src, dst=dst, proto=proto, ports=ports, modes=modes, selected=selected, log=log,
                         action=action, online=online))
 
-    add("vpn-handshake", ["host:workstation"], "fw", "wireguard")
+    add("vpn-handshake", ["host:" + w["name"] for w in plan.get("workstations", [{"name": "workstation"}])], "fw", "wireguard")
     for s in ("dns", "ntp"):
         add("lab-" + s, labzones, "fw", s)
     # The attacker is the adversary: it must never write to the evidence store. Targets only.
