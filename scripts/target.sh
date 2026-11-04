@@ -20,7 +20,7 @@ gen_file=.state/targets/$t.generation
 mkdir -p .state/targets
 [ -f "$gen_file" ] || echo 1 > "$gen_file"
 gen=$(cat "$gen_file")
-case $gen in ''|*[!0-9]*|0) echo "bad generation in $gen_file" >&2; exit 1;; esac
+case $gen in ''|*[!0-9]*|0) echo "bad generation in $gen_file" >&2; exit 1;; esac  # same rule in lab.sh, which reads these too (#71)
 
 case $cmd in
   generation) echo "$gen" ;;
@@ -31,7 +31,10 @@ case $cmd in
     echo $((gen + 1)) > "$gen_file"; echo "generation $((gen + 1))" ;;
   provision)
     ip=$(python3 -c "import json;print(json.load(open('network/plan.json'))['hosts']['$t']['ip'])")
-    export TF_VAR_rebuild_generation="{\"$t\": $gen}"
+    # lab.sh derives the generation map from these counters, every target in it, not just $t (#71); provisioning
+    # one target must not wind another back to 1. Unset so a stale value in the operator's environment cannot
+    # disagree with the counter this script owns and hands to Ansible below.
+    unset TF_VAR_rebuild_generation
     bash scripts/lab.sh apply targets   # through bash: a checkout synced from /mnt/c has no exec bits (#65)
     ssh-keygen -R "$ip" >/dev/null 2>&1 || true   # a rebuilt VM has a new host key
     ( cd ansible && ansible-galaxy collection install -r requirements.yml >/dev/null \
