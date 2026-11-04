@@ -1,7 +1,9 @@
 """Offline guards for M4 (issue #23): pins, no baked-in token, target stack shape, Ansible/Compose wiring."""
 import json
+import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -189,6 +191,97 @@ class TargetShell(unittest.TestCase):
         r = self.run_sh("bump", "t1")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("drain check", r.stderr)
+
+
+class RebuildGenerationReachesTheStack(unittest.TestCase):
+    """#71: with TF_VAR_rebuild_generation unset the stack resolved the generation to `lookup(..., 1)`, which
+    disagrees with the state and trips the VM's `replace_triggered_by` — `plan targets` reported a bland
+    `1 to add, 1 to change, 1 to destroy` and an apply destroyed a healthy target with no drain check and no
+    maintenance window, enrolling the replacement back at generation 1. lab.sh now reads the counters
+    scripts/target.sh owns. Behavioural: a stub tofu records the variable each stack was called with.
+    """
+
+    def setUp(self):
+        d = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.repo = d / "checkout"
+        (self.repo / "scripts").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/lab.sh", self.repo / "scripts/lab.sh")
+        for s in ("firewall", "elastic", "targets", "attacker", "gateway"):
+            (self.repo / "tofu/stacks" / s).mkdir(parents=True)
+        self.log = d / "calls"
+        stub = d / "tofu"
+        stub.write_text('#!/bin/sh\nprintf "%%s %%s\\n" "$(basename "$PWD")" "${TF_VAR_rebuild_generation-unset}" >> "%s"\n'
+                        % self.log)
+        stub.chmod(0o755)
+        self.env = dict(os.environ, PATH=str(d) + os.pathsep + os.environ["PATH"],
+                        OPALEYE_STATE_PASSPHRASE="0123456789abcdefghij", PROXMOX_VE_ENDPOINT="https://x/")
+        for s in ("FIREWALL", "ELASTIC", "TARGETS", "ATTACKER", "GATEWAY"):
+            self.env["PROXMOX_VE_API_TOKEN_" + s] = "t"
+        self.env.pop("TF_VAR_rebuild_generation", None)
+
+    def counter(self, target, value):
+        p = self.repo / ".state/targets" / (target + ".generation")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(value + "\n")
+
+    def run_lab(self, *args):
+        return subprocess.run([BASH, "scripts/lab.sh", *args], cwd=self.repo, env=self.env,
+                              capture_output=True, text=True)
+
+    def calls(self):
+        """(stack, rebuild_generation as the stack saw it) per tofu invocation, in order."""
+        lines = self.log.read_text().splitlines() if self.log.exists() else []
+        return [tuple(line.split(" ", 1)) for line in lines]
+
+    def test_plan_targets_passes_the_recorded_generation_not_the_fallback(self):
+        self.counter("t1", "7")
+        r = self.run_lab("plan", "targets")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(), [("targets", '{"t1": 7}')])
+
+    def test_apply_all_cannot_rebuild_a_target_as_a_side_effect(self):
+        """`scripts/a1-verify.sh` runs `lab.sh apply all`, and `/lab-deploy` offers it: the README's
+        "re-running an apply is always safe" has to hold for the targets stack too."""
+        self.counter("t1", "7")
+        r = self.run_lab("apply", "all")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([stack for stack, _ in self.calls()],
+                         ["firewall", "elastic", "targets", "attacker", "gateway"])
+        self.assertEqual(dict(self.calls())["targets"], '{"t1": 7}')
+
+    def test_every_target_with_a_counter_is_in_the_map(self):
+        """Not just the one being worked on: an entry left out is the same unguarded rebuild for that target."""
+        self.counter("t1", "7")
+        self.counter("t3", "2")
+        self.assertEqual(self.run_lab("plan", "targets").returncode, 0)
+        self.assertEqual(self.calls(), [("targets", '{"t1": 7, "t3": 2}')])
+
+    def test_a_first_build_with_no_counter_yet_is_the_empty_map(self):
+        r = self.run_lab("apply", "targets")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(), [("targets", "{}")])
+
+    def test_an_explicit_variable_is_never_overridden(self):
+        self.counter("t1", "7")
+        self.env["TF_VAR_rebuild_generation"] = '{"t1": 9}'
+        self.assertEqual(self.run_lab("plan", "targets").returncode, 0)
+        self.assertEqual(self.calls(), [("targets", '{"t1": 9}')])
+
+    def test_an_empty_variable_is_treated_as_absent_not_passed_through(self):
+        """It is not valid HCL for a map(number): passing it on fails the stack with the counter sitting there."""
+        self.counter("t1", "7")
+        self.env["TF_VAR_rebuild_generation"] = ""
+        self.assertEqual(self.run_lab("plan", "targets").returncode, 0)
+        self.assertEqual(self.calls(), [("targets", '{"t1": 7}')])
+
+    def test_a_corrupt_counter_refuses_instead_of_falling_back_to_one(self):
+        for bad in ("0", "", "7; rm -rf /", "nine"):
+            with self.subTest(generation=bad):
+                self.counter("t1", bad)
+                r = self.run_lab("plan", "targets")
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertIn("bad generation", r.stderr)
+                self.assertEqual(self.calls(), [], "tofu ran on a counter we could not read")
 
 
 if __name__ == "__main__":

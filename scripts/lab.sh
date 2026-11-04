@@ -33,6 +33,33 @@ else
   fi
 fi
 
+# The targets stack resolves a missing rebuild_generation entry to 1, and that entry is the VM's
+# replace_triggered_by: unset, the variable turns any plan into "1 to add, 1 to change, 1 to destroy" with no
+# "must be replaced" line to warn you, so an apply destroys a healthy target outside maintenance mode, with no
+# drain check, and enrols the replacement back at generation 1 (#71). Derive it from the counters instead;
+# scripts/target.sh stays their only writer, this is only a reader. No counters yet (a first build) means the
+# empty map and the stack's own default of 1, which is the right generation for a VM that does not exist.
+# A value exported by the operator wins, so an empty one is treated as absent: it is not valid HCL for a
+# map(number), and passing it through would fail the stack rather than read the counter that is sitting there.
+case " $stacks " in *" targets "*)
+  if [ -z "${TF_VAR_rebuild_generation:-}" ]; then
+    gens=
+    for f in .state/targets/*.generation; do
+      [ -f "$f" ] || continue
+      t=$(basename "$f" .generation)
+      g=$(cat "$f")
+      # Both halves are interpolated into HCL, and a counter read as 0 or as junk would silently become a rebuild.
+      # Same rule as the counter's writer, scripts/target.sh: keep the two in step. Refusing here, before the
+      # stack loop, means a junk counter stops the deployment instead of half-applying it (the lesson of #65).
+      case $t in ''|*[!a-z0-9_-]*) echo "bad target id in $f" >&2; exit 1;; esac
+      case $g in ''|*[!0-9]*|0) echo "bad generation in $f: $g" >&2; exit 1;; esac
+      gens="$gens${gens:+, }\"$t\": $g"
+    done
+    export TF_VAR_rebuild_generation="{$gens}"
+  fi
+  ;;
+esac
+
 for s in $stacks; do
   var=PROXMOX_VE_API_TOKEN_$(echo "$s" | tr a-z A-Z)
   [ -n "${!var:-}" ] || { echo "set $var" >&2; exit 1; }
