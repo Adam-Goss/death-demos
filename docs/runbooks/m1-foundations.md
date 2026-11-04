@@ -19,12 +19,11 @@ only failures make the command exit nonzero. In an extraction, the five checks
 that require Git's index or ignore rules report `SKIP`. The target-plan test for
 committed secrets also skips explicitly when Git cannot read the checkout.
 
-Token, private-key and XML seed scans walk the filesystem without Git. They exclude
-`secrets/`, `.state/`, `.terraform/`, `.git/` and `__pycache__/` directories, the
-scanner patterns in `tests/static-checks.sh`, and symlinks/non-regular files.
-All other files are scanned, including ignored files outside these directories:
-keep operational key material in `secrets/` and rendered seeds in `.state/`.
-Read or traversal errors fail the scan. Secret contents are never printed.
+Token, private-key and XML seed scans walk the filesystem without Git, using the
+basename and directory globs in `.gitignore` to exclude operational material
+(including `.env`, keys, `secrets/` and `.state/`). Symlinks and non-regular files
+are excluded. Git metadata is excluded automatically. Unsupported ignore syntax,
+read errors and traversal errors fail the scan. Secret contents are never printed.
 
 Run the archive regressions with `python3 -m unittest tests.test_static_checks`.
 They exercise the full script and its bundled suites, so they take several minutes.
