@@ -32,6 +32,11 @@ class ExtractedCheckout(unittest.TestCase):
             (folder / "legitimate.key").write_text("-----BEGIN " + "OPENSSH PRIVATE KEY-----")
             (folder / "config.xml").write_text(
                 "<opnsense><system><user><password>real-password</password></user></system></opnsense>")
+        # A live workstation also holds legitimate ignored material outside secrets/.
+        for name in (".env", ".env.local", "operator.pem", "operator.key", "terraform.tfvars"):
+            (self.root / name).write_text(
+                "operator@pve!firewall=" + "12345678-1234-1234-1234-123456789abc\n"
+                + "-----BEGIN " + "OPENSSH PRIVATE KEY-----")
         if hasattr(os, "mkfifo"):
             os.mkfifo(self.root / "operator.pipe")
         result = self.run_checks()
