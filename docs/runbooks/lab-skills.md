@@ -12,7 +12,7 @@ Issue #60. The day-to-day procedures of the [project README](../../README.md#usi
 | `lab-exercise-run` | Preflight, exercise markers, the attack (scripted or by hand), tagging, Kibana filters, an offered reset | README step 4, [M5](m5-attacker-operator.md), [M6](m6-end-to-end-validation.md) |
 | `lab-maintenance` | A time-limited window, the update plays, then exercise mode and re-verified denies | README step 6, [M2](m2-firewall-and-networks.md), [M3](m3-elastic.md) |
 | `lab-troubleshoot` | Symptom to diagnosis to fix | README troubleshooting table and every runbook |
-| `lab-malware-analysis` | Operate the analysis zone: power on, isolation, the Internet window, sample markers, snapshot reset | [malware analysis](malware-analysis.md), [ADR 0002](../adr/0002-one-isolated-windows-analysis-vm.md) |
+| `lab-malware-analysis` | Operate the analysis zone: power on, isolation, the Internet window, sample markers, snapshot reset | [malware analysis](malware-analysis.md), [ADR 0003](../adr/0003-one-isolated-windows-analysis-vm.md) |
 | `lab-workstation-setup` | Install and prove the workstation timers in the live checkout (#61) | [ops timers](ops-timers.md) |
 
 Each is `disable-model-invocation: true`: the operator invokes them (`/lab-status`), they are never picked up on a guess.

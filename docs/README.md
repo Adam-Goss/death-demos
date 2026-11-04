@@ -8,6 +8,7 @@ Start with the [project README](../README.md) for the architecture and the day-t
 | --- | --- |
 | [ADR 0001: isolate the attack lab behind a firewall VM](adr/0001-isolate-the-attack-lab-behind-a-firewall-vm.md) | The boundary: one firewall VM, isolated zones, VPN admin path, exercise and maintenance modes. |
 | [ADR 0002: Guacamole gateway for browser access](adr/0002-guacamole-gateway-for-browser-access.md) | A dedicated gateway VM brokers GUI and terminal access to the attacker and targets. |
+| [ADR 0003: allow one isolated Windows VM for malware analysis](adr/0003-one-isolated-windows-analysis-vm.md) | Windows and AD stay out of scope, except one isolated analysis VM: no domain join, own zone, snapshot resets. |
 | [First targets and hunt outcomes](decisions/first-targets-and-hunt-outcomes.md) | DVWA only; Exercise 1 (command injection to shell process) and what evidence it must produce. |
 | [Deployment and reset lifecycle](decisions/deployment-and-reset-lifecycle.md) | Tofu + Ansible, destroy-and-rebuild resets, Elastic isolated from target operations. |
 | [Telemetry contracts and budgets](decisions/telemetry-contracts-and-budgets.md) | What is collected, field contracts, retention, sizing placeholders. |

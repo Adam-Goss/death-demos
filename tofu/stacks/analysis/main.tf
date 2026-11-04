@@ -39,7 +39,7 @@ data "proxmox_virtual_environment_pool" "this" {
   pool_id = var.pool_id
 }
 
-# The analysis VMs (#52): REMnux (Linux) and FLARE-VM (one isolated Windows VM; ADR 0002). Own state and pool, so nothing else is
+# The analysis VMs (#52): REMnux (Linux) and FLARE-VM (one isolated Windows VM; ADR 0003). Own state and pool, so nothing else is
 # rebuilt with them and a reset (a Proxmox snapshot revert, labops.py analysis-reset) never needs this stack. Cloned over the
 # API from templates in this pool (docs/runbooks/malware-analysis.md). One NIC on the isolated analysis bridge: every path
 # crosses the firewall, which lets only the gateway in and only the ingestion endpoint out (plus the Internet while the
