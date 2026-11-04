@@ -87,8 +87,13 @@ class NoBakedInSecrets(unittest.TestCase):
         self.assertIn("checksum: \"sha512:{{ agent_pkg.sha512 }}\"", text("ansible/roles/target/tasks/agent.yml"))
 
     def test_no_secrets_dir_content_is_committed(self):
-        tracked = subprocess.run(["git", "ls-files", "secrets"], cwd=ROOT, capture_output=True, text=True).stdout
-        self.assertEqual(tracked.strip(), "")
+        try:
+            result = subprocess.run(["git", "ls-files", "secrets"], cwd=ROOT, capture_output=True, text=True)
+        except FileNotFoundError:
+            self.skipTest("git is unavailable")
+        if result.returncode != 0:
+            self.skipTest("git cannot read this checkout")
+        self.assertEqual(result.stdout.strip(), "")
 
 
 class TargetStack(unittest.TestCase):

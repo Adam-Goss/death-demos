@@ -11,6 +11,26 @@ Issue #20. Exit = check A1 in [acceptance checks](../decisions/acceptance-checks
 - `scripts/a1-verify.sh`: prints the A1 evidence table.
 - `tests/static-checks.sh`: offline guards (encryption enforced, no ssh block, no secrets, scoped role).
 
+## Offline checks in an extracted checkout
+
+Run `bash tests/static-checks.sh` in either a clone or the operator workstation's
+`git archive` extraction. Its summary counts `ok`, `FAIL`, and `SKIP` separately;
+only failures make the command exit nonzero. In an extraction, the five checks
+that require Git's index or ignore rules report `SKIP`. The target-plan test for
+committed secrets also skips explicitly when Git cannot read the checkout.
+
+Token, private-key and XML seed scans walk the filesystem without Git. They exclude
+`secrets/`, `.state/`, `.terraform/`, `.git/` and `__pycache__/` directories, the
+scanner patterns in `tests/static-checks.sh`, and symlinks/non-regular files.
+All other files are scanned, including ignored files outside these directories:
+keep operational key material in `secrets/` and rendered seeds in `.state/`.
+Read or traversal errors fail the scan. Secret contents are never printed.
+
+Run the archive regressions with `python3 -m unittest tests.test_static_checks`.
+They exercise the full script and its bundled suites, so they take several minutes.
+The script skips these two regressions during its own test discovery to avoid
+recursively running the same suites.
+
 ## State key
 
 OpenTofu native AES-GCM encryption, PBKDF2 key from `OPALEYE_STATE_PASSPHRASE`, passed via `TF_ENCRYPTION` by `lab.sh`. Repo has no key provider, so running `tofu` without the wrapper fails closed. **Offline recovery:** generate with `openssl rand -base64 32`, print/store it on paper or an offline medium; losing it loses all state.
