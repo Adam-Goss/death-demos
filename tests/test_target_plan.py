@@ -197,6 +197,43 @@ class TargetShell(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("drain check", r.stderr)
 
+    def test_provision_waits_for_sshd_before_ansible(self):
+        script = text("scripts/target.sh")
+        self.assertIn('LABOPS_SSH_WAIT:-240', script)
+        self.assertIn('"opaleye@$ip" true', script)
+        self.assertLess(script.index('"opaleye@$ip" true'), script.index('ansible-playbook playbooks/target.yml'))
+
+    def test_provision_retries_ssh_before_running_ansible(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "scripts").mkdir()
+            (root / "network").mkdir()
+            (root / "ansible").mkdir()
+            shutil.copy(ROOT / "scripts/target.sh", root / "scripts/target.sh")
+            shutil.copy(ROOT / "network/plan.json", root / "network/plan.json")
+            (root / ".state/targets").mkdir(parents=True)
+            (root / ".state/targets/t1.generation").write_text("2\n")
+            calls = root / "calls"
+            path = root / "bin"
+            path.mkdir()
+            (root / "scripts/lab.sh").write_text("#!/bin/sh\nexit 0\n")
+            for name, body in {
+                "ssh-keygen": "#!/bin/sh\nexit 0\n",
+                "ansible-galaxy": "#!/bin/sh\nexit 0\n",
+                "ansible-playbook": "#!/bin/sh\nprintf 'ansible\\n' >> \"$CALLS\"\nexit 0\n",
+                "ssh": "#!/bin/sh\ncount=$(cat \"$SSH_COUNT\" 2>/dev/null || echo 0)\ncount=$((count + 1))\nprintf '%s\\n' \"$count\" > \"$SSH_COUNT\"\n[ \"$count\" -ge 3 ]\n",
+            }.items():
+                f = path / name
+                f.write_text(body)
+                f.chmod(0o755)
+            env = dict(os.environ, PATH=str(path) + os.pathsep + os.environ["PATH"],
+                       LABOPS_SSH_WAIT="5", CALLS=str(calls), SSH_COUNT=str(root / "ssh-count"))
+            r = subprocess.run([BASH, "scripts/target.sh", "provision", "t1"], cwd=root,
+                               env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual((root / "ssh-count").read_text().strip(), "3")
+            self.assertEqual(calls.read_text(), "ansible\n")
+
 
 class RebuildGenerationReachesTheStack(unittest.TestCase):
     """#71: with TF_VAR_rebuild_generation unset the stack resolved the generation to `lookup(..., 1)`, which
