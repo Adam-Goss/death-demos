@@ -1,6 +1,7 @@
 {
   "version": 1,
   "ipv6": "disabled",
+  "workstations": [{"name": "workstation", "home_ip": "192.168.0.223", "tunnel_ip": "10.77.9.2"}, {"name": "macbook", "home_ip": "192.168.0.224", "tunnel_ip": "10.77.9.3"}],
   "firewall": {
     "product": "opnsense-ce",
     "version": "26.7",
@@ -130,6 +131,7 @@
     "flare":       { "zone": "analysis", "ip": "10.77.20.10" },
     "remnux":      { "zone": "analysis", "ip": "10.77.20.11" },
     "workstation": { "zone": "home",     "ip": "192.168.0.223" },
+    "macbook":     { "zone": "home",     "ip": "192.168.0.224" },
     "home_other":  { "zone": "home",     "ip": "192.168.0.50" },
     "home_router": { "zone": "home",     "ip": "192.168.0.1" },
     "proxmox":     { "zone": "home",     "ip": "192.168.0.161" },
@@ -220,6 +222,7 @@
     { "id": "p36", "src": "operator", "dst": "proxmox", "proto": "tcp", "port": 8006, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p37", "src": "operator", "dst": "internet", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p38", "src": "workstation", "dst": "fw", "proto": "udp", "port": 51820, "kind": "wg", "modes": { "exercise": "allow", "maintenance": "allow" } },
+    { "id": "p38-macbook", "src": "macbook", "dst": "fw", "proto": "udp", "port": 51820, "kind": "wg", "modes": { "exercise": "allow", "maintenance": "allow" } },
     { "id": "p39", "src": "workstation", "dst": "fw", "proto": "tcp", "port": 443, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p40", "src": "workstation", "dst": "t1", "proto": "tcp", "port": 80, "modes": { "exercise": "deny", "maintenance": "deny" } },
     { "id": "p41", "src": "workstation", "dst": "attacker", "proto": "tcp", "port": 22, "modes": { "exercise": "deny", "maintenance": "deny" } },

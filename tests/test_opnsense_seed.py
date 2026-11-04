@@ -17,7 +17,8 @@ ENV = {
     "OPNSENSE_API_SECRET": "s" * 40,
     "OPNSENSE_WG_PRIVATE_KEY": "B" + "A" * 42 + "=",
     "OPNSENSE_WG_PUBLIC_KEY": "C" + "A" * 42 + "=",
-    "OPNSENSE_WG_PEER_PUBLIC_KEY": "D" + "A" * 42 + "=",
+    "OPNSENSE_WG_PEER_PUBLIC_KEY_WORKSTATION": "D" + "A" * 42 + "=",
+    "OPNSENSE_WG_PEER_PUBLIC_KEY_MACBOOK": "E" + "A" * 42 + "=",
 }
 # `seed.sha512_crypt` shells out to openssl, which a Windows checkout has no copy of (#69).
 needs_openssl = unittest.skipIf(not shutil.which("openssl"), "openssl hashes the seed secrets; not on PATH")
@@ -86,7 +87,7 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(s.findtext("tunneladdress"), "10.77.9.1/24")
         c = self.root.find("OPNsense/wireguard/client/clients/client")
         self.assertEqual(c.findtext("tunneladdress"), "10.77.9.2/32")
-        self.assertEqual(s.findtext("peers"), c.get("uuid"))
+        self.assertEqual(s.findtext("peers").split(","), [x.get("uuid") for x in self.root.findall("OPNsense/wireguard/client/clients/client")])
 
     def rules(self):
         return {r.findtext("description"): {c.tag: c.text or "" for c in r}
@@ -95,7 +96,7 @@ class SeedTest(unittest.TestCase):
     def test_bootstrap_rules_are_labmodes_own_payloads(self):
         want = labmode.desired(self.plan, "exercise", None)
         got = self.rules()
-        self.assertEqual({"opaleye:vpn-handshake@wan@workstation:51820", "opaleye:op-fw-admin@opt4@vpn:443",
+        self.assertEqual({"opaleye:vpn-handshake@wan@workstation:51820", "opaleye:vpn-handshake@wan@macbook:51820", "opaleye:op-fw-admin@opt4@vpn:443",
                           "opaleye:v6-block@wan", "opaleye:deny-all@wan",
                           "opaleye:v6-block@opt4", "opaleye:deny-all@opt4"}, set(got))
         for d, payload in got.items():

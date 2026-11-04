@@ -974,3 +974,11 @@ Validation: **232 tests passed under WSL**, including 12 verifier CLI tests and
 checks passed. Standards and spec review found no outstanding findings after the
 retry-window correction. Adam authorized PR merge and issue closure on 2026-10-29;
 no next milestone was started by this work.
+
+## Multiple operator workstations (issue #37)
+
+`network/plan.json` lists each operator workstation under `workstations` with a stable `name`, its home LAN address, and its WireGuard tunnel address. The Windows workstation remains `workstation` (`10.77.9.2/32`); the MacBook is `macbook` (`10.77.9.3/32`). The firewall permits the WireGuard handshake from each configured home address and gives every VPN peer the same `zone:vpn` operator access.
+
+Generate a key pair on the MacBook with `wg genkey | tee macbook.key | wg pubkey > macbook.pub`. Keep both private keys in the operator secret store. Export the firewall seed inputs as `OPNSENSE_WG_PEER_PUBLIC_KEY_WORKSTATION` and `OPNSENSE_WG_PEER_PUBLIC_KEY_MACBOOK` (the legacy workstation variable is accepted while migrating). Render or rebuild the seed, then create a client config using the MacBook private key, `Address = 10.77.9.3/32`, and the firewall endpoint on UDP 51820. IPv6 is intentionally omitted.
+
+To add a workstation, append a unique record to `workstations`, add its home host entry, export `OPNSENSE_WG_PEER_PUBLIC_KEY_<NAME>`, regenerate `network/opnsense-seed.xml`, and run the policy and seed checks. To remove one, delete its record and key variable, regenerate the seed, and apply the firewall configuration. A peer that is not connected is expected to be absent from the current handshake check; connect it when validating the corresponding workstation.
