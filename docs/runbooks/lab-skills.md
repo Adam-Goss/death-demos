@@ -193,3 +193,26 @@ That is the **third** cause from the morning, unrelated to #65 and now the only 
 **The rest of the flow, as designed.** Drain passed on its own both times (generation 6 before, 7 after) — **no `--acknowledge-loss`**. A5 PASS on the rebuilt target: both image digests matched their pins, login page `200`, security level `low`, agent state `2` (HEALTHY), no enrolment token on disk. `exercise none`, then `RESET_HOST_KEYS="t2 flare" REVERIFY=1 bash scripts/a2-verify.sh exercise none lab` → **`rows=82 skipped=0 PASS`**, exit 0, `labmode: exercise-mode denies re-verified`; `select t1` and `attacker-clean` then succeeded. Probe guests destroyed (`0 add, 0 change, 2 destroy`) and FLARE powered back on.
 
 **Lab left as:** exercise mode with `t1` selected, **rebuilt at generation 7**, A5 PASS, denies re-verified, probe guests destroyed, analysis zone running and offline, `doctor: ok` with 1492 firewall flow events in the last 15 minutes.
+
+### Fourth live session, 2026-11-04 (the #71 fix, verified against generation 7)
+
+The trap #71 describes, reproduced and then closed on the live checkout — the lab **shut down**, VPN down, every guest powered off. That turned out not to matter: all five stacks are API-token-only with no SSH block, so `plan` needs the Proxmox API and not the VPN. The counter read `7`, and the live `secrets/env.sh` sets `TF_VAR_firewall_template_vm_id` but **not** `TF_VAR_rebuild_generation`, so sourcing it and planning the stack is exactly the trap.
+
+**Before**, with the stale `lab.sh` and the variable unset:
+
+```
+# proxmox_virtual_environment_vm.target["t1"] will be replaced due to changes in replace_triggered_by
+# terraform_data.generation["t1"] will be updated in-place
+  ~ input = 7 -> 1
+Plan: 1 to add, 1 to change, 1 to destroy.
+```
+
+The VM description went `rebuild generation 7` → `rebuild generation 1` in the same plan. One correction to #71's own wording: the plan is **not** silent. It prints `will be replaced due to changes in replace_triggered_by` — weaker and more routine-looking than the firewall case's `must be replaced` with `vm_id 2101 -> null # forces replacement`, but a reader who checks every replacement line would catch it.
+
+**After**, same conditions, `lab.sh` deriving the map: `Plan: 0 to add, 1 to change, 0 to destroy` — and **byte-identical** to the plan produced by the manual workaround `export TF_VAR_rebuild_generation="{\"t1\": $(cat .state/targets/t1.generation)}"`. The derivation is the workaround, which is the whole contract. `plan all` then reported **0 to destroy on all five stacks**, so `a1-verify.sh` can no longer rebuild a target as a side effect.
+
+**Why it is not literally `No changes`.** Every stack plans exactly one in-place update, uniformly `started = false -> true`, because the guests are off and the stacks declare `started = true` with `on_boot = false`. It is not specific to `targets` and not related to #71 — the manual-workaround plan carries it too. A shut-down lab can therefore never satisfy a `No changes` acceptance check; read "no adds and no destroys" instead, or power the lab on first.
+
+**Two things the session taught about the live checkout.** `attacker` and `gateway` had **state but no `.terraform`**, so the first `plan all` died on `Backend initialization required` partway through, after firewall, elastic and targets had already planned — `lab.sh init <stack>` for both fixed it, and `init all` is worth running after any checkout refresh. And the checkout is **stale beyond this fix**: 17 tracked files differ from `main` and `README.md` is absent, so it wants a full `git archive` extract, not a per-file copy.
+
+**Lab left as:** shut down, as it was found. No apply, no destroy and no power change was made; `plan` and `init` only. The fix was installed as `scripts/lab.sh` and `scripts/target.sh` with the originals kept as `scripts/*.bak-before-71`, pending the proper refresh after the PR merges.
