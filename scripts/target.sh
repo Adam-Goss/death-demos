@@ -37,6 +37,14 @@ case $cmd in
     unset TF_VAR_rebuild_generation
     bash scripts/lab.sh apply targets   # through bash: a checkout synced from /mnt/c has no exec bits (#65)
     ssh-keygen -R "$ip" >/dev/null 2>&1 || true   # a rebuilt VM has a new host key
+    # Tofu reports success as soon as the VM is running; sshd can take a few more seconds.
+    # Wait before Ansible so a transient boot race does not leave reset half-complete.
+    ssh_wait=${LABOPS_SSH_WAIT:-240}
+    ssh_end=$(( $(date +%s) + ssh_wait ))
+    while ! ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "opaleye@$ip" true </dev/null >/dev/null 2>&1; do
+      [ "$(date +%s)" -lt "$ssh_end" ] || { echo "sshd did not answer on $ip within ${ssh_wait}s" >&2; exit 1; }
+      sleep 2
+    done
     ( cd ansible && ansible-galaxy collection install -r requirements.yml >/dev/null \
       && ansible-playbook playbooks/target.yml -e "target=$t" -e "rebuild_generation=$gen" ) ;;
   *) echo "bad command" >&2; exit 2 ;;

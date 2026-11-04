@@ -197,6 +197,12 @@ class TargetShell(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("drain check", r.stderr)
 
+    def test_provision_waits_for_sshd_before_ansible(self):
+        script = text("scripts/target.sh")
+        self.assertIn('LABOPS_SSH_WAIT:-240', script)
+        self.assertIn('"opaleye@$ip" true', script)
+        self.assertLess(script.index('"opaleye@$ip" true'), script.index('ansible-playbook playbooks/target.yml'))
+
 
 class RebuildGenerationReachesTheStack(unittest.TestCase):
     """#71: with TF_VAR_rebuild_generation unset the stack resolved the generation to `lookup(..., 1)`, which
